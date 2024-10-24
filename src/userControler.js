@@ -589,25 +589,43 @@ const getUsers = async (req, res) => {
 };
 
 const createUserMessage = async (req, res) => {
-  const { date, message, clefUser, provenance } = req.body;
+  try {
+    const { message, messageType, audioContent, clefUser, provenance } =
+      req.body;
 
-  // Créer une nouvelle instance de UserMessage avec les données fournies
-  const newUserMessage = new UserMessage({
-    date: date,
-    message: message,
-    clefUser: clefUser,
-    provenance: provenance,
-  });
+    // Validation d'entrée supplémentaire
+    if (!message) {
+      return res.status(400).json({
+        error: "Le message est requis",
+      });
+    }
 
-  await newUserMessage
-    .save()
-    .then((savedUserMessag) => {
-      const savedUserMessage = "message envoyer";
-      res.status(201).json(savedUserMessage); // Répondre avec le message enregistré
-    })
-    .catch((error) => {
-      res.status(400).json({ error: error.message }); // En cas d'erreur, renvoyer un message d'erreur
+    if (messageType === "audio" && (!audioContent || !audioContent.url)) {
+      return res.status(400).json({
+        error: "Le contenu audio est requis pour les messages vocaux",
+      });
+    }
+
+    const newUserMessage = new UserMessage({
+      message,
+      messageType: messageType || "text",
+      audioContent,
+      clefUser,
+      provenance,
     });
+
+    const savedUserMessage = await newUserMessage.save();
+
+    res.status(201).json({
+      message: "Message envoyé avec succès",
+      data: savedUserMessage,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: "Erreur lors de la création du message",
+      details: error.message,
+    });
+  }
 };
 
 const lecturUserMessage = async (req, res) => {

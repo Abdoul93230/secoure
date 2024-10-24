@@ -316,12 +316,21 @@ const userMessage = new mongoose.Schema(
     },
     message: {
       type: String,
-      required: [true, "un message doit contenir un contenue"],
+      required: [true, "un message doit contenir un contenu"],
       minlength: [2, "Le message doit comporter au moins 2 caractères."],
+    },
+    messageType: {
+      type: String,
+      enum: ["text", "audio"],
+      default: "text",
+    },
+    audioContent: {
+      url: String,
+      duration: Number,
     },
     clefUser: {
       type: String,
-      required: [true, "un message doit comporter la cleft de sont createur."],
+      required: [true, "un message doit comporter la clef de son créateur."],
     },
     provenance: {
       type: Boolean,
