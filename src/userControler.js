@@ -10,7 +10,7 @@ const {
   PromoCode,
 } = require("./Models");
 const bcrypt = require("bcrypt");
-
+const { Expo } = require('expo-server-sdk');
 const mongoose = require("mongoose");
 const axios = require("axios");
 const fs = require("fs");
@@ -22,6 +22,9 @@ cloudinary.config({
   api_key: "577594384978177",
   api_secret: "kGQ99p3O0iFASZZHEmFelHPVt0I",
 });
+
+// Créez une nouvelle instance d'Expo
+const expo = new Expo();
 
 function generateCodeFromClefUser(clefUser) {
   const saltRounds = 10; // Nombre de tours de hachage
@@ -657,6 +660,7 @@ const createUserMessage = async (req, res) => {
 // Ajoutez cette fonction pour sauvegarder le token de notification
 const saveUserPushToken = async (req, res) => {
   const { userId, pushToken } = req.body;
+  console.log('oui1')
 
   try {
     // Vérifier si le token est valide
