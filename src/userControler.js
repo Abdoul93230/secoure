@@ -591,23 +591,87 @@ const getUsers = async (req, res) => {
 const createUserMessage = async (req, res) => {
   const { date, message, clefUser, provenance } = req.body;
 
-  // Créer une nouvelle instance de UserMessage avec les données fournies
-  const newUserMessage = new UserMessage({
-    date: date,
-    message: message,
-    clefUser: clefUser,
-    provenance: provenance,
-  });
-
-  await newUserMessage
-    .save()
-    .then((savedUserMessag) => {
-      const savedUserMessage = "message envoyer";
-      res.status(201).json(savedUserMessage); // Répondre avec le message enregistré
-    })
-    .catch((error) => {
-      res.status(400).json({ error: error.message }); // En cas d'erreur, renvoyer un message d'erreur
+  try {
+    // Créer une nouvelle instance de UserMessage avec les données fournies
+    const newUserMessage = new UserMessage({
+      date: date,
+      message: message,
+      clefUser: clefUser,
+      provenance: provenance,
     });
+
+    // Sauvegarder le message
+    await newUserMessage.save();
+
+    // Récupérer l'utilisateur destinataire pour obtenir son pushToken
+    const user = await User.findById(clefUser);
+
+    if (user && user.pushToken) {
+      // Vérifier si le token est valide
+      if (!Expo.isExpoPushToken(user.pushToken)) {
+        console.error(`Push token ${user.pushToken} is not a valid Expo push token`);
+        return res.status(201).json("message envoyé mais notification impossible");
+      }
+
+      // Préparer le message de notification
+      const messages = [{
+        to: user.pushToken,
+        sound: 'default',
+        title: 'Nouveau message',
+        body: message.length > 50 ? message.substring(0, 47) + '...' : message,
+        data: {
+          messageId: newUserMessage._id,
+          clefUser: clefUser,
+          provenance: provenance
+        },
+      }];
+
+      try {
+        // Envoyer les notifications en chunks (Expo recommande des chunks de 100 notifications max)
+        const chunks = expo.chunkPushNotifications(messages);
+        const tickets = [];
+
+        for (let chunk of chunks) {
+          try {
+            const ticketChunk = await expo.sendPushNotificationsAsync(chunk);
+            tickets.push(...ticketChunk);
+          } catch (error) {
+            console.error('Erreur lors de l\'envoi des notifications:', error);
+          }
+        }
+
+        console.log('Notifications envoyées:', tickets);
+      } catch (error) {
+        console.error('Erreur lors de la préparation des notifications:', error);
+      }
+    }
+
+    res.status(201).json("message envoyé");
+
+  } catch (error) {
+    console.error('Erreur lors de la création du message:', error);
+    res.status(400).json({ error: error.message });
+  }
+};
+
+// Ajoutez cette fonction pour sauvegarder le token de notification
+const saveUserPushToken = async (req, res) => {
+  const { userId, pushToken } = req.body;
+
+  try {
+    // Vérifier si le token est valide
+    if (!Expo.isExpoPushToken(pushToken)) {
+      return res.status(400).json({ error: 'Token invalide' });
+    }
+
+    // Mettre à jour l'utilisateur avec le nouveau token
+    await User.findByIdAndUpdate(userId, { pushToken: pushToken });
+
+    res.status(200).json({ message: 'Token sauvegardé avec succès' });
+  } catch (error) {
+    console.error('Erreur lors de la sauvegarde du token:', error);
+    res.status(400).json({ error: error.message });
+  }
 };
 
 const lecturUserMessage = async (req, res) => {
@@ -933,7 +997,7 @@ const Send_email = async (req, res) => {
   <body>
       <div>${titel}</div>
       <div>${message}</div>
-      
+
   </body>
   </html>
   `;
@@ -1016,8 +1080,8 @@ const Send_email_freind = async (req, res) => {
               cursor: pointer;
               text-decoration: none;
               text-align: center;
-              
-              
+
+
           }
           ul{
               text-align: left;
@@ -1032,7 +1096,7 @@ const Send_email_freind = async (req, res) => {
       <h3>Vous venez d'etre inviter par votre ami : <br/>${senderEmail}</h3>
       <p>${message}</p>
       <a class="a" href="https://habou227.onrender.com">join habou227</a>
-  
+
       <ul>
           <li>habou227.onrender.com</li>
           <li>+227 87727501</li>
@@ -1233,6 +1297,7 @@ module.exports = {
   mettreAJourStatuts,
   requette,
   requetteGet,
+  saveUserPushToken
   // getUsers,
   // getUserByEmail
 };

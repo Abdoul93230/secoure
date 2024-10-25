@@ -43,6 +43,10 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    pushToken: {
+      type: String,
+      default: null
+    }
   },
   { strict: false }
 );

@@ -126,6 +126,7 @@ app.get("/getCommandesById/:id", userController.getCommandesById);
 app.put("/lecturUserMessage", userController.lecturUserMessage);
 app.put("/lecturAdminMessage", userController.lecturAdminMessage);
 app.post("/createUserMessage", userController.createUserMessage);
+app.post('/saveUserPushToken', userController.saveUserPushToken);
 app.get("/getAllUserMessages", userController.getAllUserMessages);
 app.delete("/deleteUserMessageById/:id", userController.deleteUserMessageById);
 app.put(
