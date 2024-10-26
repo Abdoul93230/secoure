@@ -620,8 +620,8 @@ const createUserMessage = async (req, res) => {
       const messages = [{
         to: user.pushToken,
         sound: 'default',
-        title: 'Nouveau message',
-        body: message.length > 50 ? message.substring(0, 47) + '...' : message,
+        title: 'IHAM Baobab message',
+        body: message.length > 70 ? message.substring(0, 47) + '...' : message,
         data: {
           messageId: newUserMessage._id,
           clefUser: clefUser,
