@@ -123,6 +123,7 @@ app.delete("/supCategorie", productControler.supCategorie);
 app.post("/createCommande", userController.createCommande);
 app.put("/mettreAJourStatuts/:commandeId", userController.mettreAJourStatuts);
 app.get("/getCommandesById/:id", userController.getCommandesById);
+app.put("/commande/etatTraitement/:id", productControler.updateEtatTraitementCommande);
 app.put("/lecturUserMessage", userController.lecturUserMessage);
 app.put("/lecturAdminMessage", userController.lecturAdminMessage);
 app.post("/createUserMessage", userController.createUserMessage);
@@ -259,6 +260,15 @@ app.post("/reset_password", forgotPassword.reset_password);
 
 app.post("/payments", userController.requette);
 app.get("/payments", userController.requetteGet);
+
+
+app.post("/generate_payment_page", userController.generate_payment_page);
+app.get("/payment_success", userController.payment_success);
+app.get("/payment_failure", userController.payment_failure);
+app.get("/payment_callback", userController.payment_callback);
+
+
+
 
 ///////////////////////////////////// fin SellerController //////////////////////////////////////////
 // app.get("/user",auth,userController.getUsers)

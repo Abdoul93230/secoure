@@ -628,11 +628,21 @@ const commandeSchema = new mongoose.Schema(
       type: String,
       default: "none",
     },
+    etatTraitement: {
+      type: String,
+      enum: ["traitement","reçu par le livreur", "en cours de livraison"],
+      default: "traitement",
+      required: [
+        true,
+        "L'état de traitement de la commande doit être spécifié.",
+      ],
+    },
   },
   { strict: false }
 );
 
 const Commande = mongoose.model("Commande", commandeSchema);
+
 
 const productComment = new mongoose.Schema(
   {

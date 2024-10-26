@@ -1265,6 +1265,147 @@ async function requette(req, res) {
   }
 }
 
+const createCommande2 = async (data) => {
+  console.log("command",data)
+  // try {
+  //   const commande = new Commande({
+  //     clefUser: data.clefUser,
+  //     nbrProduits: data.nbrProduits,
+  //     prix: data.prix,
+  //     codePro: data.codePro,
+  //     idCodePro: data.idCodePro,
+  //     reference: data.reference,
+  //   });
+
+  //   await commande.save();
+
+  //   return true; // Indique que la commande a été créée avec succès
+  // } catch (error) {
+  //   console.error("Erreur lors de la création de la commande:", error);
+  //   return false; // Indique que la commande n'a pas pu être créée
+  // }
+};
+
+
+
+
+// Route pour le callback de paiement
+const payment_callback =async (req, res) => {
+  const { transaction_id, status, clefUser, nbrProduits, prix, codePro, idCodePro, reference } = req.query; // Récupération des paramètres
+
+  const commandeData = {
+    clefUser,
+    nbrProduits,
+    prix,
+    codePro,
+    idCodePro,
+    reference
+  };
+  if (status === 'success') {
+    // Création de la commande si le paiement a réussi
+
+    // Appel de la fonction pour créer la commande
+    const result = await createCommande2(commandeData); // Passer les données de la commande
+    if (result) {
+      res.redirect('/payment_success'); // Redirection vers la page de succès
+    } else {
+      res.redirect('/payment_failure'); // Redirection en cas d'échec de la création de commande
+    }
+  } else {
+    // Si le paiement échoue, redirection vers la page d'échec
+    res.redirect('/payment_failure');
+  }
+};
+
+
+
+
+
+// Ex: Backend Endpoint to Generate Payment Page
+
+const generate_payment_page =  async (req, res) => {
+  try {
+    const { total, transaction_id, redirect_url, callback_url } = req.body;
+    const publicKey = "pk_f83a240bd0df4393b35a819925863e16"; // Assurez-vous de sécuriser cette clé
+
+    const paymentPageHTML = `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Paiement</title>
+      </head>
+      <body>
+        <h2>Veuillez procéder au paiement pour finaliser votre commande.</h2>
+        <button
+          type="button"
+          class="ipaymoney-button"
+          data-amount="${total}"
+          data-environement="live"
+          data-key="${publicKey}"
+          data-transaction-id="${transaction_id}"
+          data-redirect-url="${redirect_url}"
+          data-callback-url="${callback_url}"
+        >
+          Paiement
+        </button>
+        <script src="https://i-pay.money/checkout.js"></script>
+      </body>
+      </html>
+    `;
+
+    // Retourne la page HTML avec le SDK intégré pour le paiement
+    res.send(paymentPageHTML);
+  } catch (error) {
+    res.status(500).json({ message: "Erreur lors de la génération de la page de paiement", error });
+  }
+};
+
+
+
+
+
+// Route pour la redirection après un paiement réussi
+const payment_success = async (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <title>Paiement réussi</title>
+    </head>
+    <body>
+      <h1>Merci ! Votre paiement a été effectué avec succès.</h1>
+      <p>Votre commande sera bientôt traitée.</p>
+    </body>
+    </html>
+  `);
+};
+
+// Route pour la redirection en cas d'échec de paiement
+const payment_failure =  (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <title>Paiement échoué</title>
+    </head>
+    <body>
+      <h1>Désolé, votre paiement a échoué.</h1>
+      <p>Veuillez réessayer ou contacter le service client.</p>
+    </body>
+    </html>
+  `);
+};
+
+
+
+
+
+
+
 module.exports = {
   createUser,
   verifyToken,
@@ -1301,7 +1442,11 @@ module.exports = {
   mettreAJourStatuts,
   requette,
   requetteGet,
-  saveUserPushToken
+  saveUserPushToken,
+  generate_payment_page,
+  payment_success,
+  payment_failure,
+  payment_callback
   // getUsers,
   // getUserByEmail
 };
