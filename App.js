@@ -27,6 +27,7 @@ const io = socketIo(server, {
       "https://habou227.onrender.com",
       "https://habou227-seller.onrender.com",
       "https://e-habou.onrender.com",
+      "https://ihambaobab.onrender.com",
     ],
     credentials: true,
   },
@@ -49,6 +50,7 @@ app
         "https://habou227.onrender.com",
         "https://habou227-seller.onrender.com",
         "https://e-habou.onrender.com",
+        "https://ihambaobab.onrender.com",
       ],
       credentials: true,
     })
