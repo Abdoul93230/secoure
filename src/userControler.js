@@ -1369,30 +1369,30 @@ const generate_payment_page = async (req, res) => {
     // Retourne la page HTML avec le SDK intégré pour le paiement
     res.send(paymentPageHTML);
   } catch (error) {
-    res
-      .status(500)
-      .json({
-        message: "Erreur lors de la génération de la page de paiement",
-        error,
-      });
+    res.status(500).json({
+      message: "Erreur lors de la génération de la page de paiement",
+      error,
+    });
   }
 };
 
 // Route pour la redirection après un paiement réussi
 const payment_success = async (req, res) => {
-  res.send(`
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8">
-      <title>Paiement réussi</title>
-    </head>
-    <body>
-      <h1>Merci ! Votre paiement a été effectué avec succès.</h1>
-      <p>Votre commande sera bientôt traitée.</p>
-    </body>
-    </html>
-  `);
+  const { transactionId, status, amount } = req.body;
+  console.log(req.body);
+  // Exemple de vérification du statut de paiement
+  if (status === "success") {
+    console.log(
+      `Paiement réussi pour la transaction ${transactionId} avec montant ${amount}`
+    );
+    // Logique pour le succès du paiement, comme mise à jour de la base de données
+  } else {
+    console.log(`Paiement échoué pour la transaction ${transactionId}`);
+    // Logique pour l'échec du paiement
+  }
+
+  // Répondre à iPaymoney pour accuser réception
+  res.status(200).send("Callback reçu");
 };
 
 // Route pour la redirection en cas d'échec de paiement
