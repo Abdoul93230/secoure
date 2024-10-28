@@ -738,6 +738,37 @@ const productPubDelete = async (req, res) => {
   }
 };
 
+// Fonction pour mettre à jour l'état de traitement d'une commande
+const updateEtatTraitementCommande = async (req, res) => {
+  const { id } = req.params;
+  console.log(id)
+  const { nouvelEtat } = req.body;
+
+  // Vérification que le nouvel état est valide
+  const etatsValides = ["traitement", "reçu par le livreur", "en cours de livraison"];
+  if (!etatsValides.includes(nouvelEtat)) {
+    return res.status(400).json({ message: "État de traitement non valide." });
+  }
+
+  try {
+    // Mise à jour de la commande
+    const resultat = await Commande.findByIdAndUpdate(
+      id,
+      { etatTraitement: nouvelEtat },
+      { new: true }
+    );
+
+    if (!resultat) {
+      return res.status(404).json({ message: "Commande non trouvée." });
+    }
+
+    res.status(200).json({ message: "Commande mise à jour avec succès.", commande: resultat });
+  } catch (error) {
+    console.error("Erreur lors de la mise à jour de la commande :", error);
+    res.status(500).json({ message: "Erreur serveur lors de la mise à jour de la commande." });
+  }
+};
+
 module.exports = {
   createCategorie,
   getAllCategories,
@@ -762,4 +793,5 @@ module.exports = {
   productPubget,
   productPubCreate,
   productPubDelete,
+  updateEtatTraitementCommande
 };

@@ -10,7 +10,7 @@ const {
   PromoCode,
 } = require("./Models");
 const bcrypt = require("bcrypt");
-
+const { Expo } = require("expo-server-sdk");
 const mongoose = require("mongoose");
 const axios = require("axios");
 const fs = require("fs");
@@ -22,6 +22,9 @@ cloudinary.config({
   api_key: "577594384978177",
   api_secret: "kGQ99p3O0iFASZZHEmFelHPVt0I",
 });
+
+// Créez une nouvelle instance d'Expo
+const expo = new Expo();
 
 function generateCodeFromClefUser(clefUser) {
   const saltRounds = 10; // Nombre de tours de hachage
@@ -589,42 +592,98 @@ const getUsers = async (req, res) => {
 };
 
 const createUserMessage = async (req, res) => {
+  const { date, message, clefUser, provenance } = req.body;
+
   try {
-    const { message, messageType, audioContent, clefUser, provenance } =
-      req.body;
-
-    // Validation d'entrée supplémentaire
-    if (!message) {
-      return res.status(400).json({
-        error: "Le message est requis",
-      });
-    }
-
-    if (messageType === "audio" && (!audioContent || !audioContent.url)) {
-      return res.status(400).json({
-        error: "Le contenu audio est requis pour les messages vocaux",
-      });
-    }
-
+    // Créer une nouvelle instance de UserMessage avec les données fournies
     const newUserMessage = new UserMessage({
-      message,
-      messageType: messageType || "text",
-      audioContent,
-      clefUser,
-      provenance,
+      date: date,
+      message: message,
+      clefUser: clefUser,
+      provenance: provenance,
     });
 
-    const savedUserMessage = await newUserMessage.save();
+    // Sauvegarder le message
+    await newUserMessage.save();
 
-    res.status(201).json({
-      message: "Message envoyé avec succès",
-      data: savedUserMessage,
-    });
+    // Récupérer l'utilisateur destinataire pour obtenir son pushToken
+    const user = await User.findById(clefUser);
+
+    if (user && user.pushToken) {
+      // Vérifier si le token est valide
+      if (!Expo.isExpoPushToken(user.pushToken)) {
+        console.error(
+          `Push token ${user.pushToken} is not a valid Expo push token`
+        );
+        return res
+          .status(201)
+          .json("message envoyé mais notification impossible");
+      }
+
+      // Préparer le message de notification
+      const messages = [
+        {
+          to: user.pushToken,
+          sound: "default",
+          title: "IHAM Baobab message",
+          body:
+            message.length > 70 ? message.substring(0, 47) + "..." : message,
+          data: {
+            messageId: newUserMessage._id,
+            clefUser: clefUser,
+            provenance: provenance,
+          },
+        },
+      ];
+
+      try {
+        // Envoyer les notifications en chunks (Expo recommande des chunks de 100 notifications max)
+        const chunks = expo.chunkPushNotifications(messages);
+        const tickets = [];
+
+        for (let chunk of chunks) {
+          try {
+            const ticketChunk = await expo.sendPushNotificationsAsync(chunk);
+            tickets.push(...ticketChunk);
+          } catch (error) {
+            console.error("Erreur lors de l'envoi des notifications:", error);
+          }
+        }
+
+        console.log("Notifications envoyées:", tickets);
+      } catch (error) {
+        console.error(
+          "Erreur lors de la préparation des notifications:",
+          error
+        );
+      }
+    }
+
+    res.status(201).json("message envoyé");
   } catch (error) {
-    res.status(500).json({
-      error: "Erreur lors de la création du message",
-      details: error.message,
-    });
+    console.error("Erreur lors de la création du message:", error);
+    res.status(400).json({ error: error.message });
+  }
+};
+
+// Ajoutez cette fonction pour sauvegarder le token de notification
+const saveUserPushToken = async (req, res) => {
+  const { userId, pushToken } = req.body;
+  console.log("oui1");
+
+  try {
+    // Vérifier si le token est valide
+    if (!Expo.isExpoPushToken(pushToken)) {
+      return res.status(400).json({ error: "Token invalide" });
+    }
+
+    // Mettre à jour l'utilisateur avec le nouveau token
+    await User.findByIdAndUpdate(userId, { pushToken: pushToken });
+
+    res.status(200).json({ message: "Token sauvegardé avec succès" });
+  } catch (error) {
+    console.error("Erreur lors de la sauvegarde du token:", error);
+    res.status(400).json({ error: error.message });
   }
 };
 
@@ -951,7 +1010,7 @@ const Send_email = async (req, res) => {
   <body>
       <div>${titel}</div>
       <div>${message}</div>
-      
+
   </body>
   </html>
   `;
@@ -1034,8 +1093,8 @@ const Send_email_freind = async (req, res) => {
               cursor: pointer;
               text-decoration: none;
               text-align: center;
-              
-              
+
+
           }
           ul{
               text-align: left;
@@ -1050,7 +1109,7 @@ const Send_email_freind = async (req, res) => {
       <h3>Vous venez d'etre inviter par votre ami : <br/>${senderEmail}</h3>
       <p>${message}</p>
       <a class="a" href="https://habou227.onrender.com">join habou227</a>
-  
+
       <ul>
           <li>habou227.onrender.com</li>
           <li>+227 87727501</li>
@@ -1215,6 +1274,144 @@ async function requette(req, res) {
   }
 }
 
+const createCommande2 = async (data) => {
+  console.log("command", data);
+  // try {
+  //   const commande = new Commande({
+  //     clefUser: data.clefUser,
+  //     nbrProduits: data.nbrProduits,
+  //     prix: data.prix,
+  //     codePro: data.codePro,
+  //     idCodePro: data.idCodePro,
+  //     reference: data.reference,
+  //   });
+
+  //   await commande.save();
+
+  //   return true; // Indique que la commande a été créée avec succès
+  // } catch (error) {
+  //   console.error("Erreur lors de la création de la commande:", error);
+  //   return false; // Indique que la commande n'a pas pu être créée
+  // }
+};
+
+// Route pour le callback de paiement
+const payment_callback = async (req, res) => {
+  const {
+    transaction_id,
+    status,
+    clefUser,
+    nbrProduits,
+    prix,
+    codePro,
+    idCodePro,
+    reference,
+  } = req.query; // Récupération des paramètres
+
+  const commandeData = {
+    clefUser,
+    nbrProduits,
+    prix,
+    codePro,
+    idCodePro,
+    reference,
+  };
+  if (status === "success") {
+    // Création de la commande si le paiement a réussi
+
+    // Appel de la fonction pour créer la commande
+    const result = await createCommande2(commandeData); // Passer les données de la commande
+    if (result) {
+      res.redirect("/payment_success"); // Redirection vers la page de succès
+    } else {
+      res.redirect("/payment_failure"); // Redirection en cas d'échec de la création de commande
+    }
+  } else {
+    // Si le paiement échoue, redirection vers la page d'échec
+    res.redirect("/payment_failure");
+  }
+};
+
+// Ex: Backend Endpoint to Generate Payment Page
+
+const generate_payment_page = async (req, res) => {
+  try {
+    const { total, transaction_id, redirect_url, callback_url } = req.body;
+    const publicKey = "pk_f83a240bd0df4393b35a819925863e16"; // Assurez-vous de sécuriser cette clé
+
+    const paymentPageHTML = `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Paiement</title>
+      </head>
+      <body>
+        <h2>Veuillez procéder au paiement pour finaliser votre commande.</h2>
+        <button
+          type="button"
+          class="ipaymoney-button"
+          data-amount="${total}"
+          data-environement="live"
+          data-key="${publicKey}"
+          data-transaction-id="${transaction_id}"
+          data-redirect-url="${redirect_url}"
+          data-callback-url="${callback_url}"
+        >
+          Paiement
+        </button>
+        <script src="https://i-pay.money/checkout.js"></script>
+      </body>
+      </html>
+    `;
+
+    // Retourne la page HTML avec le SDK intégré pour le paiement
+    res.send(paymentPageHTML);
+  } catch (error) {
+    res
+      .status(500)
+      .json({
+        message: "Erreur lors de la génération de la page de paiement",
+        error,
+      });
+  }
+};
+
+// Route pour la redirection après un paiement réussi
+const payment_success = async (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <title>Paiement réussi</title>
+    </head>
+    <body>
+      <h1>Merci ! Votre paiement a été effectué avec succès.</h1>
+      <p>Votre commande sera bientôt traitée.</p>
+    </body>
+    </html>
+  `);
+};
+
+// Route pour la redirection en cas d'échec de paiement
+const payment_failure = (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <title>Paiement échoué</title>
+    </head>
+    <body>
+      <h1>Désolé, votre paiement a échoué.</h1>
+      <p>Veuillez réessayer ou contacter le service client.</p>
+    </body>
+    </html>
+  `);
+};
+
 module.exports = {
   createUser,
   verifyToken,
@@ -1251,6 +1448,11 @@ module.exports = {
   mettreAJourStatuts,
   requette,
   requetteGet,
+  saveUserPushToken,
+  generate_payment_page,
+  payment_success,
+  payment_failure,
+  payment_callback,
   // getUsers,
   // getUserByEmail
 };
