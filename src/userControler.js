@@ -1392,7 +1392,7 @@ const payment_success = async (req, res) => {
   }
 
   // Répondre à iPaymoney pour accuser réception
-  res.status(200).send("Callback reçu");
+  return res.status(200).send("Callback reçu");
 };
 
 // Route pour la redirection en cas d'échec de paiement
