@@ -271,10 +271,7 @@ app.post("/payments", userController.requette);
 app.get("/payments", userController.requetteGet);
 
 app.post("/generate_payment_page", userController.generate_payment_page);
-app.get("/payment_success", userController.payment_success);
-app.get("/payment_failure", userController.payment_failure);
-app.get("/payment_callback", userController.payment_callback);
-app.post("/payment_success", userController.payment_success);
+app.post("/payment_callback", userController.payment_callback);
 
 ///////////////////////////////////// fin SellerController //////////////////////////////////////////
 // app.get("/user",auth,userController.getUsers)
