@@ -1323,7 +1323,7 @@ const generate_payment_page = async (req, res) => {
           data-key="${publicKey}"
           data-transaction-id="${transaction_id}"
           data-redirect-url="${redirect_url}"
-          data-callback-url="${callback_url}"
+          data-callback-url="https://secoure.onrender.com/payment_callback"
         >
           Paiement
         </button>
