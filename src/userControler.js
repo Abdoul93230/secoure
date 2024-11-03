@@ -621,20 +621,21 @@ const createUserMessage = async (req, res) => {
       }
 
       // Préparer le message de notification
+      const cleanMessage = message.replace(/<[^>]*>/g, '');
+
       const messages = [
         {
           to: user.pushToken,
           sound: "default",
           title: "IHAM Baobab message",
-          body:
-            message.length > 70 ? message.substring(0, 47) + "..." : message,
+          body: cleanMessage.length > 70 ? cleanMessage.substring(0, 47) + "..." : cleanMessage,
           data: {
             messageId: newUserMessage._id,
             clefUser: clefUser,
             provenance: provenance,
           },
         },
-      ];
+];
 
       try {
         // Envoyer les notifications en chunks (Expo recommande des chunks de 100 notifications max)
@@ -669,7 +670,7 @@ const createUserMessage = async (req, res) => {
 // Ajoutez cette fonction pour sauvegarder le token de notification
 const saveUserPushToken = async (req, res) => {
   const { userId, pushToken } = req.body;
-  console.log("oui1");
+  // console.log("oui1");
 
   try {
     // Vérifier si le token est valide
