@@ -21,17 +21,17 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    // origin: [
-    //   "https://chagona-ne.onrender.com",
-    //   "http://localhost:3000",
-    //   "https://habou227.onrender.com",
-    //   "https://habou227-seller.onrender.com",
-    //   "https://e-habou.onrender.com",
-    //   "https://ihambaobab.onrender.com",
-    //   "http://localhost:5500",
-    //   "http://127.0.0.1:5500",
-    // ],
-    origin: "*",
+    origin: [
+      "https://chagona-ne.onrender.com",
+      "http://localhost:3000",
+      "https://habou227.onrender.com",
+      "https://habou227-seller.onrender.com",
+      "https://e-habou.onrender.com",
+      "https://ihambaobab.onrender.com",
+      "http://localhost:5500",
+      "http://127.0.0.1:5500",
+    ],
+
     credentials: true,
   },
 });
@@ -47,17 +47,16 @@ const io = socketIo(server, {
 app
   .use(
     cors({
-      // origin: [
-      //   "https://chagona-ne.onrender.com",
-      //   "http://localhost:3000",
-      //   "https://habou227.onrender.com",
-      //   "https://habou227-seller.onrender.com",
-      //   "https://e-habou.onrender.com",
-      //   "https://ihambaobab.onrender.com",
-      //   "http://localhost:5500",
-      //   "http://127.0.0.1:5500",
-      // ],
-      origin: "*",
+      origin: [
+        "https://chagona-ne.onrender.com",
+        "http://localhost:3000",
+        "https://habou227.onrender.com",
+        "https://habou227-seller.onrender.com",
+        "https://e-habou.onrender.com",
+        "https://ihambaobab.onrender.com",
+        "http://localhost:5500",
+        "http://127.0.0.1:5500",
+      ],
       credentials: true,
     })
   )
