@@ -634,6 +634,7 @@ const createUserMessage = async (req, res) => {
             clefUser: clefUser,
             provenance: provenance,
           },
+          icon:'https://res.cloudinary.com/dkfddtykk/image/upload/v1730637067/images/djbqrcbhunhdoeucxbyb.png'
         },
       ];
 
