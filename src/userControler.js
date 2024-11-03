@@ -592,7 +592,7 @@ const getUsers = async (req, res) => {
 };
 
 const createUserMessage = async (req, res) => {
-  const { date, message, clefUser, provenance } = req.body;
+  const { date, message, clefUser, provenance,utlisateur } = req.body;
 
   try {
     // Créer une nouvelle instance de UserMessage avec les données fournies
@@ -635,23 +635,29 @@ const createUserMessage = async (req, res) => {
             provenance: provenance,
           },
         },
-];
+      ];
 
       try {
-        // Envoyer les notifications en chunks (Expo recommande des chunks de 100 notifications max)
-        const chunks = expo.chunkPushNotifications(messages);
-        const tickets = [];
 
-        for (let chunk of chunks) {
-          try {
-            const ticketChunk = await expo.sendPushNotificationsAsync(chunk);
-            tickets.push(...ticketChunk);
-          } catch (error) {
-            console.error("Erreur lors de l'envoi des notifications:", error);
+        if(!utlisateur){
+          // Envoyer les notifications en chunks (Expo recommande des chunks de 100 notifications max)
+          const chunks = expo.chunkPushNotifications(messages);
+          const tickets = [];
+
+          for (let chunk of chunks) {
+            try {
+              const ticketChunk = await expo.sendPushNotificationsAsync(chunk);
+              tickets.push(...ticketChunk);
+            } catch (error) {
+              console.error("Erreur lors de l'envoi des notifications:", error);
+            }
           }
+
+          console.log("Notifications envoyées:", tickets);
+        }else{
+          console.log('condition non verifier')
         }
 
-        console.log("Notifications envoyées:", tickets);
       } catch (error) {
         console.error(
           "Erreur lors de la préparation des notifications:",
