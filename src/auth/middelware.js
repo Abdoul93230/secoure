@@ -49,9 +49,58 @@ const storage2 = multer.diskStorage({
 const upload2 = multer({
   storage: storage2,
   limits: {
-    files: 8, // Limiter à 3 fichiers maximum
+    files: 15, // Limiter à 3 fichiers maximum
   },
 });
+
+const handleUpload = async (req, res, next) => {
+  try {
+    // Initialisation des champs par défaut (image1, image2, etc.)
+    let dynamicFields = [
+      { name: "image1" },
+      { name: "image2" },
+      { name: "image3" },
+      { name: "imageVariante0" },
+      { name: "imageVariante1" },
+      { name: "imageVariante2" },
+      { name: "imageVariante3" },
+      { name: "imageVariante4" },
+      { name: "imageVariante5" },
+      { name: "imageVariante6" },
+      { name: "imageVariante7" },
+      { name: "imageVariante8" },
+      { name: "imageVariante9" },
+      { name: "nouveauChampImages", maxCount: 5 }, // Limite à 5 fichiers
+    ];
+
+    // Si des variantes sont présentes dans les données, ajouter des champs dynamiques pour chaque variante
+    if (req.body.variants) {
+      const variants = JSON.parse(req.body.variants); // Parser les variantes reçues en JSON
+
+      // Générer des champs dynamiques pour chaque variante, avec un champ par couleur
+      const variantFields = variants.map((variant, index) => ({
+        name: `imageVariante${index + 1}`, // Par exemple : imageVariante1, imageVariante2, etc.
+        maxCount: 1, // Limite à 1 image par variante
+      }));
+
+      // Fusionner les champs par défaut avec ceux générés dynamiquement pour les variantes
+      dynamicFields = [...dynamicFields, ...variantFields];
+    }
+
+    // Appliquer le middleware Multer avec les champs dynamiques
+    upload2.fields(dynamicFields)(req, res, (err) => {
+      if (err) {
+        console.error("Error during file upload:", err); // Afficher les erreurs d'upload
+        return res.status(400).send("File upload error");
+      }
+
+      next(); // Passer au middleware suivant (mettre à jour le produit)
+    });
+  } catch (error) {
+    console.error("Error parsing dynamic fields:", error); // Erreur lors du parsing des données des variantes
+    return res.status(400).send("Invalid variants data");
+  }
+};
 
 const auth = (req, res, next) => {
   const authorizationHeader = req.headers.authorization;
@@ -194,4 +243,5 @@ module.exports = {
   upload,
   upload2,
   authSeller,
+  handleUpload,
 };

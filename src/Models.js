@@ -45,8 +45,8 @@ const userSchema = new mongoose.Schema(
     },
     pushToken: {
       type: String,
-      default: null
-    }
+      default: null,
+    },
   },
   { strict: false }
 );
@@ -152,7 +152,107 @@ const fournisseursChema = new mongoose.Schema(
 
 const Fournisseur = mongoose.model("Fournisseur", fournisseursChema);
 
-const produitChema = new mongoose.Schema(
+const zoneSchema = new mongoose.Schema(
+  {
+    name: {
+      type: String,
+      required: true,
+      minlength: [2, "Le nom de la zone doit comporter au moins 2 caractères"],
+    },
+    code: { type: String, required: true, unique: true },
+  },
+  { strict: false }
+);
+
+const transporteurSchema = new mongoose.Schema(
+  {
+    name: { type: String, required: true },
+    contact: { type: String, required: true },
+  },
+  { strict: false }
+);
+
+const shippingOptionSchema = new mongoose.Schema(
+  {
+    originZoneId: { type: String, required: true },
+    destinationZoneId: { type: String, required: true },
+    baseFee: {
+      type: Number,
+      required: true,
+      min: [0, "Les frais de base ne peuvent pas être négatifs"],
+    },
+    weightFee: {
+      type: Number,
+      required: true,
+      min: [0, "Les frais au poids ne peuvent pas être négatifs"],
+    },
+    transporteurId: { type: String, required: true },
+  },
+  { strict: false }
+);
+
+const variantSchema = new mongoose.Schema({
+  color: {
+    type: String,
+    required: true,
+  },
+  colorCode: {
+    type: String,
+    required: true,
+  },
+  sizes: [
+    {
+      type: String,
+      required: true,
+    },
+  ],
+  imageUrl: {
+    type: String,
+    required: false,
+    match: [
+      /^(http|https):\/\/\S+$/,
+      "Veuillez fournir une URL d'image valide.",
+    ],
+  },
+  stock: {
+    type: Number,
+    required: true,
+    default: 2,
+    min: [0, "Le stock ne peut pas être négatif"],
+  },
+});
+// Sous-schéma pour les zones d'expédition
+const shippingZoneSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: [true, "Le nom de la zone est requis"],
+  },
+  transporteurId: {
+    type: String,
+    required: [true, "Le Id d'expedition est requis"],
+  },
+  transporteurName: {
+    type: String,
+    required: [true, "Le nom d'expedition est requis"],
+  },
+  transporteurContact: {
+    type: Number,
+    required: [true, "Le numero d'expedition est requis"],
+  },
+  baseFee: {
+    type: Number,
+    required: [true, "Les frais de base sont requis"],
+    min: [0, "Les frais ne peuvent pas être négatifs"],
+  },
+  weightFee: {
+    type: Number,
+    required: [true, "Les frais au kilo sont requis"],
+    default: 0,
+    min: [0, "Les frais ne peuvent pas être négatifs"],
+  },
+});
+
+const produitSchema = new mongoose.Schema(
   {
     name: {
       type: String,
@@ -185,7 +285,7 @@ const produitChema = new mongoose.Schema(
     },
     marque: {
       type: String,
-      require: [false, "On doit connaitre la marque du produit"],
+      required: false,
       minlength: [
         0,
         "Le nom de la marque doit comporter au moins 3 caractères.",
@@ -204,13 +304,13 @@ const produitChema = new mongoose.Schema(
     prixPromo: {
       type: Number,
       required: false,
-      min: [0, "Le minimum de la reductuin d'un produit est de 0fcfa."],
+      min: [0, "Le minimum de la reduction d'un produit est de 0fcfa."],
       default: 0,
     },
     prixf: {
       type: Number,
       required: false,
-      min: [0, "Le minimum de la reductuin d'un produit est de 0fcfa."],
+      min: [0, "Le minimum de la reduction d'un produit est de 0fcfa."],
       default: 0,
     },
     description: {
@@ -226,51 +326,59 @@ const produitChema = new mongoose.Schema(
       default: Date.now,
       required: false,
     },
-    taille: {
-      type: Array,
-      required: false,
-      default: [],
-    },
-    couleur: {
-      type: Array,
-      required: false,
-      default: [],
-    },
+    variants: [variantSchema],
+    // shippingOptions: [shippingOptionSchema],
     ClefType: {
       type: String,
       required: [
         true,
-        "un produit comporter la cleft du type de produits au quel il appartien.",
+        "Un produit doit comporter la clef du type de produits auquel il appartient.",
       ],
     },
     Clefournisseur: {
       type: String,
-      required: [true, "un produit comporter la cleft de sont fournisseur."],
+      required: [true, "Un produit doit comporter la clef de son fournisseur."],
     },
     prixLivraison: {
       type: Number,
       required: false,
+      default: 0,
     },
     pictures: {
       type: [String],
       required: false,
       validate: {
         validator: function (urls) {
-          if (!urls || urls.length === 0) {
-            return true; // Si pas de valeur, la validation passe
-          }
-          // Vérifier que toutes les URLs fournies sont valides
+          if (!urls || urls.length === 0) return true;
           const urlRegex = /^(http|https):\/\/\S+$/;
           return urls.every((url) => urlRegex.test(url));
         },
         message: "Veuillez fournir des URLs d'images valides.",
       },
     },
+    // Informations d'expédition intégrées
+    shipping: {
+      origine: {
+        type: String,
+        required: [true, "La zone origine du produit est requis"],
+      },
+      weight: {
+        type: Number,
+        required: [true, "Le poids du produit est requis"],
+        min: [0, "Le poids ne peut pas être négatif"],
+      },
+      dimensions: {
+        length: { type: Number, default: 0 },
+        width: { type: Number, default: 0 },
+        height: { type: Number, default: 0 },
+      },
+      zones: [shippingZoneSchema],
+    },
   },
   { strict: false }
 );
 
-const Produit = mongoose.model("Produit", produitChema);
+const Produit = mongoose.model("Produit", produitSchema);
 ////////////////////////////////////////////////////////////////////////////////required message///////////////////////////
 const typeProduits = new mongoose.Schema({
   name: {
@@ -510,10 +618,15 @@ const adressShipping = new mongoose.Schema(
     },
     email: {
       type: String,
-      required: true,
+      required: false,
       unique: false,
+      default: "default@gmail.com",
       validate: {
         validator: function (value) {
+          // Vérifier le format de l'e-mail uniquement si la valeur n'est pas null
+          if (value === null || value === undefined) {
+            return true; // La validation réussit pour null ou undefined
+          }
           // Expression régulière pour valider le format de l'e-mail
           const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
           return emailRegex.test(value);
@@ -617,6 +730,15 @@ const commandeSchema = new mongoose.Schema(
       ],
       default: "en cours",
     },
+    paymentDetails: {
+      customerName: String,
+      msisdn: String,
+      reference: String, // Référence iPay
+      publicReference: String, // Référence publique iPay
+      paymentDate: Date,
+      amount: Number,
+      failureDetails: Object, // Détails complets en cas d'échec
+    },
     prix: {
       type: Number,
       required: false,
@@ -639,7 +761,7 @@ const commandeSchema = new mongoose.Schema(
     },
     etatTraitement: {
       type: String,
-      enum: ["traitement","reçu par le livreur", "en cours de livraison"],
+      enum: ["traitement", "reçu par le livreur", "en cours de livraison"],
       default: "traitement",
       required: [
         true,
@@ -651,7 +773,6 @@ const commandeSchema = new mongoose.Schema(
 );
 
 const Commande = mongoose.model("Commande", commandeSchema);
-
 
 const productComment = new mongoose.Schema(
   {
@@ -864,6 +985,9 @@ const sellerRequestSchema = new mongoose.Schema(
 
 const SellerRequest = mongoose.model("SellerRequest", sellerRequestSchema);
 
+const Zone = mongoose.model("Zone", zoneSchema);
+const Transporteur = mongoose.model("Transporteur", transporteurSchema);
+
 module.exports = {
   User,
   Admin,
@@ -884,4 +1008,6 @@ module.exports = {
   ProductPub,
   Store,
   SellerRequest,
+  Zone,
+  Transporteur,
 };

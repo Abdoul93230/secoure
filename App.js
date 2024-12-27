@@ -24,12 +24,13 @@ const io = socketIo(server, {
     origin: [
       "https://chagona-ne.onrender.com",
       "http://localhost:3000",
+      "http://localhost:3001",
       "https://habou227.onrender.com",
       "https://habou227-seller.onrender.com",
       "https://e-habou.onrender.com",
       "https://ihambaobab.onrender.com",
       "http://localhost:5500",
-      "http://127.0.0.1:5500",
+      "http://localhost:5173/",
     ],
 
     credentials: true,
@@ -50,12 +51,13 @@ app
       origin: [
         "https://chagona-ne.onrender.com",
         "http://localhost:3000",
+        "http://localhost:3001",
         "https://habou227.onrender.com",
         "https://habou227-seller.onrender.com",
         "https://e-habou.onrender.com",
         "https://ihambaobab.onrender.com",
         "http://localhost:5500",
-        "http://127.0.0.1:5500",
+        "http://localhost:5173",
       ],
       credentials: true,
     })
@@ -64,6 +66,7 @@ app
   .use(bodyparser.json())
   .use(cookieParser())
   .use("/images", express.static(path.join(__dirname, "./src/uploads/images")));
+
 //   '/images',express.static(path.join(__dirname, 'images'))
 
 // app.use((req, res, next) => {
@@ -193,31 +196,70 @@ app.get(
 app.post("/sendMail", userController.Send_email);
 app.post("/Send_email_freind", userController.Send_email_freind);
 
-app.post(
-  "/product",
-  middelware.upload2.fields([
-    { name: "image1" },
-    { name: "image2" },
-    { name: "image3" },
-    { name: "nouveauChampImages", maxCount: 5 }, // Suppose que le nouveau champ est appelé "nouveauChampImages" et peut avoir jusqu'à 5 images
-  ]),
-  productControler.createProduct
-);
+app.post("/product", middelware.handleUpload, productControler.createProduct);
 
 const a =
   "https://res.cloudinary.com/dkfddtykk/image/upload/v1689343440/images/emcve0mcblihepzw32zd.jpg";
 // console.log(a.split("/").pop().split(".")[0]);
 app.get("/Products", productControler.getAllProducts);
+const multerMiddleware = middelware.upload2.fields([
+  { name: "image1" },
+  { name: "image2" },
+  { name: "image3" },
+  { name: "nouveauChampImages", maxCount: 5 },
+]);
+
+// app.put(
+//   "/Product/:productId",
+//   bodyparser.json(), // Permet de lire les données JSON dans req.body
+//   async (req, res, next) => {
+//     try {
+//       // Initialisation des champs par défaut
+//       let dynamicFields = [
+//         { name: "image1" },
+//         { name: "image2" },
+//         { name: "image3" },
+//         { name: "nouveauChampImages", maxCount: 5 }, // Limite à 5 fichiers
+//       ];
+
+//       // Si des variantes sont présentes, ajouter des champs dynamiques pour chaque variante
+//       if (req.body.variants) {
+//         const variants = JSON.parse(req.body.variants); // Parse les variantes
+
+//         // Générer des champs dynamiques basés sur les variantes
+//         const variantFields = variants.map((variant) => ({
+//           name: variant.colorName, // Utiliser le nom de la couleur comme champ
+//           maxCount: 1, // Une image par variante
+//         }));
+
+//         // Fusionner les champs par défaut et ceux des variantes
+//         dynamicFields = [...dynamicFields, ...variantFields];
+//       }
+
+//       // Appliquer Multer avec les champs dynamiques
+//       const multerMiddleware = middelware.upload2.fields(dynamicFields);
+//       multerMiddleware(req, res, (err) => {
+//         if (err) {
+//           console.error("Error during file upload:", err); // Gérer les erreurs d'upload
+//           return res.status(400).send("File upload error");
+//         }
+
+//         // Si l'upload est réussi, passer à la mise à jour du produit
+//         productControler.updateProduct(req, res); // Appel à la fonction pour mettre à jour le produit
+//       });
+//     } catch (error) {
+//       console.error("Error parsing dynamic fields:", error); // Erreur de parsing des données
+//       return res.status(400).send("Invalid variants data");
+//     }
+//   }
+// );
+
 app.put(
   "/Product/:productId",
-  middelware.upload2.fields([
-    { name: "image1" },
-    { name: "image2" },
-    { name: "image3" },
-    { name: "nouveauChampImages", maxCount: 5 },
-  ]),
+  middelware.handleUpload,
   productControler.updateProduct
 );
+
 app.get("/Product/:productId", productControler.getProductById);
 app.delete("/Product/:productId", productControler.deleteProduct);
 app.get("/searchProductByType/:type", productControler.searchProductByType);
@@ -273,6 +315,45 @@ app.get("/payments", userController.requetteGet);
 
 app.post("/generate_payment_page", userController.generate_payment_page);
 app.post("/payment_callback", userController.payment_callback);
+
+app.delete("/products/pictures/:productId", async (req, res) => {
+  try {
+    const { productId } = req.params;
+    const result = await deleteProductImages(productId);
+    return res.json(result);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
+// Routes pour les Zones
+app.post("/zones", productControler.createZone);
+app.get("/zones", productControler.getAllZones);
+app.put("/zones/:zoneId", productControler.updateZone);
+app.delete("/zones/:zoneId", productControler.deleteZone);
+
+// Routes pour les Transporteurs
+app.post("/transporteurs", productControler.createTransporteur);
+app.get("/transporteurs", productControler.getAllTransporteurs);
+app.put("/transporteurs/:transporteurId", productControler.updateTransporteur);
+app.delete(
+  "/transporteurs/:transporteurId",
+  productControler.deleteTransporteur
+);
+
+// Routes pour les Options d'Expédition
+app.post(
+  "/produits/:produitId/shipping-options",
+  productControler.addShippingOptionToProduit
+);
+app.put(
+  "/produits/:produitId/shipping-options/:shippingOptionId",
+  productControler.updateShippingOption
+);
+app.delete(
+  "/produits/:produitId/shipping-options/:shippingOptionId",
+  productControler.deleteShippingOption
+);
 
 ///////////////////////////////////// fin SellerController //////////////////////////////////////////
 // app.get("/user",auth,userController.getUsers)

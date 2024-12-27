@@ -405,6 +405,7 @@ const mettreAJourStatuts = (req, res) => {
 
 function createOrUpdateAddress(req, res) {
   const { clefUser, ...newAddressData } = req.body;
+  console.log(req.body);
 
   // Vérifier si l'adresse existe déjà pour la clé d'utilisateur donnée
   AdressShipping.findOne({ clefUser })
@@ -592,7 +593,7 @@ const getUsers = async (req, res) => {
 };
 
 const createUserMessage = async (req, res) => {
-  const { date, message, clefUser, provenance,utlisateur } = req.body;
+  const { date, message, clefUser, provenance, utlisateur } = req.body;
 
   try {
     // Créer une nouvelle instance de UserMessage avec les données fournies
@@ -621,26 +622,28 @@ const createUserMessage = async (req, res) => {
       }
 
       // Préparer le message de notification
-      const cleanMessage = message.replace(/<[^>]*>/g, '');
+      const cleanMessage = message.replace(/<[^>]*>/g, "");
 
       const messages = [
         {
           to: user.pushToken,
           sound: "default",
           title: "IHAM Baobab message",
-          body: cleanMessage.length > 70 ? cleanMessage.substring(0, 47) + "..." : cleanMessage,
+          body:
+            cleanMessage.length > 70
+              ? cleanMessage.substring(0, 47) + "..."
+              : cleanMessage,
           data: {
             messageId: newUserMessage._id,
             clefUser: clefUser,
             provenance: provenance,
           },
-          icon:'https://res.cloudinary.com/dkfddtykk/image/upload/v1730637067/images/djbqrcbhunhdoeucxbyb.png'
+          icon: "https://res.cloudinary.com/dkfddtykk/image/upload/v1730637067/images/djbqrcbhunhdoeucxbyb.png",
         },
       ];
 
       try {
-
-        if(!utlisateur){
+        if (!utlisateur) {
           // Envoyer les notifications en chunks (Expo recommande des chunks de 100 notifications max)
           const chunks = expo.chunkPushNotifications(messages);
           const tickets = [];
@@ -655,10 +658,9 @@ const createUserMessage = async (req, res) => {
           }
 
           console.log("Notifications envoyées:", tickets);
-        }else{
-          console.log('condition non verifier')
+        } else {
+          console.log("condition non verifier");
         }
-
       } catch (error) {
         console.error(
           "Erreur lors de la préparation des notifications:",
@@ -1305,7 +1307,6 @@ const createCommande2 = async (data) => {
 
 // Route pour le callback de paiement
 
-
 // Ex: Backend Endpoint to Generate Payment Page
 
 const generate_payment_page = async (req, res) => {
@@ -1350,26 +1351,114 @@ const generate_payment_page = async (req, res) => {
 };
 
 // Route pour la redirection après un paiement réussi
-const payment_callback = async (req, res) => {
-  const { transactionId, status, amount } = req.body;
-  console.log(req.body);
-  // Exemple de vérification du statut de paiement
-  if (status === "success") {
-    console.log(
-      `Paiement réussi pour la transaction ${transactionId} avec montant ${amount}`
-    );
-    // Logique pour le succès du paiement, comme mise à jour de la base de données
-  } else {
-    console.log(`Paiement échoué pour la transaction ${transactionId}`);
-    // Logique pour l'échec du paiement
-  }
+// const payment_callback = async (req, res) => {
+//   const { transactionId, status, amount } = req.body;
+//   console.log(req.body);
+//   // Exemple de vérification du statut de paiement
+//   if (status === "success") {
+//     console.log(
+//       `Paiement réussi pour la transaction ${transactionId} avec montant ${amount}`
+//     );
+//     // Logique pour le succès du paiement, comme mise à jour de la base de données
+//   } else {
+//     console.log(`Paiement échoué pour la transaction ${transactionId}`);
+//     // Logique pour l'échec du paiement
+//   }
 
-  // Répondre à iPaymoney pour accuser réception
-  return res.status(200).send("Callback reçu");
+//   // Répondre à iPaymoney pour accuser réception
+//   return res.status(200).json({ message: "Callback reçu", data: req.body });
+// };
+const payment_callback = async (req, res) => {
+  {
+    try {
+      const {
+        status, // Statut du paiement (success/failed)
+        customerName, // Nom du client
+        msisdn, // Numéro de téléphone
+        reference, // Référence iPay
+        publicReference, // Référence publique iPay
+        externalReference, // Notre référence de transaction
+        amount, // Montant payé
+        paymentDate, // Date du paiement
+      } = req.body;
+
+      console.log("Callback iPay reçu:", req.body);
+
+      // Vérifier que la commande existe avec notre référence
+      const commande = await Commande.findOne({ reference: externalReference });
+      if (!commande) {
+        console.error(
+          "Commande non trouvée pour la transaction:",
+          externalReference
+        );
+        return res.status(200).json({
+          message: "Commande non trouvée",
+        });
+      }
+
+      // Vérifier le montant
+      if (parseFloat(amount) !== parseFloat(commande.prix)) {
+        console.error("Montant incorrect:", {
+          expected: commande.prix,
+          received: amount,
+        });
+        return res.status(200).json({
+          message: "Montant incorrect",
+        });
+      }
+
+      // Mettre à jour le statut de la commande
+      if (status === "success") {
+        await Commande.findByIdAndUpdate(commande._id, {
+          statusPayment: "payé",
+          paymentDetails: {
+            customerName,
+            msisdn,
+            reference, // Référence iPay
+            publicReference, // Référence publique iPay
+            paymentDate,
+            amount,
+          },
+        });
+
+        // Si un code promo a été utilisé
+        if (commande.codePro && commande.idCodePro) {
+          await CodePromo.findByIdAndUpdate(commande.idCodePro, {
+            isValide: false,
+          });
+        }
+
+        console.log("Paiement réussi pour la transaction", externalReference);
+        res.status(200).json({ message: "Paiement traité avec succès" });
+      } else {
+        // En cas d'échec
+        await Commande.findByIdAndUpdate(commande._id, {
+          statusPayment: "échec",
+          paymentDetails: {
+            customerName,
+            msisdn,
+            reference,
+            publicReference,
+            paymentDate,
+            amount,
+            failureDetails: req.body,
+          },
+        });
+
+        console.log("Paiement échoué pour la transaction", externalReference);
+        res.status(200).json({ message: "Échec du paiement enregistré" });
+      }
+    } catch (error) {
+      console.error("Erreur dans le callback iPay:", error);
+      // Toujours renvoyer 200 pour iPay
+      res.status(200).json({
+        message: "Erreur lors du traitement du paiement",
+      });
+    }
+  }
 };
 
 // Route pour la redirection en cas d'échec de paiement
-
 
 module.exports = {
   createUser,
