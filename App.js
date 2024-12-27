@@ -31,6 +31,7 @@ const io = socketIo(server, {
       "https://ihambaobab.onrender.com",
       "http://localhost:5500",
       "http://localhost:5173/",
+      "https://i-pay.money",
     ],
 
     credentials: true,
@@ -58,6 +59,7 @@ app
         "https://ihambaobab.onrender.com",
         "http://localhost:5500",
         "http://localhost:5173",
+        "https://i-pay.money",
       ],
       credentials: true,
     })
