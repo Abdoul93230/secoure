@@ -1461,29 +1461,28 @@ const payment_callback = async (req, res) => {
 // Route pour mettre à jour la référence d'une commande
 const updateCommanderef = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { reference } = req.body;
+    const { oldReference, newReference } = req.body;
 
-    // Vérifier que la commande existe
-    const commande = await Commande.findById(id);
+    // Vérifier que la commande existe avec l'ancienne référence
+    const commande = await Commande.findOne({ reference: oldReference });
     if (!commande) {
-      console.error("Commande non trouvée pour l'ID:", id);
+      console.error("Commande non trouvée pour la référence:", oldReference);
       return res.status(404).json({
         message: "Commande non trouvée",
       });
     }
 
     // Mettre à jour la référence de la commande
-    await Commande.findByIdAndUpdate(id, {
-      reference: reference,
-    });
+    await Commande.findOneAndUpdate(
+      { reference: oldReference },
+      { reference: newReference }
+    );
 
-    console.log("Référence mise à jour pour la commande", id);
+    console.log("Référence mise à jour:", { oldReference, newReference });
     res.status(200).json({
       message: "Référence mise à jour avec succès",
       commande: {
-        _id: id,
-        reference: reference,
+        reference: newReference,
       },
     });
   } catch (error) {
