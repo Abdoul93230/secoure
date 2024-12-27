@@ -317,6 +317,7 @@ app.get("/payments", userController.requetteGet);
 
 app.post("/generate_payment_page", userController.generate_payment_page);
 app.post("/payment_callback", userController.payment_callback);
+app.put("/updateCommande/:id", userController.updateCommanderef);
 
 app.delete("/products/pictures/:productId", async (req, res) => {
   try {

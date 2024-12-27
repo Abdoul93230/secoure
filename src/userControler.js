@@ -1458,6 +1458,43 @@ const payment_callback = async (req, res) => {
   }
 };
 
+// Route pour mettre à jour la référence d'une commande
+const updateCommanderef = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reference } = req.body;
+
+    // Vérifier que la commande existe
+    const commande = await Commande.findById(id);
+    if (!commande) {
+      console.error("Commande non trouvée pour l'ID:", id);
+      return res.status(404).json({
+        message: "Commande non trouvée",
+      });
+    }
+
+    // Mettre à jour la référence de la commande
+    await Commande.findByIdAndUpdate(id, {
+      reference: reference,
+    });
+
+    console.log("Référence mise à jour pour la commande", id);
+    res.status(200).json({
+      message: "Référence mise à jour avec succès",
+      commande: {
+        _id: id,
+        reference: reference,
+      },
+    });
+  } catch (error) {
+    console.error("Erreur lors de la mise à jour de la référence:", error);
+    res.status(500).json({
+      message: "Erreur lors de la mise à jour de la référence",
+      error: error.message,
+    });
+  }
+};
+
 // Route pour la redirection en cas d'échec de paiement
 
 module.exports = {
@@ -1499,6 +1536,7 @@ module.exports = {
   saveUserPushToken,
   generate_payment_page,
   payment_callback,
+  updateCommanderef,
   // getUsers,
   // getUserByEmail
 };
