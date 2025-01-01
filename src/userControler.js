@@ -314,6 +314,8 @@ const createCommande = async (req, res) => {
       codePro: data.codePro,
       idCodePro: data.idCodePro,
       reference: data.reference,
+      livraisonDetails: data.livraisonDetails,
+      prod: data.prod,
     });
 
     await commande.save();
@@ -1461,7 +1463,8 @@ const payment_callback = async (req, res) => {
 // Route pour mettre à jour la référence d'une commande
 const updateCommanderef = async (req, res) => {
   try {
-    const { oldReference, newReference } = req.body;
+    const { oldReference, newReference, livraisonDetails, prod } = req.body;
+    data = req.body;
 
     // Vérifier que la commande existe avec l'ancienne référence
     const commande = await Commande.findOne({ reference: oldReference });
@@ -1475,7 +1478,16 @@ const updateCommanderef = async (req, res) => {
     // Mettre à jour la référence de la commande
     await Commande.findOneAndUpdate(
       { reference: oldReference },
-      { reference: newReference }
+      {
+        clefUser: data.clefUser,
+        nbrProduits: data.nbrProduits,
+        prix: data.prix,
+        codePro: data.codePro,
+        idCodePro: data.idCodePro,
+        reference: newReference,
+        livraisonDetails: livraisonDetails,
+        prod: prod,
+      }
     );
 
     console.log("Référence mise à jour:", { oldReference, newReference });

@@ -739,6 +739,14 @@ const commandeSchema = new mongoose.Schema(
       amount: Number,
       failureDetails: Object, // Détails complets en cas d'échec
     },
+    livraisonDetails: {
+      customerName: String,
+      email: String,
+      region: String, // Référence iPay
+      quartier: String, // Référence publique iPay
+      numero: String,
+      description: String,
+    },
     prix: {
       type: Number,
       required: false,
@@ -768,6 +776,7 @@ const commandeSchema = new mongoose.Schema(
         "L'état de traitement de la commande doit être spécifié.",
       ],
     },
+    prod: Object,
   },
   { strict: false }
 );
