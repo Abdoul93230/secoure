@@ -751,6 +751,11 @@ const commandeSchema = new mongoose.Schema(
       type: Number,
       required: false,
     },
+    reduction: {
+      type: Number,
+      required: false,
+      default: 0,
+    },
     codePro: {
       type: Boolean,
       default: false,
@@ -769,7 +774,12 @@ const commandeSchema = new mongoose.Schema(
     },
     etatTraitement: {
       type: String,
-      enum: ["traitement", "reçu par le livreur", "en cours de livraison"],
+      enum: [
+        "traitement",
+        "reçu par le livreur",
+        "en cours de livraison",
+        "livraison reçu",
+      ],
       default: "traitement",
       required: [
         true,

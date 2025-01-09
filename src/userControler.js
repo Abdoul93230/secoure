@@ -316,6 +316,7 @@ const createCommande = async (req, res) => {
       reference: data.reference,
       livraisonDetails: data.livraisonDetails,
       prod: data.prod,
+      statusPayment: data?.statusPayment ? data.statusPayment : "en cours",
     });
 
     await commande.save();
@@ -388,7 +389,13 @@ const mettreAJourStatuts = (req, res) => {
   const commandeId = req.params.commandeId;
   Commande.findOneAndUpdate(
     { _id: commandeId },
-    { $set: { statusPayment: "recu", statusLivraison: "recu" } },
+    {
+      $set: {
+        statusPayment: "recu",
+        statusLivraison: "recu",
+        etatTraitement: "livraison reçu",
+      },
+    },
     { new: true }
   )
     .then((updatedCommande) => {
@@ -1399,15 +1406,15 @@ const payment_callback = async (req, res) => {
       }
 
       // Vérifier le montant
-      if (parseFloat(amount) !== parseFloat(commande.prix)) {
-        console.error("Montant incorrect:", {
-          expected: commande.prix,
-          received: amount,
-        });
-        return res.status(200).json({
-          message: "Montant incorrect",
-        });
-      }
+      // if (parseFloat(amount) !== parseFloat(commande.prix)) {
+      //   console.error("Montant incorrect:", {
+      //     expected: commande.prix,
+      //     received: amount,
+      //   });
+      //   return res.status(200).json({
+      //     message: "Montant incorrect",
+      //   });
+      // }
 
       // Mettre à jour le statut de la commande
       if (status === "success") {
