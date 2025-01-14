@@ -310,6 +310,7 @@ app.put(
 app.put("/validerDemandeVendeur/:id", sellerController.validerDemandeVendeur);
 
 app.post("/forgot_password", forgotPassword.forgot_password);
+app.post("/forgotPassword", forgotPassword.forgot_password);
 app.post("/reset_password", forgotPassword.reset_password);
 
 app.post("/payments", userController.requette);
