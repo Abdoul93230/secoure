@@ -101,7 +101,9 @@ app.get("/", (req, res) => {
 
 app.get("/proxy/ip-api", async (req, res) => {
   try {
-    const response = await axios.get("http://ip-api.com/json/");
+    const clientIP = req.headers["client-ip"];
+
+    const response = await axios.get(`http://ip-api.com/json/${clientIP}`);
     res.json(response.data);
   } catch (error) {
     res.status(500).send("Error fetching data from ip-api");
