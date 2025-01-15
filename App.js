@@ -16,7 +16,7 @@ const AdminController = require("./src/auth/AdminController");
 const morgan = require("morgan");
 const http = require("http");
 const socketIo = require("socket.io");
-
+const axios = require("axios");
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
@@ -97,6 +97,15 @@ io.on("connection", (socket) => {
 
 app.get("/", (req, res) => {
   res.json("node");
+});
+
+app.get("/proxy/ip-api", async (req, res) => {
+  try {
+    const response = await axios.get("http://ip-api.com/json/");
+    res.json(response.data);
+  } catch (error) {
+    res.status(500).send("Error fetching data from ip-api");
+  }
 });
 
 app.post("/user", userController.createUser);
