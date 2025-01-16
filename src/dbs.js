@@ -19,7 +19,7 @@ mongoose
     const job = new cron.CronJob("*/30 * * * *", async () => {
       try {
         await models.PromoCode.updateIsValideAsync();
-        console.log("Mise a jour de l'attribut isValide effectuee.");
+        console.log("Mise a jour de l'attribut isValide effectuée.");
       } catch (error) {
         console.error(
           "Erreur lors de la mise à jour de l'attribut isValide :",
