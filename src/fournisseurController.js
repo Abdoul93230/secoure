@@ -141,21 +141,34 @@ const updateFournisseur = async (req, res) => {
     const fournisseurId = req.params.id;
     const data = req.body;
 
-    let picture = null;
-    if (req.file) {
-      const result = await cloudinary.uploader.upload(req.file.path, {
-        folder: "images", // Le nom du dossier dans lequel vous souhaitez stocker les images
-      });
-      picture = result.secure_url;
-    }
-
     const existingFournisseur = await Fournisseur.findOne({
       _id: fournisseurId,
     });
+
     if (!existingFournisseur) {
       return res.status(404).json({ message: "Fournisseur non trouvé." });
     }
 
+    let picture = null;
+    if (req.file) {
+      // If an existing image exists, delete it from Cloudinary first
+      if (existingFournisseur.image) {
+        // Extract the public ID from the existing image URL
+        const publicId = existingFournisseur.image
+          .split("/")
+          .pop()
+          .split(".")[0];
+        await cloudinary.uploader.destroy(`images/${publicId}`);
+      }
+
+      // Upload new image
+      const result = await cloudinary.uploader.upload(req.file.path, {
+        folder: "images",
+      });
+      picture = result.secure_url;
+    }
+
+    // Update fournisseur details
     existingFournisseur.name = data.name;
     existingFournisseur.email = data.email;
     existingFournisseur.region = data.region;

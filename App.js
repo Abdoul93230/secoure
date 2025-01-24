@@ -32,6 +32,7 @@ const io = socketIo(server, {
       "http://localhost:5500",
       "http://localhost:5173/",
       "https://i-pay.money",
+      "https://ihambaobadmin.onrender.com",
     ],
 
     credentials: true,
@@ -60,6 +61,7 @@ app
         "http://localhost:5500",
         "http://localhost:5173",
         "https://i-pay.money",
+        "https://ihambaobadmin.onrender.com",
       ],
       credentials: true,
     })
@@ -368,6 +370,15 @@ app.put(
 app.delete(
   "/produits/:produitId/shipping-options/:shippingOptionId",
   productControler.deleteShippingOption
+);
+
+app.put(
+  "/command/updateEtatTraitement/:commandeId",
+  userController.updateEtatTraitement
+);
+app.put(
+  "/command/updateStatusLivraison/:commandeId",
+  userController.updateStatusLivraison
 );
 
 ///////////////////////////////////// fin SellerController //////////////////////////////////////////

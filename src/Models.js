@@ -779,6 +779,7 @@ const commandeSchema = new mongoose.Schema(
         "reçu par le livreur",
         "en cours de livraison",
         "livraison reçu",
+        "Traité",
       ],
       default: "traitement",
       required: [

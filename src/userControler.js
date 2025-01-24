@@ -1515,6 +1515,65 @@ const updateCommanderef = async (req, res) => {
 
 // Route pour la redirection en cas d'échec de paiement
 
+const updateEtatTraitement = async (req, res) => {
+  try {
+    const { commandeId } = req.params;
+    const { nouvelEtat } = req.body;
+
+    const commande = await Commande.findByIdAndUpdate(
+      commandeId,
+      { etatTraitement: nouvelEtat },
+      { new: true, runValidators: true }
+    );
+
+    if (!commande) {
+      return res.status(404).json({
+        success: false,
+        message: "Commande non trouvée",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: commande,
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+const updateStatusLivraison = async (req, res) => {
+  try {
+    const { commandeId } = req.params;
+    const { nouveauStatus } = req.body;
+
+    const commande = await Commande.findByIdAndUpdate(
+      commandeId,
+      { statusLivraison: nouveauStatus },
+      { new: true, runValidators: true }
+    );
+
+    if (!commande) {
+      return res.status(404).json({
+        success: false,
+        message: "Commande non trouvée",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: commande,
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
 module.exports = {
   createUser,
   verifyToken,
@@ -1555,6 +1614,8 @@ module.exports = {
   generate_payment_page,
   payment_callback,
   updateCommanderef,
+  updateEtatTraitement,
+  updateStatusLivraison,
   // getUsers,
   // getUserByEmail
 };
