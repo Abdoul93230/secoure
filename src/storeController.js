@@ -12,68 +12,341 @@ cloudinary.config({
 
 const createSeller = async (req, res) => {
   try {
-    const data = req.body;
-    const region = data.region; // Ajoutez ceci pour récupérer la région depuis le corps de la requête
-    const ville = data.ville; // Ajoutez ceci pour récupérer la ville depuis le corps de la requête
-    const storeName = data.storeName; // Ajoutez ceci pour récupérer le nom du magasin depuis le corps de la requête
-    const slug = data.slug; // Ajoutez ceci pour récupérer le slug depuis le corps de la requête
-    const category = data.categorie; // Ajoutez ceci pour récupérer la catégorie depuis le corps de la requête
+    const {
+      email,
+      emailp,
+      name,
+      userName2,
+      phone,
+      storeName,
+      storeDescription,
+      category,
+      storeType,
+      region,
+      city,
+      address,
+      postalCode,
+      businessPhone,
+      whatsapp,
+      facebook,
+      instagram,
+      website,
+      openingHours,
+      minimumOrder,
+      password,
+    } = req.body;
 
-    let picture = null;
-    if (req.file) {
-      const result = await cloudinary.uploader.upload(req.file.path, {
-        folder: "images",
+    // Validation des champs requis
+    const requiredFields = {
+      email: "L'email est requis",
+      name: "Le nom est requis",
+      userName2: "Le prénom est requis",
+      phone: "Le numéro de téléphone est requis",
+      storeName: "Le nom de la boutique est requis",
+      storeDescription: "La description de la boutique est requise",
+      category: "La catégorie est requise",
+      storeType: "Le type de boutique est requis",
+      region: "La région est requise",
+      city: "La ville est requise",
+      address: "L'adresse est requise",
+      businessPhone: "Le téléphone professionnel est requis",
+      password: "Le mot de passe est requis",
+    };
+
+    const missingFields = Object.entries(requiredFields)
+      .filter(([field]) => !req.body[field])
+      .map(([field, message]) => ({ field, message }));
+
+    if (missingFields.length > 0) {
+      return res.status(400).json({
+        status: "error",
+        code: "MISSING_FIELDS",
+        errors: missingFields,
       });
-      picture = result.secure_url;
     }
 
+    // Validations de format
+    const validations = [
+      {
+        test: () => /^[\w-]+(\.[\w-]+)*@([\w-]+\.)+[a-zA-Z]{2,7}$/.test(email),
+        field: "email",
+        message: "Format d'email invalide",
+      },
+      {
+        test: () => name.length >= 3,
+        field: "name",
+        message: "Le nom doit contenir au moins 3 caractères",
+      },
+      {
+        test: () => userName2.length >= 2,
+        field: "userName2",
+        message: "Le prénom doit contenir au moins 2 caractères",
+      },
+      {
+        test: () => /^[0-9]{8,15}$/.test(phone),
+        field: "phone",
+        message: "Format de numéro de téléphone invalide",
+      },
+      {
+        test: () => storeDescription.length >= 20,
+        field: "storeDescription",
+        message: "La description doit contenir au moins 20 caractères",
+      },
+      {
+        test: () =>
+          [
+            "mode",
+            "electronique",
+            "maison",
+            "beaute",
+            "sports",
+            "artisanat",
+            "bijoux",
+            "alimentation",
+            "livres",
+            "services",
+          ].includes(category),
+        field: "category",
+        message: "Catégorie invalide",
+      },
+      {
+        test: () => ["physique", "enligne", "hybride"].includes(storeType),
+        field: "storeType",
+        message: "Type de boutique invalide",
+      },
+      {
+        test: () => password.length >= 8,
+        field: "password",
+        message: "Le mot de passe doit contenir au moins 8 caractères",
+      },
+    ];
+
+    const validationErrors = validations
+      .filter((validation) => !validation.test())
+      .map(({ field, message }) => ({ field, message }));
+
+    if (validationErrors.length > 0) {
+      return res.status(400).json({
+        status: "error",
+        code: "VALIDATION_ERROR",
+        errors: validationErrors,
+      });
+    }
+
+    // Validation des URLs optionnelles
+    const urlFields = { website, facebook, instagram };
+    const urlValidationErrors = Object.entries(urlFields)
+      .filter(
+        ([_, value]) => value && !/^https?:\/\/[^\s/$.?#].[^\s]*$/.test(value)
+      )
+      .map(([field]) => ({
+        field,
+        message: `L'URL ${field} n'est pas valide`,
+      }));
+
+    if (urlValidationErrors.length > 0) {
+      return res.status(400).json({
+        status: "error",
+        code: "INVALID_URL",
+        errors: urlValidationErrors,
+      });
+    }
+
+    // Vérification si le vendeur existe déjà
     const existingSeller = await SellerRequest.findOne({
-      email: data.email,
+      $or: [{ email }, { storeName }, { phone }],
     });
 
     if (existingSeller) {
-      return res
-        .status(400)
-        .json({ message: "Cette adresse e-mail est déjà utilisée." });
+      return res.status(409).json({
+        status: "error",
+        code: "DUPLICATE_ENTRY",
+        error: {
+          field:
+            existingSeller.email === email
+              ? "email"
+              : existingSeller.phone === phone
+              ? "phone"
+              : "storeName",
+          message:
+            existingSeller.email === email
+              ? "Cette adresse e-mail est déjà utilisée"
+              : existingSeller.phone === phone
+              ? "Ce numero de telephone est déjà utilisée"
+              : "Ce nom de boutique est déjà utilisé",
+        },
+      });
     }
 
-    const hash = await bcrypt.hash(data.password, 10);
+    // Validation des fichiers requis
+    if (!req.files?.ownerIdentity) {
+      return res.status(400).json({
+        status: "error",
+        code: "MISSING_FILES",
+        error: {
+          field: "ownerIdentity",
+          message: "La pièce d'identité est requise",
+        },
+      });
+    }
 
-    const store = new SellerRequest({
-      email: data.email,
-      name: data.name,
-      password: hash,
-      phone: data.phone,
-      region: region,
-      ville: ville,
-      storeName: storeName,
-      slug: slug,
-      identity: picture,
-      categorie: category,
+    // 1. Ajouter une validation de taille maximale pour les fichiers
+    if (req.files.ownerIdentity[0].size > 5 * 1024 * 1024) {
+      // 5MB max
+      return res.status(400).json({
+        status: "error",
+        code: "FILE_TOO_LARGE",
+        error: {
+          field: "ownerIdentity",
+          message: "Le fichier de la carte ne doit pas dépasser 5MB",
+        },
+      });
+    }
+
+    // 2. Ajouter le nettoyage des fichiers temporaires
+    const cleanupFiles = () => {
+      if (req.files.ownerIdentity)
+        fs.unlinkSync(req.files.ownerIdentity[0].path);
+      if (req.files.logo) fs.unlinkSync(req.files.logo[0].path);
+    };
+
+    // Validation du type de fichier pour ownerIdentity et logo
+    const allowedMimeTypes = ["image/jpeg", "image/png", "application/pdf"];
+
+    if (
+      req.files.ownerIdentity &&
+      !allowedMimeTypes.includes(req.files.ownerIdentity[0].mimetype)
+    ) {
+      return res.status(400).json({
+        status: "error",
+        code: "INVALID_FILE_TYPE",
+        error: {
+          field: "ownerIdentity",
+          message:
+            "Le format du fichier n'est pas accepté. Utilisez JPG, PNG ou PDF",
+        },
+      });
+    }
+
+    if (
+      req.files.logo &&
+      !["image/jpeg", "image/png"].includes(req.files.logo[0].mimetype)
+    ) {
+      return res.status(400).json({
+        status: "error",
+        code: "INVALID_FILE_TYPE",
+        error: {
+          field: "logo",
+          message: "Le logo doit être au format JPG ou PNG",
+        },
+      });
+    }
+
+    // Gestion des uploads
+    let ownerIdentityUrl = null;
+    let logoUrl = null;
+
+    try {
+      if (req.files.ownerIdentity) {
+        const ownerIdentityResult = await cloudinary.uploader.upload(
+          req.files.ownerIdentity[0].path,
+          { folder: "seller-documents" }
+        );
+        ownerIdentityUrl = ownerIdentityResult.secure_url;
+      }
+
+      if (req.files.logo) {
+        const logoResult = await cloudinary.uploader.upload(
+          req.files.logo[0].path,
+          { folder: "seller-logos" }
+        );
+        logoUrl = logoResult.secure_url;
+      }
+    } catch (uploadError) {
+      return res.status(500).json({
+        status: "error",
+        code: "UPLOAD_ERROR",
+        message: "Erreur lors de l'upload des fichiers",
+        error:
+          process.env.NODE_ENV === "development"
+            ? uploadError.message
+            : undefined,
+      });
+    }
+
+    // Hashage du mot de passe
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Création du nouveau vendeur
+    const newSeller = new SellerRequest({
+      email,
+      emailp: emailp?.length !== 0 ? emailp : null,
+      name,
+      userName2,
+      phone,
+      password: hashedPassword,
+      storeName,
+      storeDescription,
+      category,
+      storeType,
+      region,
+      city,
+      address,
+      postalCode,
+      businessPhone,
+      whatsapp,
+      facebook,
+      instagram,
+      website,
+      openingHours,
+      minimumOrder,
+      ownerIdentity: ownerIdentityUrl,
+      logo: logoUrl,
     });
 
-    await store.save();
-    const message = `Vous venez d'effectuer une demande de création de Seller : ${data.name}`;
-    return res.json({ message: message });
+    await newSeller.save();
+
+    return res.status(201).json({
+      status: "success",
+      message:
+        "Votre demande de création de boutique a été enregistrée avec succès",
+      data: {
+        email: newSeller.email,
+        storeName: newSeller.storeName,
+        requestId: newSeller._id,
+      },
+    });
   } catch (error) {
-    if (error.code === 11000 && error.keyPattern && error.keyPattern.email) {
-      // Gestion de l'erreur d'unicité de l'e-mail
-      return res
-        .status(400)
-        .json({ message: "Cette adresse e-mail est déjà utilisée." });
+    console.error("Erreur création vendeur:", error);
+
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyPattern)[0];
+      return res.status(409).json({
+        status: "error",
+        code: "DUPLICATE_KEY",
+        error: {
+          field,
+          message: `Ce ${field} existe déjà dans notre système`,
+        },
+      });
     }
 
     if (error.name === "ValidationError") {
-      // Gérer les erreurs de validation du modèle
       return res.status(400).json({
-        message: "Données de demande de vendeur non valides.",
-        error: error,
+        status: "error",
+        code: "MONGOOSE_VALIDATION",
+        errors: Object.values(error.errors).map((err) => ({
+          field: err.path,
+          message: err.message,
+        })),
       });
     }
-    // Gestion d'autres erreurs
+
     return res.status(500).json({
-      message: "Erreur lors de la création du vendeur",
-      error: error.message,
+      status: "error",
+      code: "SERVER_ERROR",
+      message: "Erreur lors de la création du compte",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };

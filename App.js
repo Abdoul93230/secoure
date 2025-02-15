@@ -300,7 +300,10 @@ app.put(
 ///////////////////////////////////// SellerController //////////////////////////////////////////
 app.post(
   "/createSeller",
-  middelware.upload.single("image"),
+  middelware.uploadsecond.fields([
+    { name: "ownerIdentity", maxCount: 1 },
+    { name: "logo", maxCount: 1 },
+  ]),
   sellerController.createSeller
 );
 app.post("/SellerLogin", sellerController.login);
@@ -325,6 +328,8 @@ app.put("/validerDemandeVendeur/:id", sellerController.validerDemandeVendeur);
 app.post("/forgot_password", forgotPassword.forgot_password);
 app.post("/forgotPassword", forgotPassword.forgot_password);
 app.post("/reset_password", forgotPassword.reset_password);
+app.post("/forgotPassword_seller", forgotPassword.forgot_password_seller);
+app.post("/reset_password_seller", forgotPassword.reset_password_seller);
 
 app.post("/payments", userController.requette);
 app.get("/payments", userController.requetteGet);

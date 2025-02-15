@@ -930,21 +930,44 @@ const PromoCode = mongoose.model("CodePromo", codepromo);
 
 const sellerRequestSchema = new mongoose.Schema(
   {
+    // Informations de base
     email: {
       type: String,
       required: true,
       unique: true,
       validate: {
-        validator: function (v) {
-          // Utilisez une expression régulière pour valider le format de l'e-mail
-          return /^[\w-]+(\.[\w-]+)*@([\w-]+\.)+[a-zA-Z]{2,7}$/.test(v);
+        validator: (v) =>
+          /^[\w-]+(\.[\w-]+)*@([\w-]+\.)+[a-zA-Z]{2,7}$/.test(v),
+        message: "Format d'email invalide",
+      },
+    },
+    emailp: {
+      type: String,
+      required: false,
+      unique: false,
+      validate: {
+        validator: function (value) {
+          // Vérifier le format de l'e-mail uniquement si la valeur n'est pas null
+          if (value === null || value === undefined) {
+            return true; // La validation réussit pour null ou undefined
+          }
+          // Expression régulière pour valider le format de l'e-mail
+          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          return emailRegex.test(value);
         },
-        message: "L'e-mail n'est pas au format valide.",
+        message: (props) =>
+          `${props.value} n'est pas un format d'e-mail valide!`,
       },
     },
     name: {
       type: String,
       required: true,
+      minLength: [3, "Le nom doit contenir au moins 3 caractères"],
+    },
+    userName2: {
+      type: String,
+      required: true,
+      minLength: [2, "Le prénom doit contenir au moins 2 caractères"],
     },
     password: {
       type: String,
@@ -953,51 +976,88 @@ const sellerRequestSchema = new mongoose.Schema(
     phone: {
       type: String,
       required: true,
+      unique: true,
+      validate: {
+        validator: (v) => /^[0-9]{8,11}$/.test(v),
+        message: "Format de numéro de téléphone invalide",
+      },
     },
+
+    // Informations boutique
+    storeName: {
+      type: String,
+      required: true,
+      unique: true,
+    },
+    storeDescription: {
+      type: String,
+      required: true,
+      minLength: [20, "La description doit contenir au moins 20 caractères"],
+    },
+    category: {
+      type: String,
+      required: true,
+      enum: [
+        "mode",
+        "electronique",
+        "maison",
+        "beaute",
+        "sports",
+        "artisanat",
+        "bijoux",
+        "alimentation",
+        "livres",
+        "services",
+      ],
+    },
+    storeType: {
+      type: String,
+      required: true,
+      enum: ["physique", "enligne", "hybride"],
+    },
+
+    // Localisation
     region: {
       type: String,
       required: true,
     },
-    ville: {
+    city: {
       type: String,
       required: true,
     },
-    storeName: {
+    address: {
       type: String,
       required: true,
     },
-    slug: {
+    postalCode: String,
+
+    // Contact et réseaux sociaux
+    businessPhone: {
       type: String,
       required: true,
     },
-    identity: {
+    whatsapp: String,
+    facebook: String,
+    instagram: String,
+    website: String,
+
+    // Documents et média
+    ownerIdentity: {
       type: String,
       required: true,
     },
-    categorie: {
-      type: String,
-      required: true,
-    },
-    clefFournisseur: {
-      type: String,
-      required: false,
-    },
+    logo: String,
+
+    // Informations opérationnelles
+    openingHours: String,
+    minimumOrder: String,
     isvalid: {
       type: Boolean,
-      default: false, // Par défaut, la demande n'est pas encore validée
+      default: false,
     },
-    date: {
+    createdAt: {
       type: Date,
-      default: Date.now(),
-    },
-    image: {
-      type: String,
-      required: false,
-      match: [
-        /^(http|https):\/\/\S+$/,
-        "Veuillez fournir une URL d'image valide.",
-      ],
-      default: "https://chagona.onrender.com/images/image-1688253105925-0.jpeg",
+      default: Date.now,
     },
   },
   { strict: false }

@@ -33,6 +33,25 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage });
 
+const uploadsecond = multer({
+  storage: multer.diskStorage({
+    filename: (req, file, cb) => {
+      const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+      cb(null, `${file.fieldname}-${uniqueSuffix}`);
+    },
+  }),
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith("image/")) {
+      cb(null, true);
+    } else {
+      cb(new Error("Type de fichier non supporté"), false);
+    }
+  },
+  // limits: {
+  //   fileSize: 5 * 1024 * 1024, // 5MB
+  // },
+});
+
 const storage2 = multer.diskStorage({
   filename: function (req, file, cb) {
     if (file) {
@@ -244,4 +263,5 @@ module.exports = {
   upload2,
   authSeller,
   handleUpload,
+  uploadsecond,
 };
