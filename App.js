@@ -1,4 +1,5 @@
 const express = require("express");
+require("dotenv").config();
 const cors = require("cors");
 const db = require("./src/dbs");
 const userController = require("./src/userControler");
@@ -17,6 +18,19 @@ const morgan = require("morgan");
 const http = require("http");
 const socketIo = require("socket.io");
 const axios = require("axios");
+const {
+  generateToken,
+  processMobilePayment,
+} = require("./src/services/komipayService");
+const {
+  processBankCardPayment,
+  checkPaymentStatusReq,
+} = require("./src/services/cardService");
+const {
+  processSTAPayment,
+  requestZeynaCashSecurityCode,
+} = require("./src/services/staService");
+const { Commande } = require("./src/Models");
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
@@ -386,6 +400,13 @@ app.put(
   userController.updateStatusLivraison
 );
 
+app.post("/pricing-plans", sellerController.createPricingPlan);
+app.get("/pricing-plans/:planId", sellerController.getPricingPlan);
+app.get("/stores/:storeId/pricing-plan", sellerController.getStorePlan);
+app.put("/pricing-plans/:planId", sellerController.updatePricingPlan);
+app.delete("/pricing-plans/:planId", sellerController.deletePricingPlan);
+app.get("/pricing-plans", sellerController.listPricingPlans);
+
 ///////////////////////////////////// fin SellerController //////////////////////////////////////////
 // app.get("/user",auth,userController.getUsers)
 // app.get("/login",userController.getUserByEmail)
@@ -423,6 +444,71 @@ app.get("/productte/:id", (req, res) => {
   `;
 
   res.send(html);
+});
+
+app.post("/processMobilePayment", processMobilePayment);
+app.post("/pay-with-card", processBankCardPayment);
+app.get("/payment_status_card", checkPaymentStatusReq);
+app.post("/processSTAPayment", processSTAPayment);
+app.post("/requestZeynaCashSecurityCode", requestZeynaCashSecurityCode);
+app.get("/generate-token", async (req, res) => {
+  const token = await generateToken();
+  if (token) {
+    res.json({ success: true, token });
+  } else {
+    res
+      .status(500)
+      .json({ success: false, message: "Échec de la génération du token" });
+  }
+});
+
+// On your backend
+app.get("/checkOrderStatus/:orderId", async (req, res) => {
+  try {
+    const order = await Commande.findById(req.params.orderId);
+    console.log(req.params.orderId);
+
+    if (!order) {
+      return res.status(404).json({ error: "Order not found" });
+    }
+
+    return res.json({
+      status: order.statusPayment,
+      lastUpdated: order.updatedAt,
+      reference: order.reference,
+      transactionDetails: order.transactionTracking || {},
+    });
+  } catch (error) {
+    console.error("Error checking order status:", error);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/payment_webhook", async (req, res) => {
+  // Verify webhook authenticity (signature, etc.)
+  // Process payment notification
+  try {
+    const { reference, status, transactionDetails } = req.body;
+
+    // Find and update order
+    const order = await Commande.findOne({ reference });
+    if (order) {
+      order.statusPayment = status === "success" ? "payé" : "échec";
+      order.transactionDetails = transactionDetails;
+      order.updatedAt = new Date();
+      await order.save();
+
+      // Trigger any additional processes like inventory update, emails, etc.
+      if (status === "success") {
+        await sendOrderConfirmationEmail(order);
+      }
+    }
+
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    console.error("Webhook processing error:", error);
+    return res.status(500).json({ error: "Server error" });
+  }
 });
 
 server.listen(port, () => {

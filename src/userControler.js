@@ -322,7 +322,7 @@ const createCommande = async (req, res) => {
     await commande.save();
 
     const message = "Commande créée avec succès.";
-    return res.json({ message });
+    return res.json({ message, commande });
   } catch (error) {
     const message = "Erreur lors de la création de la commande.";
     return res.status(500).json({ message, error });
@@ -1404,17 +1404,6 @@ const payment_callback = async (req, res) => {
           message: "Commande non trouvée",
         });
       }
-
-      // Vérifier le montant
-      // if (parseFloat(amount) !== parseFloat(commande.prix)) {
-      //   console.error("Montant incorrect:", {
-      //     expected: commande.prix,
-      //     received: amount,
-      //   });
-      //   return res.status(200).json({
-      //     message: "Montant incorrect",
-      //   });
-      // }
 
       // Mettre à jour le statut de la commande
       if (status === "success") {

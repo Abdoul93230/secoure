@@ -1065,6 +1065,108 @@ const sellerRequestSchema = new mongoose.Schema(
 
 const SellerRequest = mongoose.model("SellerRequest", sellerRequestSchema);
 
+// Schéma pour les plans tarifaires
+// Schéma pour les plans tarifaires
+const pricingPlanSchema = new mongoose.Schema({
+  // Référence au store
+  storeId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "SellerRequest",
+    required: true,
+  },
+
+  // Type de plan
+  planType: {
+    type: String,
+    required: true,
+    enum: ["Starter", "Pro", "Business"],
+  },
+
+  // Informations générées automatiquement selon le type
+  price: {
+    monthly: {
+      type: Number,
+      required: true,
+    },
+    annual: {
+      type: Number,
+      required: true,
+    },
+  },
+  commission: {
+    type: Number,
+    required: true,
+  },
+  productLimit: {
+    type: Number,
+    required: true,
+  },
+
+  // Fonctionnalités activées
+  features: {
+    productManagement: {
+      maxProducts: Number,
+      maxVariants: Number,
+      maxCategories: Number,
+      catalogImport: Boolean,
+    },
+    paymentOptions: {
+      manualPayment: Boolean,
+      mobileMoney: Boolean,
+      cardPayment: Boolean,
+      customPayment: Boolean,
+    },
+    support: {
+      responseTime: Number,
+      channels: [
+        {
+          type: String,
+          enum: ["email", "chat", "phone", "vip"],
+        },
+      ],
+      onboarding: String,
+    },
+    marketing: {
+      marketplaceVisibility: {
+        type: String,
+        enum: ["standard", "prioritaire", "premium"],
+      },
+      maxActiveCoupons: Number,
+      emailMarketing: Boolean,
+      abandonedCartRecovery: Boolean,
+    },
+  },
+
+  // Statut et dates
+  status: {
+    type: String,
+    enum: ["active", "inactive", "pending"],
+    default: "active",
+  },
+  startDate: {
+    type: Date,
+    default: Date.now,
+  },
+  endDate: {
+    type: Date,
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now,
+  },
+  updatedAt: {
+    type: Date,
+  },
+});
+
+// Middleware pre-save
+pricingPlanSchema.pre("save", function (next) {
+  this.updatedAt = new Date();
+  next();
+});
+
+const PricingPlan = mongoose.model("PricingPlan", pricingPlanSchema);
+
 const Zone = mongoose.model("Zone", zoneSchema);
 const Transporteur = mongoose.model("Transporteur", transporteurSchema);
 
@@ -1090,4 +1192,5 @@ module.exports = {
   SellerRequest,
   Zone,
   Transporteur,
+  PricingPlan,
 };

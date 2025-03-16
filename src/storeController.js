@@ -1,4 +1,5 @@
 const { SellerRequest } = require("./Models");
+const { PricingPlan } = require("./Models");
 const cloudinary = require("cloudinary").v2;
 const jwt = require("jsonwebtoken");
 const privateKeSeller = require("./auth/clefSeller");
@@ -9,6 +10,109 @@ cloudinary.config({
   api_key: "577594384978177",
   api_secret: "kGQ99p3O0iFASZZHEmFelHPVt0I",
 });
+
+// Constantes pour les plans prédéfinis
+const PLAN_DEFAULTS = {
+  Starter: {
+    price: {
+      monthly: 2500,
+      annual: 27000, // 2500 * 12 mois (moin 10% pour paiement annuel)
+    },
+    commission: 6,
+    productLimit: 10,
+    features: {
+      productManagement: {
+        maxProducts: 10,
+        maxVariants: 3,
+        maxCategories: 5,
+        catalogImport: false,
+      },
+      paymentOptions: {
+        manualPayment: true,
+        mobileMoney: true,
+        cardPayment: false,
+        customPayment: false,
+      },
+      support: {
+        responseTime: 48, // heures
+        channels: ["email"],
+        onboarding: "standard",
+      },
+      marketing: {
+        marketplaceVisibility: "standard",
+        maxActiveCoupons: 1,
+        emailMarketing: false,
+        abandonedCartRecovery: false,
+      },
+    },
+  },
+  Pro: {
+    price: {
+      monthly: 4500,
+      annual: 48600, // 4500 * 12 mois (moin 10% pour paiement annuel)
+    },
+    commission: 3.5,
+    productLimit: -1, // illimité
+    features: {
+      productManagement: {
+        maxProducts: -1, // illimité
+        maxVariants: 10,
+        maxCategories: 20,
+        catalogImport: true,
+      },
+      paymentOptions: {
+        manualPayment: true,
+        mobileMoney: true,
+        cardPayment: true,
+        customPayment: false,
+      },
+      support: {
+        responseTime: 24, // heures
+        channels: ["email", "chat"],
+        onboarding: "personnalisé",
+      },
+      marketing: {
+        marketplaceVisibility: "prioritaire",
+        maxActiveCoupons: 5,
+        emailMarketing: true,
+        abandonedCartRecovery: false,
+      },
+    },
+  },
+  Business: {
+    price: {
+      monthly: 9000,
+      annual: 97200, // 9000 * 12 mois (moin 10% pour paiement annuel)
+    },
+    commission: 2.5,
+    productLimit: -1, // illimité
+    features: {
+      productManagement: {
+        maxProducts: -1, // illimité
+        maxVariants: -1, // illimité
+        maxCategories: -1, // illimité
+        catalogImport: true,
+      },
+      paymentOptions: {
+        manualPayment: true,
+        mobileMoney: true,
+        cardPayment: true,
+        customPayment: true,
+      },
+      support: {
+        responseTime: 12, // heures
+        channels: ["email", "chat", "phone", "vip"],
+        onboarding: "VIP",
+      },
+      marketing: {
+        marketplaceVisibility: "premium",
+        maxActiveCoupons: -1, // illimité
+        emailMarketing: true,
+        abandonedCartRecovery: true,
+      },
+    },
+  },
+};
 
 const createSeller = async (req, res) => {
   try {
@@ -154,7 +258,7 @@ const createSeller = async (req, res) => {
 
     // Vérification si le vendeur existe déjà
     const existingSeller = await SellerRequest.findOne({
-      $or: [{ email }, { storeName }, { phone }],
+      $or: [{ email }, { phone }, { storeName }],
     });
 
     if (existingSeller) {
@@ -190,7 +294,7 @@ const createSeller = async (req, res) => {
       });
     }
 
-    // 1. Ajouter une validation de taille maximale pour les fichiers
+    // 1. Ajout d'une validation de taille maximale pour les fichiers
     if (req.files.ownerIdentity[0].size > 5 * 1024 * 1024) {
       // 5MB max
       return res.status(400).json({
@@ -203,7 +307,7 @@ const createSeller = async (req, res) => {
       });
     }
 
-    // 2. Ajouter le nettoyage des fichiers temporaires
+    // 2. nettoyage des fichiers temporaires
     const cleanupFiles = () => {
       if (req.files.ownerIdentity)
         fs.unlinkSync(req.files.ownerIdentity[0].path);
@@ -305,6 +409,45 @@ const createSeller = async (req, res) => {
     });
 
     await newSeller.save();
+    console.log({ mess: "first", newSeller });
+
+    // Création automatique du plan tarifaire
+    const planType = req.body.planType || "Starter"; // Utiliser le plan spécifié ou Starter par défaut
+
+    // Vérifier si le type de plan est valide
+    if (!PLAN_DEFAULTS[planType]) {
+      return res.status(400).json({
+        status: "error",
+        code: "INVALID_PLAN_TYPE",
+        error: {
+          message: "Type de plan invalide",
+        },
+      });
+    }
+
+    console.log(req.body);
+
+    // Calculer la date de fin (pour le plan Starter, ajouter 3 mois gratuits)
+    let endDate = new Date();
+    if (planType === "Starter") {
+      endDate.setMonth(endDate.getMonth() + 3); // 3 mois gratuits
+    }
+    // else {
+    //   endDate.setMonth(endDate.getMonth() + 1); // 1 mois par défaut pour les autres plans
+    // }
+
+    // Créer le plan tarifaire
+    const planDefaults = PLAN_DEFAULTS[planType];
+    const newPlan = new PricingPlan({
+      storeId: newSeller._id,
+      planType,
+      ...planDefaults,
+      status: "active",
+      startDate: new Date(),
+      endDate: endDate,
+    });
+
+    await newPlan.save();
 
     return res.status(201).json({
       status: "success",
@@ -581,6 +724,262 @@ const findSellerByName = async (req, res) => {
   }
 };
 
+// Fonctions de gestion des plans
+
+// Créer un nouveau plan
+// Fonction de création de plan modifiée
+// Créer un nouveau plan
+const createPricingPlan = async (req, res) => {
+  try {
+    const { storeId, planType } = req.body;
+
+    // Validation des champs requis
+    if (!storeId || !planType) {
+      return res.status(400).json({
+        status: "error",
+        code: "MISSING_FIELDS",
+        error: {
+          message: "storeId et planType sont requis",
+        },
+      });
+    }
+
+    // Vérifier si le plan existe déjà pour ce store
+    const existingPlan = await PricingPlan.findOne({ storeId });
+    if (existingPlan) {
+      return res.status(409).json({
+        status: "error",
+        code: "DUPLICATE_PLAN",
+        error: {
+          message: "Un plan existe déjà pour cette boutique",
+        },
+      });
+    }
+
+    // Vérifier si le type de plan est valide
+    if (!PLAN_DEFAULTS[planType]) {
+      return res.status(400).json({
+        status: "error",
+        code: "INVALID_PLAN_TYPE",
+        error: {
+          message: "Type de plan invalide",
+        },
+      });
+    }
+
+    // Créer le nouveau plan avec les valeurs par défaut
+    const planDefaults = PLAN_DEFAULTS[planType];
+    const newPlan = new PricingPlan({
+      storeId,
+      planType,
+      ...planDefaults,
+      status: "active",
+      startDate: new Date(),
+      endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // +30 jours
+    });
+
+    await newPlan.save();
+
+    return res.status(201).json({
+      status: "success",
+      message: "Plan tarifaire créé avec succès",
+      data: newPlan,
+    });
+  } catch (error) {
+    console.error("Erreur création plan:", error);
+    return res.status(500).json({
+      status: "error",
+      code: "SERVER_ERROR",
+      message: "Erreur lors de la création du plan",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+};
+
+// Obtenir les détails d'un plan
+const getPricingPlan = async (req, res) => {
+  try {
+    const { planId } = req.params;
+
+    const plan = await PricingPlan.findById(planId);
+    if (!plan) {
+      return res.status(404).json({
+        status: "error",
+        code: "PLAN_NOT_FOUND",
+        error: {
+          message: "Plan non trouvé",
+        },
+      });
+    }
+
+    return res.status(200).json({
+      status: "success",
+      data: plan,
+    });
+  } catch (error) {
+    console.error("Erreur récupération plan:", error);
+    return res.status(500).json({
+      status: "error",
+      code: "SERVER_ERROR",
+      message: "Erreur lors de la récupération du plan",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+};
+
+// Obtenir le plan d'une boutique
+const getStorePlan = async (req, res) => {
+  try {
+    const { storeId } = req.params;
+
+    const plan = await PricingPlan.findOne({ storeId });
+    if (!plan) {
+      return res.status(404).json({
+        status: "error",
+        code: "PLAN_NOT_FOUND",
+        error: {
+          message: "Aucun plan trouvé pour cette boutique",
+        },
+      });
+    }
+
+    return res.status(200).json({
+      status: "success",
+      data: plan,
+    });
+  } catch (error) {
+    console.error("Erreur récupération plan boutique:", error);
+    return res.status(500).json({
+      status: "error",
+      code: "SERVER_ERROR",
+      message: "Erreur lors de la récupération du plan de la boutique",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+};
+
+// Mettre à jour un plan
+const updatePricingPlan = async (req, res) => {
+  try {
+    const { planId } = req.params;
+    const { planType, status } = req.body;
+
+    // Vérifier si le plan existe
+    const existingPlan = await PricingPlan.findById(planId);
+    if (!existingPlan) {
+      return res.status(404).json({
+        status: "error",
+        code: "PLAN_NOT_FOUND",
+        error: {
+          message: "Plan non trouvé",
+        },
+      });
+    }
+
+    // Si changement de type de plan
+    if (planType && planType !== existingPlan.planType) {
+      if (!PLAN_DEFAULTS[planType]) {
+        return res.status(400).json({
+          status: "error",
+          code: "INVALID_PLAN_TYPE",
+          error: {
+            message: "Type de plan invalide",
+          },
+        });
+      }
+
+      // Mettre à jour avec les nouvelles valeurs par défaut
+      const planDefaults = PLAN_DEFAULTS[planType];
+      Object.assign(existingPlan, planDefaults);
+      existingPlan.planType = planType;
+    }
+
+    // Mise à jour du statut si fourni
+    if (status) {
+      if (!["active", "inactive", "pending"].includes(status)) {
+        return res.status(400).json({
+          status: "error",
+          code: "INVALID_STATUS",
+          error: {
+            message: "Statut invalide",
+          },
+        });
+      }
+      existingPlan.status = status;
+    }
+
+    existingPlan.updatedAt = new Date();
+    await existingPlan.save();
+
+    return res.status(200).json({
+      status: "success",
+      message: "Plan mis à jour avec succès",
+      data: existingPlan,
+    });
+  } catch (error) {
+    console.error("Erreur mise à jour plan:", error);
+    return res.status(500).json({
+      status: "error",
+      code: "SERVER_ERROR",
+      message: "Erreur lors de la mise à jour du plan",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+};
+
+// Supprimer un plan
+const deletePricingPlan = async (req, res) => {
+  try {
+    const { planId } = req.params;
+
+    const plan = await PricingPlan.findById(planId);
+    if (!plan) {
+      return res.status(404).json({
+        status: "error",
+        code: "PLAN_NOT_FOUND",
+        error: {
+          message: "Plan non trouvé",
+        },
+      });
+    }
+
+    await plan.deleteOne();
+
+    return res.status(200).json({
+      status: "success",
+      message: "Plan supprimé avec succès",
+    });
+  } catch (error) {
+    console.error("Erreur suppression plan:", error);
+    return res.status(500).json({
+      status: "error",
+      code: "SERVER_ERROR",
+      message: "Erreur lors de la suppression du plan",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+};
+
+// Lister tous les plans
+const listPricingPlans = async (req, res) => {
+  try {
+    const plans = await PricingPlan.find();
+
+    return res.status(200).json({
+      status: "success",
+      data: plans,
+    });
+  } catch (error) {
+    console.error("Erreur liste des plans:", error);
+    return res.status(500).json({
+      status: "error",
+      code: "SERVER_ERROR",
+      message: "Erreur lors de la récupération de la liste des plans",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+};
+
 module.exports = {
   createSeller,
   deleteSeller,
@@ -591,4 +990,10 @@ module.exports = {
   setImage,
   getSellers,
   findSellerByName,
+  createPricingPlan,
+  getPricingPlan,
+  getStorePlan,
+  updatePricingPlan,
+  deletePricingPlan,
+  listPricingPlans,
 };
