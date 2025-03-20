@@ -14,6 +14,7 @@ const productControler = require("./src/productControler");
 const fournisseurControler = require("./src/fournisseurController");
 const sellerController = require("./src/storeController");
 const AdminController = require("./src/auth/AdminController");
+const transactionController = require("./src/transactionController");
 const morgan = require("morgan");
 const http = require("http");
 const socketIo = require("socket.io");
@@ -495,7 +496,6 @@ app.post("/payment_webhook", async (req, res) => {
     if (order) {
       order.statusPayment = status === "success" ? "payé" : "échec";
       order.transactionDetails = transactionDetails;
-      order.updatedAt = new Date();
       await order.save();
 
       // Trigger any additional processes like inventory update, emails, etc.
@@ -510,7 +510,15 @@ app.post("/payment_webhook", async (req, res) => {
     return res.status(500).json({ error: "Server error" });
   }
 });
-
+app.post(
+  "/api/initiate-transaction",
+  transactionController.initiateTransaction
+);
+app.post("/api/confirm-transaction", transactionController.confirmTransaction);
+app.get(
+  "/api/transaction-status/:transactionId",
+  transactionController.getTransactionStatus
+);
 server.listen(port, () => {
   console.log(
     `Votre application est en écoute sur : https://habou227.onrender.com:${port}`

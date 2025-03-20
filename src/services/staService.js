@@ -48,7 +48,7 @@ async function generateToken() {
         api_key: KOMIPAY_API_KEY,
       },
       {
-        timeout: 10000,
+        timeout: 40000,
       }
     );
 
@@ -76,7 +76,7 @@ async function generateToken() {
         error.response.data?.message || error.message
       }`;
     } else if (error.request) {
-      errorMessage = `Erreur de connexion au serveur KomiPay: ${error.message}`;
+      errorMessage = `Erreur de connexion au serveur KomiPay: ${error.message} veuiller verifier votre connexion et reessayer`;
     } else {
       errorMessage = `Erreur de configuration de la requête KomiPay: ${error.message}`;
     }
@@ -161,7 +161,7 @@ async function requestSecurityCode(phoneNumber, token) {
           Authorization: `Bearer ${token}`,
           keypass: KOMIPAY_KEYPASS,
         },
-        timeout: 10000,
+        timeout: 40000,
       }
     );
 
@@ -247,7 +247,7 @@ async function initiateSTAPayment(
           keypass: KOMIPAY_KEYPASS,
           "Content-Type": "application/json",
         },
-        timeout: 15000,
+        timeout: 40000,
       }
     );
 

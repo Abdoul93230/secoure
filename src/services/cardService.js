@@ -48,7 +48,7 @@ async function generateToken() {
         api_key: KOMIPAY_API_KEY,
       },
       {
-        timeout: 15000,
+        timeout: 60000,
       }
     );
 

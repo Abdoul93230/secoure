@@ -1169,6 +1169,52 @@ const PricingPlan = mongoose.model("PricingPlan", pricingPlanSchema);
 
 const Zone = mongoose.model("Zone", zoneSchema);
 const Transporteur = mongoose.model("Transporteur", transporteurSchema);
+const transactionSchema = new mongoose.Schema(
+  {
+    transactionId: {
+      type: String,
+      required: true,
+      unique: true,
+    },
+    userId: {
+      type: String,
+      required: true,
+    },
+    amount: {
+      type: Number,
+      required: true,
+      min: [0, "Le montant ne peut pas être négatif"],
+    },
+    status: {
+      type: String,
+      enum: ["en_attente", "complete", "echec"],
+      default: "en_attente",
+    },
+    paymentMethod: {
+      type: String,
+      required: true,
+      enum: [
+        "Visa",
+        "master Card",
+        "Mobile Money",
+        "zeyna",
+        "nita",
+        "amana",
+        "Payment a domicile",
+      ],
+    },
+    orderId: {
+      type: String,
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now,
+    },
+  },
+  { strict: false }
+);
+
+const Transaction = mongoose.model("Transaction", transactionSchema);
 
 module.exports = {
   User,
@@ -1193,4 +1239,5 @@ module.exports = {
   Zone,
   Transporteur,
   PricingPlan,
+  Transaction,
 };

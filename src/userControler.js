@@ -1391,7 +1391,7 @@ const payment_callback = async (req, res) => {
         paymentDate, // Date du paiement
       } = req.body;
 
-      console.log("Callback iPay reçu:", req.body);
+      console.log("Callback PAYMENT reçu:", req.body);
 
       // Vérifier que la commande existe avec notre référence
       const commande = await Commande.findOne({ reference: externalReference });
