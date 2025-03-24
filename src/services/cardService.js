@@ -536,8 +536,8 @@ const checkPaymentStatusReq = async (req, res) => {
     if (!statusResult.success) {
       return res.status(statusResult.code).json(statusResult);
     }
-
     const paymentStatus = statusResult.data;
+    console.log(paymentStatus);
 
     if (paymentStatus.etat === "SUCCESS") {
       return res.status(200).json({

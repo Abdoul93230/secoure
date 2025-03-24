@@ -519,6 +519,12 @@ app.get(
   "/api/transaction-status/:transactionId",
   transactionController.getTransactionStatus
 );
+
+app.post("/likes", productControler.createLike);
+app.get("/likes/user/:userId", productControler.getLikesByUser);
+app.delete("/likes/:userId/:produitId", productControler.deleteLikeByUser);
+app.get("/likes/check/:userId/:produitId", productControler.verifyLikByUser);
+
 server.listen(port, () => {
   console.log(
     `Votre application est en écoute sur : https://habou227.onrender.com:${port}`

@@ -1201,6 +1201,7 @@ const transactionSchema = new mongoose.Schema(
         "nita",
         "amana",
         "Payment a domicile",
+        "payé à la livraison",
       ],
     },
     orderId: {
@@ -1215,6 +1216,31 @@ const transactionSchema = new mongoose.Schema(
 );
 
 const Transaction = mongoose.model("Transaction", transactionSchema);
+
+const likeSchema = new mongoose.Schema(
+  {
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    produit: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Produit",
+      required: true,
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now,
+    },
+  },
+  { strict: false }
+);
+
+// Index composé pour éviter les doublons de likes
+likeSchema.index({ user: 1, produit: 1 }, { unique: true });
+
+const Like = mongoose.model("Like", likeSchema);
 
 module.exports = {
   User,
@@ -1240,4 +1266,5 @@ module.exports = {
   Transporteur,
   PricingPlan,
   Transaction,
+  Like,
 };

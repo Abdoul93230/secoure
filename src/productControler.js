@@ -7,6 +7,7 @@ const {
   ProductPub,
   Zone,
   Transporteur,
+  Like,
 } = require("./Models");
 const fs = require("fs");
 const cloudinary = require("cloudinary").v2;
@@ -631,7 +632,7 @@ const updateProduct = async (req, res) => {
         width: data.width || 0,
         height: data.height || 0,
       },
-    }; 
+    };
 
     if (data.shippingZones) {
       updateData["shipping.zones"] = JSON.parse(data.shippingZones);
@@ -1318,6 +1319,67 @@ const deleteShippingOption = async (req, res) => {
   }
 };
 
+// Ajouter un like
+const createLike = async (req, res) => {
+  try {
+    const { userId, produitId } = req.body;
+
+    const like = new Like({
+      user: userId,
+      produit: produitId,
+    });
+
+    await like.save();
+    res.status(201).json(like);
+  } catch (error) {
+    if (error.code === 11000) {
+      // Erreur de duplicate (produit déjà liké)
+      return res
+        .status(400)
+        .json({ message: "Ce produit est déjà dans vos favoris" });
+    }
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Récupérer les likes d'un utilisateur
+const getLikesByUser = async (req, res) => {
+  try {
+    const likes = await Like.find({ user: req.params.userId })
+      .populate("produit")
+      .sort("-createdAt");
+    res.json(likes);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Supprimer un like
+const deleteLikeByUser = async (req, res) => {
+  try {
+    await Like.findOneAndDelete({
+      user: req.params.userId,
+      produit: req.params.produitId,
+    });
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Vérifier si un produit est liké par un utilisateur
+const verifyLikByUser = async (req, res) => {
+  try {
+    const like = await Like.findOne({
+      user: req.params.userId,
+      produit: req.params.produitId,
+    });
+    res.json({ isLiked: !!like });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   createCategorie,
   getAllCategories,
@@ -1355,4 +1417,8 @@ module.exports = {
   addShippingOptionToProduit,
   updateShippingOption,
   deleteShippingOption,
+  createLike,
+  getLikesByUser,
+  deleteLikeByUser,
+  verifyLikByUser,
 };

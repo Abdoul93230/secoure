@@ -1459,7 +1459,13 @@ const payment_callback = async (req, res) => {
 // Route pour mettre à jour la référence d'une commande
 const updateCommanderef = async (req, res) => {
   try {
-    const { oldReference, newReference, livraisonDetails, prod } = req.body;
+    const {
+      oldReference,
+      newReference,
+      livraisonDetails,
+      prod,
+      statusPayment,
+    } = req.body;
     data = req.body;
 
     // Vérifier que la commande existe avec l'ancienne référence
@@ -1472,19 +1478,21 @@ const updateCommanderef = async (req, res) => {
     }
 
     // Mettre à jour la référence de la commande
-    await Commande.findOneAndUpdate(
-      { reference: oldReference },
-      {
-        clefUser: data.clefUser,
-        nbrProduits: data.nbrProduits,
-        prix: data.prix,
-        codePro: data.codePro,
-        idCodePro: data.idCodePro,
-        reference: newReference,
-        livraisonDetails: livraisonDetails,
-        prod: prod,
-      }
-    );
+    const dataUpdate = {
+      clefUser: data.clefUser,
+      nbrProduits: data.nbrProduits,
+      prix: data.prix,
+      codePro: data.codePro,
+      idCodePro: data.idCodePro,
+      reference: newReference,
+      livraisonDetails: livraisonDetails,
+      prod: prod,
+    };
+    if (statusPayment && statusPayment === "payé à la livraison") {
+      dataUpdate.statusPayment = statusPayment;
+    }
+    console.log(statusPayment);
+    await Commande.findOneAndUpdate({ reference: oldReference }, dataUpdate);
 
     console.log("Référence mise à jour:", { oldReference, newReference });
     res.status(200).json({
