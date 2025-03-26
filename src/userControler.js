@@ -99,6 +99,27 @@ const createUser = async (req, res) => {
     }
 
     await user.save();
+
+    const newCodePromo = new PromoCode({
+      // code: generateCodeFromClefUser(user?._id),
+      code: "BIENVENUE20",
+      dateExpirate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // Valide 30 jours,
+      prixReduiction: 20,
+      clefUser: user?._id,
+      isValide: true,
+      isWelcomeCode: true,
+    });
+
+    newCodePromo.save();
+    //   .then((savedCodePromo) => {
+    //     res
+    //       .status(201)
+    //       .json({ data: savedCodePromo, message: "bon creer avec succes." });
+    //   })
+    //   .catch((error) => {
+    //     res.status(400).json({ error: error.message });
+    //   });
+
     res.status(201).json({ message: "Utilisateur ajouté !" });
   } catch (error) {
     if (error instanceof mongoose.Error.ValidationError) {
@@ -888,7 +909,9 @@ function updateCodePromo(req, res) {
 
   PromoCode.findByIdAndUpdate(
     codePromoId,
+    // { isValide: isValide, isWelcomeCode: isValide },
     { isValide: isValide },
+
     { new: true }
   )
     .then((updatedCodePromo) => {
@@ -940,23 +963,58 @@ function getCodePromoByClefUser(req, res) {
       res.status(500).json({ error: error.message });
     });
 }
+function getCodePromoById(req, res) {
+  const id = req.params.id;
 
-function getCodePromoByHashedCode(req, res) {
-  // const id = req.query.id;
-  const hashedCode = req.query.hashedCode;
-  PromoCode.findOne({ code: hashedCode })
-    .then((codePromo) => {
-      if (!codePromo) {
+  PromoCode.findById(id)
+    .then((codePromos) => {
+      if (!codePromos) {
         return res
           .status(404)
-          .json({ message: "Aucun code promo trouvé pour ce code haché." });
+          .json({ message: "Aucun code promo trouvé pour cette clefUser." });
       }
 
-      res.status(200).json({ data: codePromo });
+      res.status(200).json({ data: codePromos });
     })
     .catch((error) => {
       res.status(500).json({ error: error.message });
     });
+}
+
+function getCodePromoByHashedCode(req, res) {
+  const welcom = req.query.welcom || null;
+  const id = req.query.id || null;
+  const hashedCode = req.query.hashedCode;
+  // return;
+  if (id !== null && welcom === "true") {
+    PromoCode.findOne({ code: hashedCode, clefUser: id, isWelcomeCode: true })
+      .then((codePromo) => {
+        if (!codePromo) {
+          return res
+            .status(404)
+            .json({ message: "Aucun code promo trouvé pour ce code haché." });
+        }
+
+        res.status(200).json({ data: codePromo });
+      })
+      .catch((error) => {
+        res.status(500).json({ error: error.message });
+      });
+  } else {
+    PromoCode.findOne({ code: hashedCode })
+      .then((codePromo) => {
+        if (!codePromo) {
+          return res
+            .status(404)
+            .json({ message: "Aucun code promo trouvé pour ce code haché." });
+        }
+
+        res.status(200).json({ data: codePromo });
+      })
+      .catch((error) => {
+        res.status(500).json({ error: error.message });
+      });
+  }
 }
 
 //   const getUserByEmail = async (req,res) => {
@@ -1595,6 +1653,7 @@ module.exports = {
   updateUserMessageAttributeById,
   getUserByName,
   createCodePromo,
+  getCodePromoById,
   getCodePromoByClefUser,
   deleteCodePromo,
   Send_email,

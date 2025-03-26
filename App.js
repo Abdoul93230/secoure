@@ -151,6 +151,7 @@ app.post(
   productControler.productPubCreate
 );
 app.get("/getCodePromoByHashedCode", userController.getCodePromoByHashedCode);
+app.get("/getCodePromoById/:id", userController.getCodePromoById);
 app.put("/updateCodePromo", userController.updateCodePromo);
 app.get("/getUserProfile", userController.getUserProfile);
 app.get("/getUsers", userController.getUsers);

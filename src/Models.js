@@ -851,8 +851,12 @@ const codepromo = new mongoose.Schema(
       type: String,
       required: [true, "vous avez pas fourni le cleUser de ce code."],
     },
+    isWelcomeCode: {
+      type: Boolean,
+      default: false,
+    },
   },
-  { strict: false }
+  { timestamps: true, strict: false }
 );
 
 const store = new mongoose.Schema(
