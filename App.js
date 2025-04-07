@@ -206,6 +206,7 @@ app.put(
 app.delete("/suppType", productControler.suppType);
 app.post("/createProductType", productControler.createProductType);
 app.get("/getAllType", productControler.getAllType);
+app.get("/getAllTypeBySeller/:seller", productControler.getAllTypeBySeller);
 
 app.post(
   "/categorie",
@@ -290,11 +291,25 @@ app.put(
   middelware.handleUpload,
   productControler.updateProduct
 );
+app.put(
+  "/Product2/:productId",
+  middelware.handleUpload,
+  productControler.updateProduct2
+);
 
 app.get("/Product/:productId", productControler.getProductById);
 app.delete("/Product/:productId", productControler.deleteProduct);
+app.delete("/ProductSeller/:productId", productControler.deleteProductAttribut);
 app.get("/searchProductByType/:type", productControler.searchProductByType);
+app.get(
+  "/searchProductByTypeBySeller/:type/:seller",
+  productControler.searchProductByTypeBySeller
+);
 app.get("/searchProductByName/:name", productControler.searchProductByName);
+app.get(
+  "/searchProductByNameBySeller/:name/:seller",
+  productControler.searchProductByNameBySeller
+);
 app.get("/getAllCommenteProduit", productControler.getAllCommenteProduit);
 app.get("/getMarqueClusters", productControler.getMarqueClusters);
 app.get("/getCouleurClusters", productControler.getCouleurClusters);
@@ -324,6 +339,11 @@ app.post(
 );
 app.post("/SellerLogin", sellerController.login);
 app.delete("/deleteSeller/:id", sellerController.deleteSeller);
+app.get("/seller-orders/:Id", sellerController.seller_orders);
+app.put(
+  "/seller-orders/:orderId/validate/:sellerId",
+  sellerController.validate_seller_products
+);
 app.put("/validerDemandeVendeur/:id", sellerController.validerDemandeVendeur);
 
 app.get(
@@ -332,6 +352,14 @@ app.get(
   sellerController.verifyToken
 );
 app.get("/getSeller/:Id", sellerController.getSeller);
+app.put(
+  "/updateSeller/:id",
+  middelware.uploadsecond.fields([
+    { name: "ownerIdentity", maxCount: 1 },
+    { name: "logo", maxCount: 1 },
+  ]),
+  sellerController.updateSeller
+);
 app.get("/getSellers/", sellerController.getSellers);
 app.get("/findSellerByName/:name", sellerController.findSellerByName);
 app.put(
@@ -525,6 +553,9 @@ app.post("/likes", productControler.createLike);
 app.get("/likes/user/:userId", productControler.getLikesByUser);
 app.delete("/likes/:userId/:produitId", productControler.deleteLikeByUser);
 app.get("/likes/check/:userId/:produitId", productControler.verifyLikByUser);
+
+// Routes
+app.use("/api/marketing", require("./src/routes/marketingRoutes"));
 
 server.listen(port, () => {
   console.log(

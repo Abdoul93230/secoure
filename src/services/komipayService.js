@@ -139,14 +139,14 @@ const payWithMobileMoney = async (
   }
 
   try {
-    console.log({
-      mobile_money: `${operator}_money`,
-      api_key: KOMIPAY_API_KEY,
-      montant_a_payer: amount,
-      numero_telephone_payeur: phoneNumber,
-      nom_prenom_payeur: payerName,
-      reference_externe: externalRef,
-    });
+    // console.log({
+    //   mobile_money: `${operator}_money`,
+    //   api_key: KOMIPAY_API_KEY,
+    //   montant_a_payer: amount,
+    //   numero_telephone_payeur: phoneNumber,
+    //   nom_prenom_payeur: payerName,
+    //   reference_externe: externalRef,
+    // });
     const response = await axios.post(
       `${KOMIPAY_BASE_URL}/b2c_standard`,
       {

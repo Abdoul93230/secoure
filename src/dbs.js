@@ -14,6 +14,7 @@ mongoose
       useUnifiedTopology: true,
     }
   )
+
   .then(() => {
     console.log("Connexion à MongoDB établie");
     const job = new cron.CronJob("*/30 * * * *", async () => {

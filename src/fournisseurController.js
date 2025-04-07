@@ -90,7 +90,10 @@ const searchProductBySupplier = async (req, res) => {
   const supplierId = req.params.supplierId;
 
   try {
-    const products = await Produit.find({ Clefournisseur: supplierId });
+    const products = await Produit.find({
+      Clefournisseur: supplierId,
+      isDeleted: false,
+    });
 
     if (!products || products.length == 0) {
       return res

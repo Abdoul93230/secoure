@@ -34,12 +34,16 @@ const login = async (req, res) => {
     }
 
     // Si tout est correct, générer le token JWT et gérer la réponse
-    const jeton = jwt.sign({ userId: user._id }, praviteKey, {
+    const jeton = jwt.sign({ userId: user._id, role: "user" }, praviteKey, {
       expiresIn: "7d",
     });
-    const refreshToken = jwt.sign({ userId: user._id }, praviteKey, {
-      expiresIn: "30d",
-    });
+    const refreshToken = jwt.sign(
+      { userId: user._id, role: "user" },
+      praviteKey,
+      {
+        expiresIn: "30d",
+      }
+    );
     // Stockage du token dans un cookie avec l'attribut "HttpOnly"
     res.cookie("refreshToken", refreshToken, {
       httpOnly: true,
@@ -81,11 +85,15 @@ const AdminLogin = async (req, res) => {
 
               return res.status(400).json({ message: message });
             } else {
-              const jeton = jwt.sign({ userId: user._id }, ADMIN_PRIVATe_KEY, {
-                expiresIn: "1h",
-              });
+              const jeton = jwt.sign(
+                { userId: user._id, role: "admin" },
+                ADMIN_PRIVATe_KEY,
+                {
+                  expiresIn: "1h",
+                }
+              );
               const refreshAdminToken = jwt.sign(
-                { userId: user._id },
+                { userId: user._id, role: "admin" },
                 ADMIN_PRIVATe_KEY,
                 {
                   expiresIn: "7d",

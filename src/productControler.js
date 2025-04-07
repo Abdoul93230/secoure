@@ -1,3 +1,4 @@
+const { default: mongoose } = require("mongoose");
 const {
   Categorie,
   TypeProduit,
@@ -196,6 +197,43 @@ const getAllType = (req, res) => {
       const message = "erreur lord de la recuperation des types";
       return { message: message, data: error };
     });
+};
+const getAllTypeBySeller = async (req, res) => {
+  const { seller } = req.params;
+
+  try {
+    // Récupérer les produits du vendeur
+    const productsSeller = await Produit.find({ Clefournisseur: seller });
+
+    // Extraire les clés de type uniques
+    const uniqueTypeKeys = [
+      ...new Set(productsSeller.map((product) => product.ClefType)),
+    ];
+
+    // Vérifier si des types sont trouvés
+    if (uniqueTypeKeys.length === 0) {
+      return res.json({ data: [] });
+    }
+
+    // Récupérer les types associés
+    const types = await TypeProduit.find({ _id: { $in: uniqueTypeKeys } });
+
+    // Vérifier si des types sont trouvés
+    if (!types || types.length === 0) {
+      return res.json({ data: [] });
+    }
+
+    return res.json({ data: types });
+  } catch (error) {
+    console.error(
+      "Erreur lors de la récupération des types pour le vendeur :",
+      error
+    );
+    return res.status(500).json({
+      message: "Erreur lors de la récupération des types. Veuillez réessayer.",
+      data: error,
+    });
+  }
 };
 
 const suppType = (req, res) => {
@@ -487,6 +525,8 @@ const suppType = (req, res) => {
 const createProduct = async (req, res) => {
   try {
     const data = req.body;
+    const sellerOrAdmin = req.body.sellerOrAdmin;
+    const sellerOrAdmin_id = req.body.sellerOrAdmin_id;
     // console.log(JSON.parse(data.shippingZones));
 
     // Préparer les données initiales pour le produit
@@ -512,7 +552,21 @@ const createProduct = async (req, res) => {
         zones: JSON.parse(data.shippingZones) || [],
       },
       variants: [],
+
+      createdBy: sellerOrAdmin_id,
+      userRole: sellerOrAdmin,
+      isDeleted: false,
+      // Si c'est un admin, le produit est publié directement, sinon il attend validation
+      isPublished: sellerOrAdmin === "admin" ? "Published" : "Attente",
     };
+
+    // Si c'est un admin qui crée le produit, on le marque comme validé
+    if (sellerOrAdmin === "admin") {
+      productData.isValidated = true;
+      productData.validatedBy = sellerOrAdmin_id;
+
+      productData.comments = "Validation automatique (créé par admin)";
+    }
 
     // Fonction pour télécharger l'image sur Cloudinary
     const uploadImage = async (imagePath) => {
@@ -555,6 +609,19 @@ const createProduct = async (req, res) => {
       }
     }
 
+    if (!req.files) {
+      return res
+        .status(400)
+        .json({ message: "Aucune image du produit n'a été envoyée." });
+    }
+
+    if (!req.files.image1) {
+      return res.status(400).json({
+        message: "La première image du produit est obligatoire",
+        error: error.message,
+      });
+    }
+
     // Gestion des images principales et additionnelles
     if (req.files) {
       // Image principale 1
@@ -587,15 +654,606 @@ const createProduct = async (req, res) => {
 
     // Sauvegarder le produit
     const savedProduct = await product.save();
-
     return res.json({
-      message: `Le produit ${data.name} a été créé avec succès`,
+      message: `Le produit ${data.name} a été ${
+        sellerOrAdmin === "admin"
+          ? "créé et publié"
+          : "créé et en attente de validation"
+      } avec succès`,
       data: savedProduct,
     });
+    // return res.json({
+    //   message: `Le produit ${data.name} a été créé avec succès`,
+    //   data: savedProduct,
+    // });
   } catch (error) {
     console.log(error);
     return res.status(500).json({
       message: "Une erreur s'est produite lors de la création du produit",
+      error: error.message,
+    });
+  }
+};
+const updateProduct2 = async (req, res) => {
+  const sellerOrAdmin = req.body.sellerOrAdmin;
+  const sellerOrAdmin_id = req.body.sellerOrAdmin_id;
+  try {
+    const productId = req.params.productId;
+    const data = req.body;
+
+    // Validation de base
+    if (!productId || !mongoose.Types.ObjectId.isValid(productId)) {
+      return res.status(400).json({ message: "ID de produit invalide" });
+    }
+
+    const product = await Produit.findById(productId);
+    if (!product) {
+      return res.status(404).json({ message: "Produit introuvable" });
+    }
+
+    // Vérifier que le produit n'est pas supprimé
+    if (product.isDeleted && sellerOrAdmin !== "admin") {
+      return res
+        .status(400)
+        .json({ message: "Impossible de modifier un produit supprimé" });
+    }
+    // Vérifier que l'utilisateur est autorisé à modifier le produit
+    const isAuthorized =
+      sellerOrAdmin === "admin" ||
+      (product.createdBy &&
+        product.createdBy.toString() === sellerOrAdmin_id.toString());
+
+    if (!isAuthorized) {
+      return res
+        .status(403)
+        .json({ message: "Vous n'êtes pas autorisé à modifier ce produit" });
+    }
+
+    // Récupérer les IDs des variantes supprimées
+    const deletedVariantIds = Array.isArray(data.deletedVariantIds)
+      ? data.deletedVariantIds
+      : JSON.parse(data.deletedVariantIds || "[]");
+
+    // Récupérer les images à supprimer (sans remplacement)
+    const imagesToDelete = Array.isArray(data.imagesToDelete)
+      ? data.imagesToDelete
+      : JSON.parse(data.imagesToDelete || "[]");
+    console.log({ imagesToDelete });
+
+    // Données de mise à jour de base
+    let updateData = {
+      name: data.name,
+      quantite: data.quantite,
+      prixPromo: data.prixPromo,
+      prix: data.prix,
+      prixf: data.prixF || 0,
+      description: data.description,
+      marque: data.marque,
+      ClefType: data.ClefType,
+      Clefournisseur: data.Clefournisseur,
+      prixLivraison: data.prixLivraison || 0,
+      // Mise à jour des informations d'expédition
+      "shipping.weight": data.weight,
+      "shipping.dimensions": {
+        length: data.length || 0,
+        width: data.width || 0,
+        height: data.height || 0,
+      },
+    };
+
+    if (data.shippingZones) {
+      try {
+        updateData["shipping.zones"] =
+          typeof data.shippingZones === "string"
+            ? JSON.parse(data.shippingZones)
+            : data.shippingZones;
+      } catch (error) {
+        console.error("Erreur lors du parsing des zones d'expédition:", error);
+      }
+    }
+
+    // Fonction pour supprimer une image de Cloudinary avec gestion d'erreurs
+    const deleteImageFromCloudinary = async (url) => {
+      try {
+        if (!url || !url.includes("/")) return;
+
+        const urlParts = url.split("/");
+        const filenameWithExt = urlParts.pop();
+        if (!filenameWithExt) return;
+
+        const publicId = filenameWithExt.split(".")[0]; // Récupérer le `public_id` de l'URL
+        const folderPath = urlParts.slice(urlParts.indexOf("images")).join("/");
+
+        await cloudinary.uploader.destroy(`${folderPath}/${publicId}`);
+      } catch (error) {
+        console.error(
+          `Erreur lors de la suppression de l'image ${url}:`,
+          error
+        );
+      }
+    };
+
+    // Gestion des suppressions d'images principales
+    const imageDeletePromises = [];
+
+    // if (imagesToDelete.includes("image1") && product.image1) {
+    //   imageDeletePromises.push(deleteImageFromCloudinary(product.image1));
+    //   updateData.image1 = ""; // Effacer l'URL de l'image
+    // }
+
+    if (imagesToDelete.includes("image2") && product.image2) {
+      imageDeletePromises.push(deleteImageFromCloudinary(product.image2));
+      updateData.image2 = ""; // Effacer l'URL de l'image
+    }
+
+    if (imagesToDelete.includes("image3") && product.image3) {
+      imageDeletePromises.push(deleteImageFromCloudinary(product.image3));
+      updateData.image3 = ""; // Effacer l'URL de l'image
+    }
+
+    // Attendre que toutes les suppressions d'images soient terminées
+    await Promise.all(imageDeletePromises);
+
+    // Gestion des variantes
+    if (data.variants) {
+      try {
+        const variants =
+          typeof data.variants === "string"
+            ? JSON.parse(data.variants)
+            : data.variants;
+
+        updateData.variants = [];
+
+        // Créer un tableau de promesses pour la suppression des images des variantes supprimées
+        const deletePromises = deletedVariantIds.map((variantId) => {
+          const variantToDelete = product.variants.find(
+            (v) => v._id.toString() === variantId
+          );
+          if (variantToDelete?.imageUrl) {
+            return deleteImageFromCloudinary(variantToDelete.imageUrl);
+          }
+          return Promise.resolve();
+        });
+
+        // Attendre que toutes les suppressions soient terminées
+        await Promise.all(deletePromises);
+
+        // Filtrer les variantes à conserver
+        product.variants = product.variants.filter(
+          (v) => !deletedVariantIds.includes(v._id.toString())
+        );
+
+        // Traiter les nouvelles variantes ou celles à mettre à jour
+        const variantPromises = variants.map(async (variant, index) => {
+          let imageUrl = variant.imageUrl;
+
+          // Vérifier si cette variante a une image à supprimer
+          if (variant.deleteImage && imageUrl) {
+            await deleteImageFromCloudinary(imageUrl);
+            imageUrl = ""; // Effacer l'URL de l'image
+          }
+          // Si une image pour la variante est envoyée dans req.files
+          else if (req.files && req.files[`imageVariante${index}`]) {
+            // Supprimer l'ancienne image si elle existe
+            if (variant.imageUrl) {
+              await deleteImageFromCloudinary(variant.imageUrl);
+            }
+
+            // Upload de la nouvelle image
+            const result = await cloudinary.uploader.upload(
+              req.files[`imageVariante${index}`][0].path,
+              { folder: "images" }
+            );
+            imageUrl = result.secure_url;
+          }
+
+          // Retourner la variante mise à jour
+          return {
+            _id: variant._id, // Préserver l'ID existant si disponible
+            color: variant.colorName,
+            colorCode: variant.color,
+            sizes: variant.sizes,
+            imageUrl: imageUrl,
+            stock: variant.stock || 1,
+          };
+        });
+
+        // Attendre que toutes les promesses soient résolues
+        updateData.variants = await Promise.all(variantPromises);
+      } catch (error) {
+        console.error("Erreur lors du traitement des variantes:", error);
+        return res.status(400).json({
+          message: "Format de variantes invalide",
+          error: error.message,
+        });
+      }
+    }
+
+    // Gestion des images principales et additionnelles
+    if (req.files) {
+      const imagePromises = [];
+
+      // Fonction pour gérer l'upload d'une image
+      const handleImageUpload = async (fileField, oldImageUrl) => {
+        if (req.files[fileField]) {
+          // Ne pas supprimer l'ancienne image si elle a déjà été supprimée dans l'étape précédente
+          if (oldImageUrl && !imagesToDelete.includes(fileField)) {
+            await deleteImageFromCloudinary(oldImageUrl);
+          }
+
+          const result = await cloudinary.uploader.upload(
+            req.files[fileField][0].path,
+            { folder: "images" }
+          );
+
+          return result.secure_url;
+        }
+        return undefined;
+      };
+
+      // Traiter les images principales en parallèle (seulement si elles ne sont pas dans imagesToDelete)
+      if (req.files.image1 && !imagesToDelete.includes("image1")) {
+        imagePromises.push(
+          handleImageUpload("image1", product.image1).then((url) => {
+            if (url) updateData.image1 = url;
+          })
+        );
+      }
+
+      if (req.files.image2 && !imagesToDelete.includes("image2")) {
+        imagePromises.push(
+          handleImageUpload("image2", product.image2).then((url) => {
+            if (url) updateData.image2 = url;
+          })
+        );
+      }
+
+      if (req.files.image3 && !imagesToDelete.includes("image3")) {
+        imagePromises.push(
+          handleImageUpload("image3", product.image3).then((url) => {
+            if (url) updateData.image3 = url;
+          })
+        );
+      }
+
+      // Gestion des images additionnelles
+      if (req.files.nouveauChampImages) {
+        imagePromises.push(
+          (async () => {
+            // Supprimer d'abord les anciennes images si demandé
+            if (
+              imagesToDelete.includes("pictures") &&
+              product.pictures &&
+              product.pictures.length > 0
+            ) {
+              const deletePromises = product.pictures.map((url) =>
+                deleteImageFromCloudinary(url)
+              );
+              await Promise.all(deletePromises);
+              updateData.pictures = []; // Reinitialiser les images
+            }
+            // Sinon, si on a des images existantes et qu'on ne veut pas les supprimer
+            else if (product.pictures && product.pictures.length > 0) {
+              // On conserve les anciennes images et ajoute les nouvelles
+              updateData.pictures = [...product.pictures];
+            } else {
+              updateData.pictures = [];
+            }
+
+            // Uploader les nouvelles images en parallèle
+            const uploadPromises = req.files.nouveauChampImages.map((file) =>
+              cloudinary.uploader.upload(file.path, { folder: "images" })
+            );
+
+            const results = await Promise.all(uploadPromises);
+            // Ajouter les nouvelles images aux images existantes (ou à un tableau vide si tout a été supprimé)
+            updateData.pictures = [
+              ...updateData.pictures,
+              ...results.map((result) => result.secure_url),
+            ];
+          })()
+        );
+      }
+      // Si on veut juste supprimer toutes les images additionnelles sans en ajouter de nouvelles
+      else if (
+        imagesToDelete.includes("pictures") &&
+        product.pictures &&
+        product.pictures.length > 0
+      ) {
+        imagePromises.push(
+          (async () => {
+            const deletePromises = product.pictures.map((url) =>
+              deleteImageFromCloudinary(url)
+            );
+            await Promise.all(deletePromises);
+            updateData.pictures = []; // Reinitialiser les images
+          })()
+        );
+      }
+
+      // Attendre que toutes les opérations d'images soient terminées
+      await Promise.all(imagePromises);
+    }
+
+    if (sellerOrAdmin === "seller" && product.isPublished === "Published") {
+      updateData.isPublished = "Attente";
+      updateData.isValidated = false;
+      updateData.comments = "En attente de validation après modification";
+    }
+
+    // Mise à jour dans la base de données
+    const updatedProduct = await Produit.findByIdAndUpdate(
+      productId,
+      updateData,
+      { new: true, runValidators: true }
+    );
+
+    // Nettoyer les fichiers temporaires après upload
+    if (req.files) {
+      Object.values(req.files)
+        .flat()
+        .forEach((file) => {
+          if (file.path && fs.existsSync(file.path)) {
+            fs.unlinkSync(file.path);
+          }
+        });
+    }
+
+    return res.json({
+      message: "Produit mis à jour avec succès",
+      data: updatedProduct,
+    });
+  } catch (error) {
+    console.error("Erreur lors de la mise à jour du produit:", error);
+
+    // Nettoyer les fichiers temporaires en cas d'erreur
+    if (req.files) {
+      Object.values(req.files)
+        .flat()
+        .forEach((file) => {
+          if (file.path && fs.existsSync(file.path)) {
+            fs.unlinkSync(file.path);
+          }
+        });
+    }
+
+    return res.status(500).json({
+      message: "Erreur lors de la mise à jour du produit",
+      error: error.message,
+    });
+  }
+};
+
+const validateProduct = async (req, res) => {
+  try {
+    const { productId } = req.params;
+    const { isValidated, comments, published } = req.body;
+    const sellerOrAdmin = req.body.sellerOrAdmin;
+    const sellerOrAdmin_id = req.body.sellerOrAdmin_id;
+
+    if (!mongoose.Types.ObjectId.isValid(productId)) {
+      return res.status(400).json({ message: "ID de produit invalide" });
+    }
+
+    // Vérifier que l'utilisateur est bien un admin
+    if (sellerOrAdmin !== "admin") {
+      return res.status(403).json({
+        message: "Vous n'avez pas les droits pour valider un produit",
+      });
+    }
+
+    const product = await Produit.findById(productId);
+
+    if (!product) {
+      return res.status(404).json({ message: "Produit introuvable" });
+    }
+
+    if (product.isDeleted) {
+      return res
+        .status(400)
+        .json({ message: "Impossible de valider un produit supprimé" });
+    }
+
+    // Mettre à jour le statut de validation et de publication
+    const updateData = {
+      isValidated: isValidated,
+      validatedBy: sellerOrAdmin_id,
+      comments: comments || "",
+      isPublished: published, // On publie le produit uniquement s'il est validé
+    };
+
+    const updatedProduct = await Produit.findByIdAndUpdate(
+      productId,
+      { $set: updateData },
+      { new: true }
+    );
+
+    return res.json({
+      message:
+        published === "Published"
+          ? "Le produit a été validé et publié avec succès"
+          : "Le produit a été refusé",
+      data: updatedProduct,
+    });
+  } catch (error) {
+    console.error("Erreur lors de la validation du produit:", error);
+    return res.status(500).json({
+      message: "Une erreur s'est produite lors de la validation du produit",
+      error: error.message,
+    });
+  }
+};
+
+const deleteProductAttribut = async (req, res) => {
+  const sellerOrAdmin = req.body.sellerOrAdmin;
+  const sellerOrAdmin_id = req.body.sellerOrAdmin_id;
+  try {
+    const { productId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(productId)) {
+      return res.status(400).json({ message: "ID de produit invalide" });
+    }
+
+    const product = await Produit.findById(productId);
+
+    if (!product) {
+      return res.status(404).json({ message: "Produit introuvable" });
+    }
+
+    // Vérifier que l'utilisateur est autorisé à supprimer (admin ou le vendeur qui l'a créé)
+    const isAuthorized =
+      sellerOrAdmin === "admin" ||
+      (product.createdBy &&
+        product.createdBy.toString() === sellerOrAdmin_id.toString());
+
+    if (!isAuthorized) {
+      return res
+        .status(403)
+        .json({ message: "Vous n'êtes pas autorisé à supprimer ce produit" });
+    }
+
+    // Suppression logique
+    const updatedProduct = await Produit.findByIdAndUpdate(
+      productId,
+      { $set: { isDeleted: true } },
+      { new: true }
+    );
+
+    return res.json({
+      message: "Le produit a été supprimé avec succès",
+      data: updatedProduct,
+    });
+  } catch (error) {
+    console.error("Erreur lors de la suppression du produit:", error);
+    return res.status(500).json({
+      message: "Une erreur s'est produite lors de la suppression du produit",
+      error: error.message,
+    });
+  }
+};
+
+// Pour restaurer un produit supprimé (uniquement pour les admins)
+const restoreProduct = async (req, res) => {
+  const sellerOrAdmin = req.body.sellerOrAdmin;
+  try {
+    const { productId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(productId)) {
+      return res.status(400).json({ message: "ID de produit invalide" });
+    }
+
+    // Vérifier que l'utilisateur est un admin
+    if (sellerOrAdmin !== "admin") {
+      return res.status(403).json({
+        message: "Seuls les administrateurs peuvent restaurer un produit",
+      });
+    }
+
+    const product = await Produit.findById(productId);
+
+    if (!product) {
+      return res.status(404).json({ message: "Produit introuvable" });
+    }
+
+    if (!product.isDeleted) {
+      return res.status(400).json({ message: "Ce produit n'est pas supprimé" });
+    }
+
+    // Restauration du produit
+    const updatedProduct = await Produit.findByIdAndUpdate(
+      productId,
+      { $set: { isDeleted: false } },
+      { new: true }
+    );
+
+    return res.json({
+      message: "Le produit a été restauré avec succès",
+      data: updatedProduct,
+    });
+  } catch (error) {
+    console.error("Erreur lors de la restauration du produit:", error);
+    return res.status(500).json({
+      message: "Une erreur s'est produite lors de la restauration du produit",
+      error: error.message,
+    });
+  }
+};
+
+// Pour tous les utilisateurs (publics)
+const getPublishedProducts = async (req, res) => {
+  try {
+    const products = await Produit.find({
+      isPublished: true,
+      isDeleted: false,
+    });
+
+    return res.json({ data: products });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Une erreur s'est produite lors de la récupération des produits",
+      error: error.message,
+    });
+  }
+};
+
+// Pour les admins (tous les produits)
+const getAllProductsForAdmin = async (req, res) => {
+  const { sellerOrAdmin } = req.query;
+
+  try {
+    // Vérifier que l'utilisateur est un admin
+    if (sellerOrAdmin !== "admin") {
+      return res.status(403).json({ message: "Accès non autorisé" });
+    }
+
+    const products = await Produit.find();
+
+    return res.json({ data: products });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Une erreur s'est produite lors de la récupération des produits",
+      error: error.message,
+    });
+  }
+};
+
+// Pour les vendeurs (leurs propres produits)
+const getSellerProducts = async (req, res) => {
+  const { sellerOrAdmin_id } = req.query;
+  try {
+    const products = await Produit.find({
+      createdBy: sellerOrAdmin_id,
+      // On n'exclut pas les produits supprimés pour permettre au vendeur de voir ses produits supprimés
+    });
+
+    return res.json({ data: products });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Une erreur s'est produite lors de la récupération des produits",
+      error: error.message,
+    });
+  }
+};
+
+// Pour les admins (produits en attente de validation)
+const getPendingProducts = async (req, res) => {
+  const { sellerOrAdmin } = req.query;
+  try {
+    // Vérifier que l'utilisateur est un admin
+    if (sellerOrAdmin !== "admin") {
+      return res.status(403).json({ message: "Accès non autorisé" });
+    }
+
+    const products = await Produit.find({
+      isPublished: "Attente",
+      isDeleted: false,
+      isValidated: false,
+    });
+
+    return res.json(products);
+  } catch (error) {
+    return res.status(500).json({
+      message: "Une erreur s'est produite lors de la récupération des produits",
       error: error.message,
     });
   }
@@ -649,16 +1307,6 @@ const updateProduct = async (req, res) => {
     if (data.variants) {
       const variants = JSON.parse(data.variants);
       updateData.variants = [];
-
-      // const variantIdsFromRequest = variants.map((variant) => variant._id);
-
-      // // Supprimer les variantes supprimées et leurs images associées
-      // for (const existingVariant of product.variants) {
-      //   if (!variantIdsFromRequest.includes(existingVariant._id.toString())) {
-      //     // Si la variante existante n'est pas dans la requête, elle est supprimée
-      //     await deleteImageFromCloudinary(existingVariant.imageUrl);
-      //   }
-      // }
 
       // Supprimer les images des variantes supprimées
       for (const variantId of deletedVariantIds) {
@@ -865,6 +1513,35 @@ const searchProductByType = async (req, res) => {
   }
 };
 
+const searchProductByTypeBySeller = async (req, res) => {
+  const { type, seller } = req.params;
+
+  try {
+    const products = await Produit.find({
+      ClefType: type,
+      Clefournisseur: seller,
+      isDeleted: false,
+    });
+
+    if (products.length === 0) {
+      return res
+        .status(404)
+        .json({ message: "Aucun produit trouvé pour ce type" });
+    }
+
+    return res.json({ products });
+  } catch (error) {
+    console.error(
+      "Une erreur s'est produite lors de la recherche des produits par type",
+      error
+    );
+    return res.status(500).json({
+      message:
+        "Une erreur s'est produite lors de la recherche des produits par type",
+    });
+  }
+};
+
 const searchProductByCategory = async (req, res) => {
   const category = req.params.category;
 
@@ -896,6 +1573,34 @@ const searchProductByName = async (req, res) => {
   try {
     const products = await Produit.find({
       name: { $regex: name, $options: "i" },
+    });
+
+    if (products.length === 0) {
+      return res
+        .status(404)
+        .json({ message: "Aucun produit trouvé pour ce nom" });
+    }
+
+    return res.json({ products });
+  } catch (error) {
+    console.error(
+      "Une erreur s'est produite lors de la recherche des produits par nom",
+      error
+    );
+    return res.status(500).json({
+      message:
+        "Une erreur s'est produite lors de la recherche des produits par nom",
+    });
+  }
+};
+const searchProductByNameBySeller = async (req, res) => {
+  const { name, seller } = req.params;
+
+  try {
+    const products = await Produit.find({
+      name: { $regex: name, $options: "i" },
+      Clefournisseur: seller,
+      isDeleted: false,
     });
 
     if (products.length === 0) {
@@ -1386,9 +2091,11 @@ module.exports = {
   supCategorie,
   createProductType,
   getAllType,
+  getAllTypeBySeller,
   suppType,
   createProduct,
   updateProduct,
+  updateProduct2,
   deleteProduct,
   getProductById,
   getAllProducts,
@@ -1421,4 +2128,8 @@ module.exports = {
   getLikesByUser,
   deleteLikeByUser,
   verifyLikByUser,
+  searchProductByTypeBySeller,
+  searchProductByNameBySeller,
+  deleteProductAttribut,
+  getSellerProducts,
 };

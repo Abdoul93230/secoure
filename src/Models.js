@@ -269,7 +269,7 @@ const produitSchema = new mongoose.Schema(
     },
     image2: {
       type: String,
-      required: true,
+      required: false,
       match: [
         /^(http|https):\/\/\S+$/,
         "Veuillez fournir une URL d'image valide.",
@@ -277,7 +277,7 @@ const produitSchema = new mongoose.Schema(
     },
     image3: {
       type: String,
-      required: true,
+      required: false,
       match: [
         /^(http|https):\/\/\S+$/,
         "Veuillez fournir une URL d'image valide.",
@@ -373,6 +373,42 @@ const produitSchema = new mongoose.Schema(
         height: { type: Number, default: 0 },
       },
       zones: [shippingZoneSchema],
+      isPublished: {
+        type: String,
+        enum: ["Published", "UnPublished", "Attente", "Refuser"],
+        default: "Published",
+        required: false,
+      },
+      isDeleted: {
+        type: Boolean,
+        default: false, // Pour la suppression logique
+        required: false,
+      },
+      createdBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        required: false,
+      },
+      userRole: {
+        type: String,
+        enum: ["admin", "seller"],
+        required: false,
+      },
+      comments: {
+        type: String,
+        required: false,
+      },
+      createdBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        required: false,
+      },
+      isValidated: {
+        type: Boolean,
+        default: false,
+      },
+      validatedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        required: false,
+      },
     },
   },
   { strict: false }
@@ -703,6 +739,7 @@ const commandeSchema = new mongoose.Schema(
           quantite: { type: Number, required: true, min: 1 },
           tailles: { type: [String], required: false },
           couleurs: { type: [String], required: false },
+          isValideSeller: { type: Boolean, required: false, default: false },
         },
       ],
       required: true,

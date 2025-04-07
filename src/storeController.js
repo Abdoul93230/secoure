@@ -1,9 +1,11 @@
-const { SellerRequest } = require("./Models");
+const { SellerRequest, Commande, Produit } = require("./Models");
 const { PricingPlan } = require("./Models");
 const cloudinary = require("cloudinary").v2;
 const jwt = require("jsonwebtoken");
 const privateKeSeller = require("./auth/clefSeller");
 const bcrypt = require("bcrypt");
+const fs = require("fs");
+const { default: mongoose } = require("mongoose");
 
 cloudinary.config({
   cloud_name: "dkfddtykk",
@@ -112,6 +114,40 @@ const PLAN_DEFAULTS = {
       },
     },
   },
+};
+
+/**
+ * Utilitaire pour supprimer une image de Cloudinary
+ */
+const deleteCloudinaryImage = async (imageUrl, folder) => {
+  if (!imageUrl) return;
+
+  try {
+    const publicId = `${folder}/${imageUrl.split("/").pop().split(".")[0]}`;
+    await cloudinary.uploader.destroy(publicId);
+    return true;
+  } catch (error) {
+    console.error(
+      `Erreur lors de la suppression de l'image dans ${folder}:`,
+      error
+    );
+    return false;
+  }
+};
+
+/**
+ * Utilitaire pour uploader une image vers Cloudinary
+ */
+const uploadToCloudinary = async (filePath, folder) => {
+  if (!filePath) return null;
+
+  try {
+    const result = await cloudinary.uploader.upload(filePath, { folder });
+    return result.secure_url;
+  } catch (error) {
+    console.error(`Erreur lors de l'upload vers ${folder}:`, error);
+    throw new Error(`Échec de l'upload de l'image: ${error.message}`);
+  }
 };
 
 const createSeller = async (req, res) => {
@@ -494,26 +530,463 @@ const createSeller = async (req, res) => {
   }
 };
 
+const updateSeller = async (req, res) => {
+  try {
+    const sellerId = req.params.id;
+
+    // Vérifier si l'ID est valide
+    if (!mongoose.Types.ObjectId.isValid(sellerId)) {
+      return res.status(400).json({
+        status: "error",
+        code: "INVALID_ID",
+        message: "L'identifiant du vendeur est invalide",
+      });
+    }
+
+    // Récupérer le vendeur existant
+    const existingSeller = await SellerRequest.findById(sellerId);
+
+    if (!existingSeller) {
+      return res.status(404).json({
+        status: "error",
+        code: "SELLER_NOT_FOUND",
+        message: "Vendeur non trouvé",
+      });
+    }
+
+    const {
+      email,
+      emailp,
+      name,
+      userName2,
+      phone,
+      storeName,
+      storeDescription,
+      category,
+      storeType,
+      region,
+      city,
+      address,
+      postalCode,
+      businessPhone,
+      whatsapp,
+      facebook,
+      instagram,
+      website,
+      openingHours,
+      minimumOrder,
+      password,
+    } = req.body;
+
+    // Préparer l'objet de mise à jour
+    const updateData = {};
+
+    // Ajouter uniquement les champs qui sont présents dans la requête
+    if (email !== undefined) updateData.email = email;
+    if (emailp !== undefined)
+      updateData.emailp = emailp?.length !== 0 ? emailp : null;
+    if (name !== undefined) updateData.name = name;
+    if (userName2 !== undefined) updateData.userName2 = userName2;
+    if (phone !== undefined) updateData.phone = phone;
+    if (storeName !== undefined) updateData.storeName = storeName;
+    if (storeDescription !== undefined)
+      updateData.storeDescription = storeDescription;
+    if (category !== undefined) updateData.category = category;
+    if (storeType !== undefined) updateData.storeType = storeType;
+    if (region !== undefined) updateData.region = region;
+    if (city !== undefined) updateData.city = city;
+    if (address !== undefined) updateData.address = address;
+    if (postalCode !== undefined) updateData.postalCode = postalCode;
+    if (businessPhone !== undefined) updateData.businessPhone = businessPhone;
+    if (whatsapp !== undefined) updateData.whatsapp = whatsapp;
+    if (facebook !== undefined) updateData.facebook = facebook;
+    if (instagram !== undefined) updateData.instagram = instagram;
+    if (website !== undefined) updateData.website = website;
+    if (openingHours !== undefined) updateData.openingHours = openingHours;
+    if (minimumOrder !== undefined) updateData.minimumOrder = minimumOrder;
+
+    // Validation des champs mis à jour
+    const validations = [];
+
+    if (email !== undefined) {
+      validations.push({
+        test: () => /^[\w-]+(\.[\w-]+)*@([\w-]+\.)+[a-zA-Z]{2,7}$/.test(email),
+        field: "email",
+        message: "Format d'email invalide",
+      });
+    }
+
+    if (name !== undefined) {
+      validations.push({
+        test: () => name.length >= 3,
+        field: "name",
+        message: "Le nom doit contenir au moins 3 caractères",
+      });
+    }
+
+    if (userName2 !== undefined) {
+      validations.push({
+        test: () => userName2.length >= 2,
+        field: "userName2",
+        message: "Le prénom doit contenir au moins 2 caractères",
+      });
+    }
+
+    if (phone !== undefined) {
+      validations.push({
+        test: () => /^[0-9]{8,15}$/.test(phone),
+        field: "phone",
+        message: "Format de numéro de téléphone invalide",
+      });
+    }
+
+    if (storeDescription !== undefined) {
+      validations.push({
+        test: () => storeDescription.length >= 20,
+        field: "storeDescription",
+        message: "La description doit contenir au moins 20 caractères",
+      });
+    }
+
+    if (category !== undefined) {
+      validations.push({
+        test: () =>
+          [
+            "mode",
+            "electronique",
+            "maison",
+            "beaute",
+            "sports",
+            "artisanat",
+            "bijoux",
+            "alimentation",
+            "livres",
+            "services",
+          ].includes(category),
+        field: "category",
+        message: "Catégorie invalide",
+      });
+    }
+
+    if (storeType !== undefined) {
+      validations.push({
+        test: () => ["physique", "enligne", "hybride"].includes(storeType),
+        field: "storeType",
+        message: "Type de boutique invalide",
+      });
+    }
+
+    // Validation des URLs optionnelles
+    const urlFields = { website, facebook, instagram };
+    Object.entries(urlFields).forEach(([field, value]) => {
+      if (value !== undefined && value !== null && value !== "") {
+        validations.push({
+          test: () => /^https?:\/\/[^\s/$.?#].[^\s]*$/.test(value),
+          field,
+          message: `L'URL ${field} n'est pas valide`,
+        });
+      }
+    });
+
+    // Exécuter les validations
+    const validationErrors = validations
+      .filter((validation) => !validation.test())
+      .map(({ field, message }) => ({ field, message }));
+
+    if (validationErrors.length > 0) {
+      return res.status(400).json({
+        status: "error",
+        code: "VALIDATION_ERROR",
+        errors: validationErrors,
+      });
+    }
+
+    // Vérifier si les champs uniques sont déjà utilisés par d'autres vendeurs
+    if (email || phone || storeName) {
+      const uniqueFieldsQuery = [];
+
+      if (email) uniqueFieldsQuery.push({ email, _id: { $ne: sellerId } });
+      if (phone) uniqueFieldsQuery.push({ phone, _id: { $ne: sellerId } });
+      if (storeName)
+        uniqueFieldsQuery.push({ storeName, _id: { $ne: sellerId } });
+
+      if (uniqueFieldsQuery.length > 0) {
+        const duplicateSeller = await SellerRequest.findOne({
+          $or: uniqueFieldsQuery,
+        });
+
+        if (duplicateSeller) {
+          let field = "unknown";
+          let message = "Valeur en doublon détectée";
+
+          if (email && duplicateSeller.email === email) {
+            field = "email";
+            message = "Cette adresse e-mail est déjà utilisée";
+          } else if (phone && duplicateSeller.phone === phone) {
+            field = "phone";
+            message = "Ce numéro de téléphone est déjà utilisé";
+          } else if (storeName && duplicateSeller.storeName === storeName) {
+            field = "storeName";
+            message = "Ce nom de boutique est déjà utilisé";
+          }
+
+          return res.status(409).json({
+            status: "error",
+            code: "DUPLICATE_ENTRY",
+            error: { field, message },
+          });
+        }
+      }
+    }
+
+    // Traitement du mot de passe si fourni
+    if (password) {
+      if (password.length < 6) {
+        return res.status(400).json({
+          status: "error",
+          code: "VALIDATION_ERROR",
+          errors: [
+            {
+              field: "password",
+              message: "Le mot de passe doit contenir au moins 6 caractères",
+            },
+          ],
+        });
+      }
+      // Hashage du nouveau mot de passe
+      updateData.password = await bcrypt.hash(password, 10);
+    }
+
+    // Gestion des fichiers
+    if (req.files) {
+      // Validation du type de fichier pour ownerIdentity
+      if (req.files.ownerIdentity) {
+        const allowedMimeTypes = ["image/jpeg", "image/png", "application/pdf"];
+
+        if (!allowedMimeTypes.includes(req.files.ownerIdentity[0].mimetype)) {
+          return res.status(400).json({
+            status: "error",
+            code: "INVALID_FILE_TYPE",
+            error: {
+              field: "ownerIdentity",
+              message:
+                "Le format du fichier n'est pas accepté. Utilisez JPG, PNG ou PDF",
+            },
+          });
+        }
+
+        // Vérification de la taille du fichier
+        if (req.files.ownerIdentity[0].size > 5 * 1024 * 1024) {
+          // 5MB max
+          return res.status(400).json({
+            status: "error",
+            code: "FILE_TOO_LARGE",
+            error: {
+              field: "ownerIdentity",
+              message: "Le fichier de la carte ne doit pas dépasser 5MB",
+            },
+          });
+        }
+
+        // Upload du nouveau document d'identité
+        try {
+          const ownerIdentityResult = await cloudinary.uploader.upload(
+            req.files.ownerIdentity[0].path,
+            { folder: "seller-documents" }
+          );
+          updateData.ownerIdentity = ownerIdentityResult.secure_url;
+
+          // Supprimer l'ancien fichier de Cloudinary si besoin
+          if (existingSeller.ownerIdentity) {
+            const publicId = existingSeller.ownerIdentity
+              .split("/")
+              .pop()
+              .split(".")[0];
+            await cloudinary.uploader.destroy(`seller-documents/${publicId}`);
+          }
+        } catch (uploadError) {
+          return res.status(500).json({
+            status: "error",
+            code: "UPLOAD_ERROR",
+            message: "Erreur lors de l'upload du document d'identité",
+            error:
+              process.env.NODE_ENV === "development"
+                ? uploadError.message
+                : undefined,
+          });
+        }
+      }
+
+      // Validation et upload du logo
+      if (req.files.logo) {
+        if (!["image/jpeg", "image/png"].includes(req.files.logo[0].mimetype)) {
+          return res.status(400).json({
+            status: "error",
+            code: "INVALID_FILE_TYPE",
+            error: {
+              field: "logo",
+              message: "Le logo doit être au format JPG ou PNG",
+            },
+          });
+        }
+
+        // Vérification de la taille du logo
+        if (req.files.logo[0].size > 2 * 1024 * 1024) {
+          // 2MB max
+          return res.status(400).json({
+            status: "error",
+            code: "FILE_TOO_LARGE",
+            error: {
+              field: "logo",
+              message: "Le logo ne doit pas dépasser 2MB",
+            },
+          });
+        }
+
+        try {
+          const logoResult = await cloudinary.uploader.upload(
+            req.files.logo[0].path,
+            { folder: "seller-logos" }
+          );
+          updateData.logo = logoResult.secure_url;
+
+          // Supprimer l'ancien logo de Cloudinary si besoin
+          if (existingSeller.logo) {
+            const publicId = existingSeller.logo.split("/").pop().split(".")[0];
+            await cloudinary.uploader.destroy(`seller-logos/${publicId}`);
+          }
+        } catch (uploadError) {
+          return res.status(500).json({
+            status: "error",
+            code: "UPLOAD_ERROR",
+            message: "Erreur lors de l'upload du logo",
+            error:
+              process.env.NODE_ENV === "development"
+                ? uploadError.message
+                : undefined,
+          });
+        }
+      }
+
+      // Nettoyage des fichiers temporaires
+      if (req.files.ownerIdentity) {
+        fs.unlinkSync(req.files.ownerIdentity[0].path);
+      }
+      if (req.files.logo) {
+        fs.unlinkSync(req.files.logo[0].path);
+      }
+    }
+
+    // Mettre à jour le vendeur
+    const updatedSeller = await SellerRequest.findByIdAndUpdate(
+      sellerId,
+      { $set: updateData },
+      { new: true, runValidators: true }
+    );
+
+    return res.status(200).json({
+      status: "success",
+      message: "Les informations du vendeur ont été mises à jour avec succès",
+      data: {
+        email: updatedSeller.email,
+        storeName: updatedSeller.storeName,
+        updatedAt: new Date(),
+      },
+    });
+  } catch (error) {
+    console.error("Erreur mise à jour vendeur:", error);
+
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyPattern)[0];
+      return res.status(409).json({
+        status: "error",
+        code: "DUPLICATE_KEY",
+        error: {
+          field,
+          message: `Ce ${field} existe déjà dans notre système`,
+        },
+      });
+    }
+
+    if (error.name === "ValidationError") {
+      return res.status(400).json({
+        status: "error",
+        code: "MONGOOSE_VALIDATION",
+        errors: Object.values(error.errors).map((err) => ({
+          field: err.path,
+          message: err.message,
+        })),
+      });
+    }
+
+    return res.status(500).json({
+      status: "error",
+      code: "SERVER_ERROR",
+      message: "Erreur lors de la mise à jour du compte vendeur",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+};
+
 const deleteSeller = async (req, res) => {
   try {
     const sellerId = req.params.id;
 
+    // Trouver le vendeur avant de le supprimer
     const seller = await SellerRequest.findById(sellerId);
     if (!seller) {
-      return res.status(404).json({ message: "Seller non trouvé." });
+      return res.status(404).json({
+        status: "error",
+        code: "SELLER_NOT_FOUND",
+        message: "Vendeur non trouvé",
+      });
     }
 
-    const publicId = `images/${seller.identity.split("/").pop().split(".")[0]}`;
-    await cloudinary.uploader.destroy(publicId); // Supprimer l'image de Cloudinary
+    // Supprimer les images du vendeur de Cloudinary
+    try {
+      // Supprimer la pièce d'identité si elle existe
+      if (seller.ownerIdentity) {
+        const ownerIdentityId = seller.ownerIdentity
+          .split("/")
+          .pop()
+          .split(".")[0];
+        const publicIdOwnerIdentity = `seller-documents/${ownerIdentityId}`;
+        await cloudinary.uploader.destroy(publicIdOwnerIdentity);
+      }
 
+      // Supprimer le logo s'il existe
+      if (seller.logo) {
+        const logoId = seller.logo.split("/").pop().split(".")[0];
+        const publicIdLogo = `seller-logos/${logoId}`;
+        await cloudinary.uploader.destroy(publicIdLogo);
+      }
+    } catch (cloudinaryError) {
+      console.error(
+        "Erreur lors de la suppression des images Cloudinary:",
+        cloudinaryError
+      );
+      // Continuer avec la suppression du vendeur même si les images ne peuvent pas être supprimées
+    }
+
+    // Supprimer le vendeur de la base de données
     const deletedSeller = await SellerRequest.findByIdAndDelete(sellerId);
-    if (deletedSeller) {
-      return res.status(200).json({ message: "Seller supprimé avec succès." });
-    } else {
-      return res.status(404).json({ message: "Seller non trouvé." });
-    }
+
+    // Supprimer également le plan tarifaire associé s'il existe
+    await PricingPlan.findOneAndDelete({ storeId: sellerId });
+
+    return res.status(200).json({
+      status: "success",
+      message: "Vendeur et images associées supprimés avec succès",
+      data: { id: sellerId },
+    });
   } catch (error) {
-    return res.status(400).json({ error: error.message });
+    console.error("Erreur suppression vendeur:", error);
+    return res.status(500).json({
+      status: "error",
+      code: "SERVER_ERROR",
+      message: "Erreur lors de la suppression du vendeur",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
   }
 };
 
@@ -577,9 +1050,13 @@ const login = async (req, res) => {
     }
 
     // Si tout est correct, générer le token JWT et gérer la réponse
-    const token = jwt.sign({ userId: user._id }, privateKeSeller, {
-      expiresIn: "20d",
-    });
+    const token = jwt.sign(
+      { userId: user._id, role: "seller" },
+      privateKeSeller,
+      {
+        expiresIn: "20d",
+      }
+    );
 
     const message = "Connexion réussie !";
     return res.json({
@@ -598,7 +1075,6 @@ const login = async (req, res) => {
 
 const getSeller = (req, res) => {
   const Id = req.params.Id;
-  console.log(Id);
   SellerRequest.findById(Id)
     .then((response) => {
       const message = `vous avez demander le Sellers :${response.name}`;
@@ -644,57 +1120,152 @@ const verifyToken = async (req, res) => {
   // console.log(data.authorization);
 };
 
+/**
+ * Met à jour l'image d'un vendeur
+ */
 const setImage = async (req, res) => {
-  const id = req.params.id;
   try {
-    const document = await SellerRequest.findById(id).exec(); // Exécute la requête pour obtenir le document
-    console.log(req.file);
-    if (
-      document &&
-      document.image !==
-        "https://chagona.onrender.com/images/image-1688253105925-0.jpeg"
-    ) {
-      let picture = null;
-      if (req.file) {
-        const result = await cloudinary.uploader.upload(req.file.path, {
-          folder: "images", // Le nom du dossier dans lequel vous souhaitez stocker les images
-        });
-        picture = result.secure_url;
+    const id = req.params.id;
 
-        // Supprimer l'ancienne image du profil
-        if (document && document.image) {
-          const publicId = `images/${
-            document.image.split("/").pop().split(".")[0]
-          }`;
-          await cloudinary.uploader.destroy(publicId);
-        }
-        document.image = picture;
-        await document.save();
-        return res.json("Opération effectuée avec succès.");
-      } else {
-        return res
-          .status(400)
-          .json({ message: "vous n'avez pas fournit d'image" });
-      }
-    } else {
-      if (req.file) {
-        const result = await cloudinary.uploader.upload(req.file.path, {
-          folder: "images", // Le nom du dossier dans lequel vous souhaitez stocker les images
-        });
-        picture = result.secure_url;
+    // Vérifier si le fichier est présent
+    if (!req.file) {
+      return res.status(400).json({
+        status: "error",
+        code: "MISSING_FILE",
+        message: "Aucune image n'a été fournie",
+      });
+    }
 
-        document.image = picture;
-        await document.save();
-        return res.json("Opération effectuée avec succès.");
-      } else {
-        return res
-          .status(400)
-          .json({ message: "vous n'avez pas fournit d'image" });
+    // Validation du type de fichier
+    const allowedMimeTypes = ["image/jpeg", "image/png"];
+    if (!allowedMimeTypes.includes(req.file.mimetype)) {
+      // Supprimer le fichier temporaire
+      fs.unlinkSync(req.file.path);
+
+      return res.status(400).json({
+        status: "error",
+        code: "INVALID_FILE_TYPE",
+        message: "Le format de l'image doit être JPG ou PNG",
+      });
+    }
+
+    // Validation de la taille du fichier (max 5MB)
+    if (req.file.size > 5 * 1024 * 1024) {
+      // Supprimer le fichier temporaire
+      fs.unlinkSync(req.file.path);
+
+      return res.status(400).json({
+        status: "error",
+        code: "FILE_TOO_LARGE",
+        message: "L'image ne doit pas dépasser 5MB",
+      });
+    }
+
+    // Trouver le vendeur
+    const seller = await SellerRequest.findById(id);
+    if (!seller) {
+      // Supprimer le fichier temporaire
+      fs.unlinkSync(req.file.path);
+
+      return res.status(404).json({
+        status: "error",
+        code: "SELLER_NOT_FOUND",
+        message: "Vendeur non trouvé",
+      });
+    }
+
+    // Upload de la nouvelle image
+    let newImageUrl;
+    try {
+      const result = await cloudinary.uploader.upload(req.file.path, {
+        folder: "seller-logos",
+      });
+      newImageUrl = result.secure_url;
+    } catch (uploadError) {
+      // Supprimer le fichier temporaire en cas d'erreur
+      fs.unlinkSync(req.file.path);
+
+      return res.status(500).json({
+        status: "error",
+        code: "UPLOAD_ERROR",
+        message: "Erreur lors de l'upload de l'image",
+        error:
+          process.env.NODE_ENV === "development"
+            ? uploadError.message
+            : undefined,
+      });
+    }
+
+    // Supprimer le fichier temporaire après upload réussi
+    try {
+      fs.unlinkSync(req.file.path);
+    } catch (unlinkError) {
+      console.error(
+        "Erreur lors de la suppression du fichier temporaire:",
+        unlinkError
+      );
+      // Continuer même si la suppression du fichier temporaire échoue
+    }
+
+    // Si une image existe déjà et n'est pas l'image par défaut, la supprimer
+    const DEFAULT_IMAGE =
+      "https://chagona.onrender.com/images/image-1688253105925-0.jpeg";
+    if (seller.logo && seller.logo !== DEFAULT_IMAGE) {
+      try {
+        const logoId = seller.logo.split("/").pop().split(".")[0];
+        const publicIdLogo = `seller-logos/${logoId}`;
+        await cloudinary.uploader.destroy(publicIdLogo);
+      } catch (deleteError) {
+        console.error(
+          "Erreur lors de la suppression de l'ancienne image:",
+          deleteError
+        );
+        // Continuer même si la suppression de l'ancienne image échoue
       }
     }
+
+    // Important: Utiliser findByIdAndUpdate au lieu de save() pour éviter les validations
+    // qui pourraient exiger d'autres champs
+    const updatedSeller = await SellerRequest.findByIdAndUpdate(
+      id,
+      { logo: newImageUrl },
+      { new: true, runValidators: false }
+    );
+
+    if (!updatedSeller) {
+      return res.status(404).json({
+        status: "error",
+        code: "UPDATE_FAILED",
+        message: "La mise à jour de l'image a échoué",
+      });
+    }
+
+    return res.status(200).json({
+      status: "success",
+      message: "Image mise à jour avec succès",
+      data: { logo: newImageUrl },
+    });
   } catch (error) {
-    const message = `Erreur lors de la mise à jour de l'image : ${error.message}`;
-    return res.status(500).json({ message: message, data: error });
+    console.error("Erreur mise à jour image:", error);
+
+    // Supprimer le fichier temporaire en cas d'erreur
+    if (req.file && req.file.path) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (e) {
+        console.error(
+          "Erreur lors de la suppression du fichier temporaire:",
+          e
+        );
+      }
+    }
+
+    return res.status(500).json({
+      status: "error",
+      code: "SERVER_ERROR",
+      message: "Erreur lors de la mise à jour de l'image",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
   }
 };
 
@@ -980,6 +1551,192 @@ const listPricingPlans = async (req, res) => {
   }
 };
 
+// Fonction pour récupérer les commandes d'un vendeur spécifique
+async function getSellerOrders(sellerId) {
+  try {
+    const orders = await Commande.aggregate([
+      // Premièrement, on fait un match pour trouver les commandes potentiellement pertinentes
+      // Cette étape est optionnelle mais peut améliorer les performances
+      {
+        $match: {
+          statusPayment: { $exists: true }, // Pour s'assurer qu'on ne prend que des commandes valides
+        },
+      },
+
+      // Étape 1: Dénormaliser les produits de chaque commande
+      { $unwind: "$nbrProduits" },
+
+      // Étape 2: Lookup pour obtenir les détails du produit
+      {
+        $lookup: {
+          from: "produits", // Nom de votre collection de produits
+          localField: "nbrProduits.produit",
+          foreignField: "_id",
+          as: "productInfo",
+        },
+      },
+
+      // Étape 3: Dénormaliser le résultat du lookup
+      { $unwind: "$productInfo" },
+
+      // Étape 4: Filtrer seulement les produits du vendeur
+      {
+        $match: {
+          "productInfo.Clefournisseur": sellerId,
+        },
+      },
+
+      // Étape 5: Regrouper par commande
+      {
+        $group: {
+          _id: "$_id",
+
+          clefUser: { $first: "$clefUser" },
+          reference: { $first: "$reference" },
+          statusPayment: { $first: "$statusPayment" },
+          statusLivraison: { $first: "$statusLivraison" },
+          livraisonDetails: { $first: "$livraisonDetails" },
+          prix: { $first: "$prix" },
+          reduction: { $first: "$reduction" },
+          date: { $first: "$date" },
+          etatTraitement: { $first: "$etatTraitement" },
+
+          // Ajouter les produits du vendeur avec leurs détails complets
+          sellerProducts: {
+            $push: {
+              produitId: "$nbrProduits.produit",
+              isValideSeller: "$nbrProduits.isValideSeller",
+              quantite: "$nbrProduits.quantite",
+              tailles: "$nbrProduits.tailles",
+              couleurs: "$nbrProduits.couleurs",
+              nom: "$productInfo.name",
+              prix: "$productInfo.prix",
+              image: "$productInfo.image1",
+            },
+          },
+
+          // Calculer le sous-total pour ce vendeur
+          sellerTotal: {
+            $sum: {
+              $multiply: ["$nbrProduits.quantite", "$productInfo.prix"],
+            },
+          },
+        },
+      },
+
+      // Étape 6: Trier par date de commande (le plus récent en premier)
+      { $sort: { date: -1 } },
+    ]);
+
+    return orders;
+  } catch (error) {
+    console.error(
+      "Erreur lors de la récupération des commandes du vendeur:",
+      error
+    );
+    throw error;
+  }
+}
+
+// Route pour obtenir les commandes d'un vendeur
+const seller_orders = async (req, res) => {
+  try {
+    // Récupérer l'ID du vendeur depuis le token d'authentification
+    // const sellerId = req.seller._id; // ou req.seller.id selon votre implémentation
+    const sellerId = req.params.Id; // ou req.seller.id selon votre implémentation
+
+    // Appeler la fonction pour récupérer les commandes
+    const sellerOrders = await getSellerOrders(sellerId);
+
+    res.status(200).json({
+      success: true,
+      orders: sellerOrders,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Erreur lors de la récupération des commandes",
+      error: error.message,
+    });
+  }
+};
+
+// Fonction pour valider les produits d'un vendeur dans une commande spécifique
+async function validateSellerProducts(orderId, sellerId) {
+  try {
+    // Recherche de la commande par son ID
+    const commande = await Commande.findById(orderId);
+
+    if (!commande) {
+      throw new Error("Commande non trouvée");
+    }
+
+    // Obtenir tous les IDs des produits dans la commande
+    const productIds = commande.nbrProduits.map((item) => item.produit);
+
+    // Rechercher tous les produits qui appartiennent au vendeur spécifié
+    const sellerProducts = await Produit.find({
+      _id: { $in: productIds },
+      Clefournisseur: sellerId,
+    }).select("_id");
+
+    // Créer un Set des IDs de produits du vendeur pour une recherche efficace
+    const sellerProductIds = new Set(
+      sellerProducts.map((p) => p._id.toString())
+    );
+
+    // Mettre à jour uniquement les produits qui appartiennent au vendeur
+    let modifié = false;
+
+    commande.nbrProduits.forEach((item) => {
+      if (
+        sellerProductIds.has(item.produit.toString()) &&
+        !item.isValideSeller
+      ) {
+        item.isValideSeller = true;
+        modifié = true;
+      }
+    });
+
+    // Sauvegarder la commande si des modifications ont été apportées
+    if (modifié) {
+      await commande.save();
+    }
+
+    return {
+      success: true,
+      message: modifié
+        ? "Produits du vendeur validés avec succès"
+        : "Aucun produit à valider pour ce vendeur",
+      modifié: modifié,
+    };
+  } catch (error) {
+    console.error(
+      "Erreur lors de la validation des produits du vendeur:",
+      error
+    );
+    throw error;
+  }
+}
+
+// Route pour valider les produits d'un vendeur dans une commande
+const validate_seller_products = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const sellerId = req.params.sellerId; // ou req.seller._id selon votre implémentation d'authentification
+
+    const result = await validateSellerProducts(orderId, sellerId);
+
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Erreur lors de la validation des produits du vendeur",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   createSeller,
   deleteSeller,
@@ -996,4 +1753,7 @@ module.exports = {
   updatePricingPlan,
   deletePricingPlan,
   listPricingPlans,
+  updateSeller,
+  seller_orders,
+  validate_seller_products,
 };
