@@ -15,6 +15,7 @@ const fournisseurControler = require("./src/fournisseurController");
 const sellerController = require("./src/storeController");
 const AdminController = require("./src/auth/AdminController");
 const transactionController = require("./src/transactionController");
+const socialRoutes = require("./src/routes/socialRoutes");
 const morgan = require("morgan");
 const http = require("http");
 const socketIo = require("socket.io");
@@ -556,6 +557,7 @@ app.get("/likes/check/:userId/:produitId", productControler.verifyLikByUser);
 
 // Routes
 app.use("/api/marketing", require("./src/routes/marketingRoutes"));
+app.use("/api", socialRoutes);
 
 server.listen(port, () => {
   console.log(

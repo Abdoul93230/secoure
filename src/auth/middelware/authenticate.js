@@ -1,63 +1,8 @@
-// middleware/auth.js
 const jwt = require("jsonwebtoken");
-const { SellerRequest } = require("../../Models");
-const { User } = require("../../Models"); // Importe ton modèle d'utilisateur
+const User = require("../models/User"); // Importe ton modèle d'utilisateur
 
 // Secret pour signer les tokens JWT - à stocker dans les variables d'environnement en production
-const JWT_SECRET = process.env.JWT_SECRET2 || "CUSTOM_PRIVATe_KEY";
-
-exports.protect = async (req, res, next) => {
-  try {
-    let token;
-
-    if (
-      req.headers.authorization &&
-      req.headers.authorization.startsWith("Bearer")
-    ) {
-      token = req.headers.authorization.split(" ")[1];
-    }
-
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        message: "Non autorisé à accéder à cette ressource",
-      });
-    }
-
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await SellerRequest.findById(decoded.userId);
-
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: "Token invalide",
-      });
-    }
-
-    req.user = user;
-    req.role = decoded.role;
-    next();
-  } catch (error) {
-    console.error(error);
-    return res.status(401).json({
-      success: false,
-      message: "Non autorisé à accéder à cette ressource",
-    });
-  }
-};
-
-exports.isSeller = (req, res, next) => {
-  // console.log(req.role);
-  // if (req.user && req.user.role === "seller") {
-  if (req.user && req.role === "seller") {
-    next();
-  } else {
-    return res.status(403).json({
-      success: false,
-      message: "Accès réservé aux vendeurs",
-    });
-  }
-};
+const JWT_SECRET = process.env.JWT_SECRET || "ton_secret_jwt";
 
 // Middleware pour vérifier si l'utilisateur est authentifié
 exports.authenticate = async (req, res, next) => {
@@ -74,13 +19,11 @@ exports.authenticate = async (req, res, next) => {
     // Extraire le token
     const token = authHeader.split(" ")[1];
 
-    // console.log({ token, JWT_SECRET, us: "user" });
     // Vérifier et décoder le token
     const decoded = jwt.verify(token, JWT_SECRET);
 
     // Trouver l'utilisateur dans la base de données
     const user = await User.findById(decoded.userId);
-
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -111,3 +54,36 @@ exports.authenticate = async (req, res, next) => {
     });
   }
 };
+
+// Middleware pour vérifier si l'utilisateur est un administrateur
+exports.isAdmin = (req, res, next) => {
+  if (!req.user || req.user.role !== "admin") {
+    return res.status(403).json({
+      success: false,
+      message: "Accès interdit. Droits d'administrateur requis.",
+    });
+  }
+  next();
+};
+
+// Middleware pour vérifier si l'utilisateur est un vendeur
+exports.isSeller = (req, res, next) => {
+  if (!req.user || req.user.role !== "seller") {
+    return res.status(403).json({
+      success: false,
+      message: "Accès interdit. Droits de vendeur requis.",
+    });
+  }
+  next();
+};
+
+// Génération de token JWT pour l'utilisateur à l'authentification
+exports.generateToken = (user) => {
+  return jwt.sign(
+    { userId: user._id, role: user.role },
+    JWT_SECRET,
+    { expiresIn: "24h" } // Token valide pendant 24 heures
+  );
+};
+
+module.exports = exports;

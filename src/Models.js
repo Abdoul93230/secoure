@@ -1100,6 +1100,30 @@ const sellerRequestSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
+
+    // Nouveaux champs pour les fonctionnalités sociales
+    followers: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User", // Référence à ton modèle d'utilisateur
+      },
+    ],
+    followersCount: {
+      type: Number,
+      default: 0,
+    },
+    rating: {
+      type: Number,
+      default: 0,
+    },
+    reviewsCount: {
+      type: Number,
+      default: 0,
+    },
+    likesCount: {
+      type: Number,
+      default: 0,
+    },
   },
   { strict: false }
 );
