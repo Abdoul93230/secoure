@@ -33,11 +33,24 @@ const userSchema = new mongoose.Schema(
       ],
     },
     phoneNumber: {
-      type: Number,
+      type: String,
       unique: true,
       required: [false, "un Utilisateur peut ne pas avoir un numero"],
-      min: [10000000, "Le numéro doit comporter au moins 8 chiffres."],
-      max: [99999999999, "Le numéro doit comporter au maximum 11 chiffres."],
+      validate: {
+        validator: function (value) {
+          // Permettre null ou undefined
+          if (value === null || value === undefined || value === "") {
+            return true;
+          }
+          
+          // Valider le format des numéros de téléphone avec indicatif pays
+          // Format accepté: +XXX suivi de 8 à 15 chiffres
+          const phoneRegex = /^\+[1-9]\d{7,14}$/;
+          return phoneRegex.test(value);
+        },
+        message: (props) =>
+          `${props.value} n'est pas un format de numéro de téléphone valide! Format attendu: +XXX suivi de 8-15 chiffres`,
+      },
     },
     whatsapp: {
       type: Boolean,
@@ -111,10 +124,17 @@ const fournisseursChema = new mongoose.Schema(
       unique: [true, "ce Email existe deja"],
     },
     numero: {
-      type: Number,
+      type: String,
       required: true,
-      min: [10000000, "Le numéro doit comporter au moins 8 chiffres."],
-      max: [99999999999, "Le numéro doit comporter au maximum 11 chiffres."],
+      validate: {
+        validator: function (value) {
+          // Valider le format des numéros de téléphone avec indicatif pays
+          const phoneRegex = /^\+[1-9]\d{7,14}$/;
+          return phoneRegex.test(value);
+        },
+        message: (props) =>
+          `${props.value} n'est pas un format de numéro de téléphone valide! Format attendu: +XXX suivi de 8-15 chiffres`,
+      },
     },
     region: {
       type: String,
@@ -558,10 +578,17 @@ const CarteBancaire = mongoose.model("CarteBancaire", carteBancaire);
 const mobileMoney = new mongoose.Schema(
   {
     numero: {
-      type: Number,
+      type: String,
       required: [true, "un mobileMoney doit avoir un numero"],
-      min: [10000000, "Le numéro doit comporter au moins 8 chiffres."],
-      max: [99999999999, "Le numéro doit comporter au maximum 11 chiffres."],
+      validate: {
+        validator: function (value) {
+          // Valider le format des numéros de téléphone avec indicatif pays
+          const phoneRegex = /^\+[1-9]\d{7,14}$/;
+          return phoneRegex.test(value);
+        },
+        message: (props) =>
+          `${props.value} n'est pas un format de numéro de téléphone valide! Format attendu: +XXX suivi de 8-15 chiffres`,
+      },
     },
     operateur: {
       type: String,
@@ -626,10 +653,22 @@ const profile = new mongoose.Schema(
       ],
     },
     numero: {
-      type: Number,
+      type: String,
       required: [false, "un profile peut ne pas avoir un numero"],
-      min: [10000000, "Le numéro doit comporter au moins 8 chiffres."],
-      max: [99999999999, "Le numéro doit comporter au maximum 11 chiffres."],
+      validate: {
+        validator: function (value) {
+          // Permettre null, undefined ou string vide
+          if (value === null || value === undefined || value === "") {
+            return true;
+          }
+          
+          // Valider le format des numéros de téléphone avec indicatif pays
+          const phoneRegex = /^\+[1-9]\d{7,14}$/;
+          return phoneRegex.test(value);
+        },
+        message: (props) =>
+          `${props.value} n'est pas un format de numéro de téléphone valide! Format attendu: +XXX suivi de 8-15 chiffres`,
+      },
     },
     image: {
       type: String,
@@ -699,10 +738,17 @@ const adressShipping = new mongoose.Schema(
       ],
     },
     numero: {
-      type: Number,
+      type: String,
       required: [true, "un profile doit avoir un numero"],
-      min: [10000000, "Le numéro doit comporter au moins 8 chiffres."],
-      max: [99999999999, "Le numéro doit comporter au maximum 11 chiffres."],
+      validate: {
+        validator: function (value) {
+          // Valider le format des numéros de téléphone avec indicatif pays
+          const phoneRegex = /^\+[1-9]\d{7,14}$/;
+          return phoneRegex.test(value);
+        },
+        message: (props) =>
+          `${props.value} n'est pas un format de numéro de téléphone valide! Format attendu: +XXX suivi de 8-15 chiffres`,
+      },
     },
 
     clefUser: {

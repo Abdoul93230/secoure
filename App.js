@@ -8,7 +8,7 @@ const bodyparser = require("body-parser");
 const cookieParser = require("cookie-parser");
 const path = require("path");
 const authentification = require("./src/auth/authentification");
-const port = 8080;
+const port = 3001;
 const middelware = require("./src/auth/middelware");
 const productControler = require("./src/productControler");
 const fournisseurControler = require("./src/fournisseurController");
@@ -126,6 +126,11 @@ app.get("/proxy/ip-api", async (req, res) => {
   } catch (error) {
     res.status(500).send("Error fetching data from ip-api");
   }
+});
+
+// Endpoint de santé pour les tests
+app.get("/health", (req, res) => {
+  res.json({ status: "OK", message: "Serveur backend fonctionnel", timestamp: new Date().toISOString() });
 });
 
 app.post("/user", userController.createUser);

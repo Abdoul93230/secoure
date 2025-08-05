@@ -10,14 +10,26 @@ const login = async (req, res) => {
   const data = req.body;
 
   try {
-    // Recherche de l'utilisateur par email
     let user = null;
-    if (data.email !== null) {
-      user = await User.findOne({ email: data.email });
-    }
-    // Si l'utilisateur n'est pas trouvé par email, recherche par numéro de téléphone
-    if (!user && data.phoneNumber) {
-      user = await User.findOne({ phoneNumber: data.phoneNumber });
+    
+    // Nouveau format : on reçoit un 'identifier' qui peut être email ou téléphone avec indicatif
+    if (data.identifier) {
+      // Vérifier si c'est un email (contient @)
+      if (data.identifier.includes('@')) {
+        user = await User.findOne({ email: data.identifier });
+      } else {
+        // C'est un numéro de téléphone avec indicatif (ex: +22787727501)
+        user = await User.findOne({ phoneNumber: data.identifier });
+      }
+    } else {
+      // Format ancien : recherche par email ou phoneNumber séparés (rétrocompatibilité)
+      if (data.email) {
+        user = await User.findOne({ email: data.email });
+      }
+      // Si l'utilisateur n'est pas trouvé par email, recherche par numéro de téléphone
+      if (!user && data.phoneNumber) {
+        user = await User.findOne({ phoneNumber: data.phoneNumber });
+      }
     }
 
     if (!user) {
