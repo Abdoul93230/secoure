@@ -119,7 +119,7 @@ const searchProductByNameBySeller = handleAsyncError(async (req, res) => {
 });
 
 // Product Validation
-const validateProduct = handleAsyncError(async (req, res) => {
+const validateProductStatus = handleAsyncError(async (req, res) => {
   const { productId } = req.params;
   const validatedProduct = await productService.validateProduct(productId, req.body);
   
@@ -445,7 +445,7 @@ module.exports = {
   searchProductByTypeBySeller,
   searchProductByName,
   searchProductByNameBySeller,
-  validateProduct,
+  validateProductStatus,
   
   // Category operations
   getAllCategories,

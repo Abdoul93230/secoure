@@ -19,7 +19,7 @@ router.get('/searchProductByName/:name', productControler.searchProductByName);
 router.get('/searchProductByNameBySeller/:name/:seller', productControler.searchProductByNameBySeller);
 
 // Product validation
-router.put('/product/validateProduct/:productId', productControler.validateProduct);
+router.put('/product/validateProduct/:productId', productControler.validateProductStatus);
 
 // Product pub
 router.get('/productPubget', productControler.productPubget);
