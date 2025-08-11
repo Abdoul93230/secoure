@@ -42,7 +42,7 @@ const userSchema = new mongoose.Schema(
           if (value === null || value === undefined || value === "") {
             return true;
           }
-          
+
           // Valider le format des numéros de téléphone avec indicatif pays
           // Format accepté: +XXX suivi de 8 à 15 chiffres
           const phoneRegex = /^\+[1-9]\d{7,14}$/;
@@ -430,6 +430,37 @@ const produitSchema = new mongoose.Schema(
         required: false,
       },
     },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      required: false,
+    },
+    isValidated: {
+      type: Boolean,
+      default: false,
+    },
+    validatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      required: false,
+    },
+    comments: {
+      type: String,
+      default: "Aucun commentaire",
+    },
+    isPublished: {
+      type: String,
+      enum: ["Published", "UnPublished", "Attente", "Refuser"],
+      default: "Published",
+      required: false,
+    },
+    isDeleted: {
+      type: Boolean,
+      default: false, // Pour la suppression logique
+      required: false,
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now,
+    }
   },
   { strict: false }
 );
@@ -661,7 +692,7 @@ const profile = new mongoose.Schema(
           if (value === null || value === undefined || value === "") {
             return true;
           }
-          
+
           // Valider le format des numéros de téléphone avec indicatif pays
           const phoneRegex = /^\+[1-9]\d{7,14}$/;
           return phoneRegex.test(value);
@@ -1020,7 +1051,7 @@ const sellerRequestSchema = new mongoose.Schema(
     // Informations de base
     email: {
       type: String,
-      required: true,
+      required: false,
       unique: true,
       validate: {
         validator: (v) =>
@@ -1065,7 +1096,7 @@ const sellerRequestSchema = new mongoose.Schema(
       required: true,
       unique: true,
       validate: {
-        validator: (v) => /^[0-9]{8,11}$/.test(v),
+        validator: (v) => /^\+[1-9]\d{7,14}$/.test(v),
         message: "Format de numéro de téléphone invalide",
       },
     },

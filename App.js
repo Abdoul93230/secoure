@@ -8,7 +8,7 @@ const bodyparser = require("body-parser");
 const cookieParser = require("cookie-parser");
 const path = require("path");
 const authentification = require("./src/auth/authentification");
-const port = 3001;
+const port = 8083;
 const middelware = require("./src/auth/middelware");
 const productControler = require("./src/productControler");
 const fournisseurControler = require("./src/fournisseurController");
@@ -149,6 +149,7 @@ app.get(
 );
 app.get("/verify", middelware.auth, userController.verifyToken);
 app.get("/verifyAdmin", middelware.authAdmin, AdminController.verifyToken);
+app.get("/admin/:adminId", AdminController.getAdmin);
 app.get("/productPubget", productControler.productPubget);
 app.delete("/productPubDelete/:id", productControler.productPubDelete);
 app.post(
@@ -431,6 +432,7 @@ app.put(
   "/command/updateEtatTraitement/:commandeId",
   userController.updateEtatTraitement
 );
+
 app.put(
   "/command/updateStatusLivraison/:commandeId",
   userController.updateStatusLivraison
@@ -559,7 +561,10 @@ app.post("/likes", productControler.createLike);
 app.get("/likes/user/:userId", productControler.getLikesByUser);
 app.delete("/likes/:userId/:produitId", productControler.deleteLikeByUser);
 app.get("/likes/check/:userId/:produitId", productControler.verifyLikByUser);
-
+app.put(
+  "/product/validateProduct/:productId",
+  productControler.validateProduct
+);
 // Routes
 app.use("/api/marketing", require("./src/routes/marketingRoutes"));
 app.use("/api", socialRoutes);

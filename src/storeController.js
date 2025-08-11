@@ -223,9 +223,9 @@ const createSeller = async (req, res) => {
         message: "Le prénom doit contenir au moins 2 caractères",
       },
       {
-        test: () => /^[0-9]{8,15}$/.test(phone),
+        test: () => /^\+[1-9]\d{7,14}$/.test(phone),
         field: "phone",
-        message: "Format de numéro de téléphone invalide",
+        message: "Format de numéro de téléphone international invalide (ex: +22787727501)",
       },
       {
         test: () => storeDescription.length >= 20,
@@ -445,7 +445,7 @@ const createSeller = async (req, res) => {
     });
 
     await newSeller.save();
-    console.log({ mess: "first", newSeller });
+    // console.log({ mess: "first", newSeller });
 
     // Création automatique du plan tarifaire
     const planType = req.body.planType || "Starter"; // Utiliser le plan spécifié ou Starter par défaut
@@ -633,12 +633,13 @@ const updateSeller = async (req, res) => {
     }
 
     if (phone !== undefined) {
-      validations.push({
-        test: () => /^[0-9]{8,15}$/.test(phone),
-        field: "phone",
-        message: "Format de numéro de téléphone invalide",
-      });
-    }
+  validations.push({
+    test: () => /^\+[1-9]\d{7,14}$/.test(phone),
+    field: "phone",
+    message: "Format de numéro de téléphone international invalide (ex: +22787727501)",
+  });
+}
+
 
     if (storeDescription !== undefined) {
       validations.push({

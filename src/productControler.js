@@ -681,6 +681,8 @@ const updateProduct2 = async (req, res) => {
     const productId = req.params.productId;
     const data = req.body;
 
+    console.log({ data });
+
     // Validation de base
     if (!productId || !mongoose.Types.ObjectId.isValid(productId)) {
       return res.status(400).json({ message: "ID de produit invalide" });
@@ -740,6 +742,12 @@ const updateProduct2 = async (req, res) => {
         height: data.height || 0,
       },
     };
+     if (data.comments) {
+      updateData.comments = data.comments;
+    }
+    if(data.isPublished) {
+      updateData.isPublished = data.isPublished;
+    }
 
     if (data.shippingZones) {
       try {
@@ -1264,7 +1272,7 @@ const updateProduct = async (req, res) => {
     const productId = req.params.productId;
     const data = req.body;
     const product = await Produit.findById(productId);
-
+// console.log({ data });
     // Récupérer les IDs des variantes supprimées
     const deletedVariantIds = JSON.parse(data.deletedVariantIds || "[]");
 
@@ -1291,6 +1299,12 @@ const updateProduct = async (req, res) => {
         height: data.height || 0,
       },
     };
+    if (data.comments) {
+      updateData.comments = data.comments;
+    }
+    if(data.isPublished) {
+      updateData.isPublished = data.isPublished;
+    }
 
     if (data.shippingZones) {
       updateData["shipping.zones"] = JSON.parse(data.shippingZones);
@@ -2132,4 +2146,5 @@ module.exports = {
   searchProductByNameBySeller,
   deleteProductAttribut,
   getSellerProducts,
+  validateProduct
 };
