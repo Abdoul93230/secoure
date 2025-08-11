@@ -1,13 +1,13 @@
-const productService = require('../services/productService');
-const categoryService = require('../services/categoryService');
-const typeService = require('../services/typeService');
-const commentService = require('../services/commentService');
-const likeService = require('../services/likeService');
-const shippingService = require('../services/shippingService');
-const pubService = require('../services/pubService');
-const clusterService = require('../services/clusterService');
-const { handleAsyncError } = require('../utils/errorHandler');
-const { validateProduct } = require('../validators/productValidator');
+const productService = require('./services/productService');
+const categoryService = require('./services/categoryService');
+const typeService = require('./services/typeService');
+const commentService = require('./services/commentService');
+const likeService = require('./services/likeService');
+const shippingService = require('./services/shippingService');
+const pubService = require('./services/pubService');
+const clusterService = require('./services/clusterService');
+const { handleAsyncError } = require('./utils/errorHandler');
+const { validateProduct } = require('./validators/productValidator');
 
 // Product CRUD Operations
 const getAllProducts = handleAsyncError(async (req, res) => {
