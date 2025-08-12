@@ -5,6 +5,7 @@ const commentService = require('./services/commentService');
 const likeService = require('./services/likeService');
 const shippingService = require('./services/shippingService');
 const pubService = require('./services/pubService');
+const mongoose = require("mongoose");
 const clusterService = require('./services/clusterService');
 const { handleAsyncError } = require('./utils/errorHandler');
 const { validateProduct } = require('./validators/productValidator');
@@ -12,6 +13,8 @@ const { validateProduct } = require('./validators/productValidator');
 // Product CRUD Operations
 const getAllProducts = handleAsyncError(async (req, res) => {
   const products = await productService.getAllProducts();
+  // console.log({ products });
+
   res.json({ message: "Tous les produits", data: products });
 });
 
@@ -27,48 +30,147 @@ const getProductById = handleAsyncError(async (req, res) => {
 });
 
 const createProduct = handleAsyncError(async (req, res) => {
-  const validationError = validateProduct(req.body);
-  if (validationError) {
-    return res.status(400).json({ errors: validationError });
-  }
+  try {
+    // Validation des données (si tu as un validateur)
+    const validationError = validateProduct && validateProduct(req.body);
+    if (validationError) {
+      return res.status(400).json({ errors: validationError });
+    }
 
-  const productData = await productService.prepareProductData(req.body, req.files);
-  const newProduct = await productService.createProduct(productData);
-  
-  res.status(201).json({ 
-    message: "Produit créé avec succès", 
-    data: newProduct 
-  });
+    // Préparer les données du produit avec gestion des images
+    const productData = await productService.prepareProductData(req.body, req.files);
+    
+    // Créer le produit
+    const newProduct = await productService.createProduct(productData);
+
+    // Déterminer le message selon le rôle
+    const sellerOrAdmin = req.body.sellerOrAdmin;
+    const message = `Le produit ${req.body.name} a été ${
+      sellerOrAdmin === "admin"
+        ? "créé et publié"
+        : "créé et en attente de validation"
+    } avec succès`;
+
+    res.status(201).json({ 
+      message, 
+      data: newProduct 
+    });
+    
+  } catch (error) {
+    console.log(error);
+    
+    // Gestion des erreurs spécifiques
+    if (error.message === "Aucune image du produit n'a été envoyée.") {
+      return res.status(400).json({ message: error.message });
+    }
+    
+    if (error.message === "La première image du produit est obligatoire") {
+      return res.status(400).json({ 
+        message: error.message,
+        error: error.message 
+      });
+    }
+
+    return res.status(500).json({
+      message: "Une erreur s'est produite lors de la création du produit",
+      error: error.message,
+    });
+  }
 });
 
 const updateProduct = handleAsyncError(async (req, res) => {
-  const { productId } = req.params;
-  const productData = await productService.prepareProductData(req.body, req.files);
-  
-  const updatedProduct = await productService.updateProduct(productId, productData);
-  
-  if (!updatedProduct) {
-    return res.status(404).json({ message: "Produit non trouvé" });
+  try {
+    const { productId } = req.params;
+    
+    // Préparer les données de mise à jour
+    const { updateData } = await productService.prepareUpdateData(
+      productId, 
+      req.body, 
+      req.files
+    );
+    
+    // Mettre à jour le produit
+    const updatedProduct = await productService.updateProduct(productId, updateData);
+
+    if (!updatedProduct) {
+      return res.status(404).json({ message: "Produit introuvable" });
+    }
+
+    res.json({ 
+      message: "Produit mis à jour avec succès", 
+      data: updatedProduct 
+    });
+    
+  } catch (error) {
+    console.log(error);
+    
+    if (error.message === "Produit introuvable") {
+      return res.status(404).json({ message: error.message });
+    }
+
+    return res.status(500).json({
+      message: "Erreur lors de la mise à jour du produit",
+      error: error.message,
+    });
   }
-  
-  res.json({ 
-    message: "Produit mis à jour avec succès", 
-    data: updatedProduct 
-  });
 });
 
 const updateProduct2 = handleAsyncError(async (req, res) => {
-  const { productId } = req.params;
-  const updatedProduct = await productService.updateProductSimple(productId, req.body);
-  
-  if (!updatedProduct) {
-    return res.status(404).json({ message: "Produit non trouvé" });
+  try {
+    const { productId } = req.params;
+    
+    // Validation de base
+    if (!productId || !mongoose.Types.ObjectId.isValid(productId)) {
+      return res.status(400).json({ message: "ID de produit invalide" });
+    }
+    
+    // Préparer les données de mise à jour avancée
+    const { updateData } = await productService.prepareAdvancedUpdateData(
+      productId, 
+      req.body, 
+      req.files
+    );
+    
+    // Mettre à jour le produit avec validation
+    const updatedProduct = await productService.updateProductAdvanced(productId, updateData);
+
+    if (!updatedProduct) {
+      return res.status(404).json({ message: "Produit non trouvé" });
+    }
+
+    res.json({ 
+      message: "Produit mis à jour avec succès", 
+      data: updatedProduct 
+    });
+    
+  } catch (error) {
+    console.error("Erreur lors de la mise à jour du produit:", error);
+    
+    // Gestion des erreurs spécifiques
+    if (error.message === "Produit introuvable") {
+      return res.status(404).json({ message: error.message });
+    }
+    
+    if (error.message === "Impossible de modifier un produit supprimé") {
+      return res.status(400).json({ message: error.message });
+    }
+    
+    if (error.message === "Vous n'êtes pas autorisé à modifier ce produit") {
+      return res.status(403).json({ message: error.message });
+    }
+    
+    if (error.message === "Format de variantes invalide") {
+      return res.status(400).json({ 
+        message: error.message,
+        error: error.message 
+      });
+    }
+
+    return res.status(500).json({
+      message: "Erreur lors de la mise à jour du produit",
+      error: error.message,
+    });
   }
-  
-  res.json({ 
-    message: "Produit mis à jour avec succès", 
-    data: updatedProduct 
-  });
 });
 
 const deleteProduct = handleAsyncError(async (req, res) => {
@@ -84,8 +186,10 @@ const deleteProduct = handleAsyncError(async (req, res) => {
 
 const deleteProductAttribut = handleAsyncError(async (req, res) => {
   const { productId } = req.params;
-  const deleted = await productService.softDeleteProduct(productId);
-  
+  const sellerOrAdmin = req.body.sellerOrAdmin;
+  const sellerOrAdmin_id = req.body.sellerOrAdmin_id;
+  const deleted = await productService.softDeleteProduct(productId, sellerOrAdmin, sellerOrAdmin_id);
+
   if (!deleted) {
     return res.status(404).json({ message: "Produit non trouvé" });
   }
