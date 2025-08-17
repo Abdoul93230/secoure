@@ -240,6 +240,25 @@ const variantSchema = new mongoose.Schema({
     default: 2,
     min: [0, "Le stock ne peut pas être négatif"],
   },
+    price: {
+    type: Number,
+    required: false,
+    min: [0, "Le prix ne peut pas être négatif"],
+  },
+  promoPrice: {
+    type: Number,
+    required: false,
+    min: [0, "Le prix promotionnel ne peut pas être négatif"],
+    default: 0,
+  },
+  hasCustomPrice: {
+    type: Boolean,
+    default: false,
+  },
+  isOnPromo: {
+    type: Boolean,
+    default: false,
+  },
 });
 // Sous-schéma pour les zones d'expédition
 const shippingZoneSchema = new mongoose.Schema({

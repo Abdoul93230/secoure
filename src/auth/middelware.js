@@ -94,29 +94,38 @@ const handleUpload = async (req, res, next) => {
 
     // Si des variantes sont présentes dans les données, ajouter des champs dynamiques pour chaque variante
     if (req.body.variants) {
-      const variants = JSON.parse(req.body.variants); // Parser les variantes reçues en JSON
+      const variants = JSON.parse(req.body.variants);
 
-      // Générer des champs dynamiques pour chaque variante, avec un champ par couleur
+      // Générer des champs dynamiques pour chaque variante
+      // CORRECTION: utiliser index au lieu de index + 1 pour correspondre au traitement
       const variantFields = variants.map((variant, index) => ({
-        name: `imageVariante${index + 1}`, // Par exemple : imageVariante1, imageVariante2, etc.
-        maxCount: 1, // Limite à 1 image par variante
+        name: `imageVariante${index}`, // imageVariante0, imageVariante1, etc.
+        maxCount: 1,
       }));
 
       // Fusionner les champs par défaut avec ceux générés dynamiquement pour les variantes
-      dynamicFields = [...dynamicFields, ...variantFields];
+      // Éviter les doublons en filtrant les champs déjà existants
+      const newFields = variantFields.filter(
+        field => !dynamicFields.some(existing => existing.name === field.name)
+      );
+      
+      dynamicFields = [...dynamicFields, ...newFields];
     }
+
+    console.log('Dynamic fields configured:', dynamicFields.map(f => f.name));
 
     // Appliquer le middleware Multer avec les champs dynamiques
     upload2.fields(dynamicFields)(req, res, (err) => {
       if (err) {
-        console.error("Error during file upload:", err); // Afficher les erreurs d'upload
+        console.error("Error during file upload:", err);
         return res.status(400).send("File upload error");
       }
 
-      next(); // Passer au middleware suivant (mettre à jour le produit)
+      console.log('Files received:', Object.keys(req.files || {}));
+      next();
     });
   } catch (error) {
-    console.error("Error parsing dynamic fields:", error); // Erreur lors du parsing des données des variantes
+    console.error("Error parsing dynamic fields:", error);
     return res.status(400).send("Invalid variants data");
   }
 };

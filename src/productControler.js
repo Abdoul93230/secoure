@@ -11,8 +11,14 @@ const { handleAsyncError } = require('./utils/errorHandler');
 const { validateProduct } = require('./validators/productValidator');
 
 // Product CRUD Operations
-const getAllProducts = handleAsyncError(async (req, res) => {
-  const products = await productService.getAllProducts();
+const getAllProductsSeller = handleAsyncError(async (req, res) => {
+  const products = await productService.getAllProductsSeller();
+  // console.log({ products });
+
+  res.json({ message: "Tous les produits", data: products });
+});
+const getAllProductsAdmin = handleAsyncError(async (req, res) => {
+  const products = await productService.getAllProductsAdmin();
   // console.log({ products });
 
   res.json({ message: "Tous les produits", data: products });
@@ -21,6 +27,16 @@ const getAllProducts = handleAsyncError(async (req, res) => {
 const getProductById = handleAsyncError(async (req, res) => {
   const { productId } = req.params;
   const product = await productService.getProductById(productId);
+  
+  if (!product) {
+    return res.status(404).json({ message: "Produit non trouvé" });
+  }
+  
+  res.json({ message: "Produit trouvé", data: product });
+});
+const getProductByIdAdmin = handleAsyncError(async (req, res) => {
+  const { productId } = req.params;
+  const product = await productService.getProductByIdAdmin(productId);
   
   if (!product) {
     return res.status(404).json({ message: "Produit non trouvé" });
@@ -538,8 +554,10 @@ const updateEtatTraitementCommande = handleAsyncError(async (req, res) => {
 
 module.exports = {
   // Product operations
-  getAllProducts,
+  getAllProductsSeller,
+  getAllProductsAdmin,
   getProductById,
+  getProductByIdAdmin,
   createProduct,
   updateProduct,
   updateProduct2,

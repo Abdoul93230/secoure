@@ -4,9 +4,11 @@ const productControler = require('../productControler');
 const middelware = require('../auth/middelware');
 
 // Product CRUD
-router.get('/Products', productControler.getAllProducts);
+router.get('/Products', productControler.getAllProductsSeller);
+router.get('/ProductsAdmin', productControler.getAllProductsAdmin);
 router.post('/product', middelware.handleUpload, productControler.createProduct);
 router.get('/Product/:productId', productControler.getProductById);
+router.get('/ProductAdmin/:productId', productControler.getProductByIdAdmin);
 router.put('/Product/:productId', middelware.handleUpload, productControler.updateProduct);
 router.put('/Product2/:productId', middelware.handleUpload, productControler.updateProduct2);
 router.delete('/Product/:productId', productControler.deleteProduct);

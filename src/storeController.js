@@ -1612,6 +1612,7 @@ async function getSellerOrders(sellerId) {
               couleurs: "$nbrProduits.couleurs",
               nom: "$productInfo.name",
               prix: "$productInfo.prix",
+              prixPromo:"$productInfo.prixPromo",
               image: "$productInfo.image1",
             },
           },
@@ -1619,7 +1620,16 @@ async function getSellerOrders(sellerId) {
           // Calculer le sous-total pour ce vendeur
           sellerTotal: {
             $sum: {
-              $multiply: ["$nbrProduits.quantite", "$productInfo.prix"],
+               $multiply: [
+            "$nbrProduits.quantite",
+            {
+              $cond: {
+                if: { $gt: ["$productInfo.prixPromo", 0] }, // prixPromo > 0
+                then: "$productInfo.prixPromo",
+                else: "$productInfo.prix"
+              }
+            }
+          ],
             },
           },
         },

@@ -3,12 +3,18 @@ const cloudinary = require('../cloudinary');
 
 const fs = require("fs");
 class ProductService {
-  async getAllProducts() {
+  async getAllProductsSeller() {
     return await Produit.find({ isDeleted: false });
+  }
+  async getAllProductsAdmin() {
+    return await Produit.find();
   }
 
   async getProductById(productId) {
     return await Produit.findOne({ _id: productId, isDeleted: false });
+  }
+  async getProductByIdAdmin(productId) {
+    return await Produit.findOne({ _id: productId });
   }
 
   // Créer un produit
@@ -156,7 +162,7 @@ class ProductService {
   }
 
 
-    // Préparer les données du produit pour la création
+  // Préparer les données du produit pour la création
   async prepareProductData(bodyData, files) {
     const data = bodyData;
     const sellerOrAdmin = bodyData.sellerOrAdmin;
@@ -221,6 +227,10 @@ class ProductService {
           sizes: variant.sizes,
           imageUrl: imageUrl,
           stock: variant.stock || 1,
+          hasCustomPrice: variant.hasCustomPrice || false,
+          price: variant.price || 0,
+          isOnPromo: variant.isOnPromo || false,
+          promoPrice: variant.promoPrice || 0,
         });
       }
     }
@@ -342,6 +352,10 @@ class ProductService {
           sizes: variant.sizes,
           imageUrl: imageUrl,
           stock: variant.stock || 1,
+          hasCustomPrice: variant.hasCustomPrice || false,
+          price: variant.price || 0,
+          isOnPromo: variant.isOnPromo || false,
+          promoPrice: variant.promoPrice || 0,
         });
       }
     }
@@ -500,33 +514,50 @@ class ProductService {
         );
 
         // Traiter les nouvelles variantes ou celles à mettre à jour
+        // Traiter les nouvelles variantes ou celles à mettre à jour
         const variantPromises = variants.map(async (variant, index) => {
+          console.log({ variant });
+
           let imageUrl = variant.imageUrl;
 
-          // Vérifier si cette variante a une image à supprimer
+          // Trouver la variante existante dans la base de données pour récupérer l'ancienne imageUrl
+          const existingVariant = product.variants.find(
+            (v) => v._id.toString() === (variant._id || variant.id).toString()
+          );
+
+          // Vérifier si cette variante a une image à supprimer explicitement
           if (variant.deleteImage && imageUrl) {
             await this.deleteImageFromCloudinary(imageUrl);
             imageUrl = "";
           }
-          // Si une image pour la variante est envoyée dans files
+          // Si une nouvelle image pour la variante est envoyée dans files
           else if (files && files[`imageVariante${index}`]) {
-            // Supprimer l'ancienne image si elle existe
-            if (variant.imageUrl) {
-              await this.deleteImageFromCloudinary(variant.imageUrl);
+            console.log({ file: files[`imageVariante${index}`] });
+
+            // Supprimer l'ancienne image si elle existe (récupérée depuis la DB)
+            if (existingVariant && existingVariant.imageUrl) {
+              console.log(`Suppression de l'ancienne image: ${existingVariant.imageUrl}`);
+              await this.deleteImageFromCloudinary(existingVariant.imageUrl);
             }
 
             // Upload de la nouvelle image
+            console.log(`Upload de la nouvelle image pour la variante ${index}`);
             imageUrl = await this.uploadImage(files[`imageVariante${index}`][0].path);
+            console.log(`Nouvelle imageUrl: ${imageUrl}`);
           }
 
           // Retourner la variante mise à jour
           return {
-            _id: variant._id,
+            _id: variant._id || variant.id,
             color: variant.colorName,
             colorCode: variant.color,
             sizes: variant.sizes,
             imageUrl: imageUrl,
             stock: variant.stock || 1,
+            hasCustomPrice: variant.hasCustomPrice || false,
+            price: variant.price || 0,
+            isOnPromo: variant.isOnPromo || false,
+            promoPrice: variant.promoPrice || 0,
           };
         });
 
@@ -657,15 +688,15 @@ class ProductService {
 
   async uploadImage(fileOrPath) {
     let filePath;
-    
+
     // Si c'est un objet file avec une propriété path
     if (typeof fileOrPath === 'object' && fileOrPath.path) {
       filePath = fileOrPath.path;
-    } 
+    }
     // Si c'est directement un chemin (string)
     else if (typeof fileOrPath === 'string') {
       filePath = fileOrPath;
-    } 
+    }
     // Si c'est un buffer ou autre format
     else {
       filePath = fileOrPath;
