@@ -348,6 +348,7 @@ const createCommenteProduit = handleAsyncError(async (req, res) => {
 
 // Like Operations
 const createLike = handleAsyncError(async (req, res) => {
+  
   const newLike = await likeService.createLike(req.body);
   res.status(201).json({ 
     message: "Like ajouté avec succès", 

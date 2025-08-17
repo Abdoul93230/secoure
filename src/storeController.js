@@ -1078,6 +1078,8 @@ const getSeller = (req, res) => {
   const Id = req.params.Id;
   SellerRequest.findById(Id)
     .then((response) => {
+      console.log({response});
+      
       const message = `vous avez demander le Sellers :${response.name}`;
       if (!response) {
         return res.status(400).json(`le Seller demander n'existe pas!`);
@@ -1086,6 +1088,8 @@ const getSeller = (req, res) => {
       }
     })
     .catch((error) => {
+      console.log({error});
+      
       const message =
         "une erreur s'est produit lors de la recuperation du Seller veuillez ressayer !";
       return res.status(500).json({ message: message, error: error });

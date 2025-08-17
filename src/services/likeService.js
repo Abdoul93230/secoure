@@ -1,18 +1,23 @@
 const { Like } = require('../Models');
 
 class LikeService {
-  async createLike(likeData) {
-    const { user, produit } = likeData;
-    
-    // Vérifier si le like existe déjà
-    const existingLike = await Like.findOne({ user, produit });
-    if (existingLike) {
-      throw new Error('Like déjà existant');
-    }
+ async createLike(likeData) {
+  const { userId, produitId } = likeData;
 
-    const newLike = new Like(likeData);
-    return await newLike.save();
+  // Adapter les champs à ceux attendus par ton schéma
+  const user = userId;
+  const produit = produitId;
+
+  // Vérifier si le like existe déjà
+  const existingLike = await Like.findOne({ user, produit });
+  if (existingLike) {
+    throw new Error('Like déjà existant');
   }
+
+  const newLike = new Like({ user, produit });
+  return await newLike.save();
+}
+
 
   async deleteLike(userId, produitId) {
     const deleted = await Like.findOneAndDelete({
