@@ -17,6 +17,7 @@ const fs = require("fs");
 const cloudinary = require("cloudinary").v2;
 const nodemailer = require("nodemailer");
 const { gererValidationFinanciere, handleFinancialTransitions } = require("./productControler");
+const { gererRelanceCommande } = require("./controllers/financeController");
 
 cloudinary.config({
   cloud_name: "dkfddtykk",
@@ -59,8 +60,8 @@ const createUser = async (req, res) => {
 
     const existingProfilWithNumber = data.phoneNumber
       ? await Profile.findOne({
-          numero: data.phoneNumber,
-        })
+        numero: data.phoneNumber,
+      })
       : null;
 
     if (existingUserByEmail) {
@@ -240,9 +241,8 @@ const creatProfile = async (req, res) => {
       // Supprimer l'ancienne image du profil
       const profile = await Profile.findOne({ clefUser: data.id });
       if (profile && profile.image) {
-        const publicId = `images/${
-          profile.image.split("/").pop().split(".")[0]
-        }`;
+        const publicId = `images/${profile.image.split("/").pop().split(".")[0]
+          }`;
         await cloudinary.uploader.destroy(publicId);
       }
     }
@@ -409,18 +409,18 @@ const deleteCommandeById = async (req, res) => {
 
 const mettreAJourStatuts = async (req, res) => {
   const commandeId = req.params.commandeId;
-  
+
   try {
     // 1. Récupérer l'état actuel de la commande
     const commandeActuelle = await Commande.findById(commandeId);
-    
+
     if (!commandeActuelle) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        message: "Commande non trouvée" 
+        message: "Commande non trouvée"
       });
     }
-    
+
     // Vérifier si la commande n'est pas déjà validée
     if (commandeActuelle.etatTraitement === "livraison reçu") {
       return res.status(400).json({
@@ -428,7 +428,7 @@ const mettreAJourStatuts = async (req, res) => {
         message: "Cette commande est déjà validée"
       });
     }
-    
+
     // Vérifier si la commande n'est pas annulée
     if (commandeActuelle.etatTraitement === "Annulée") {
       return res.status(400).json({
@@ -436,9 +436,9 @@ const mettreAJourStatuts = async (req, res) => {
         message: "Impossible de valider une commande annulée"
       });
     }
-    
+
     console.log(`Validation de la commande ${commandeId} - État actuel: ${commandeActuelle.etatTraitement}`);
-    
+
     // 2. Mettre à jour la commande
     const updatedCommande = await Commande.findOneAndUpdate(
       { _id: commandeId },
@@ -452,10 +452,10 @@ const mettreAJourStatuts = async (req, res) => {
       },
       { new: true }
     );
-    
+
     // 3. Gérer les aspects financiers
     await gererValidationFinanciere(commandeId, commandeActuelle.etatTraitement);
-    
+
     // 4. Réponse de succès
     res.status(200).json({
       success: true,
@@ -466,13 +466,13 @@ const mettreAJourStatuts = async (req, res) => {
         timestamp: new Date()
       }
     });
-    
+
     console.log(`✅ Commande ${commandeId} validée avec succès`);
-    
+
   } catch (error) {
     console.error(`❌ Erreur lors de la validation de la commande ${commandeId}:`, error);
-    
-    res.status(500).json({ 
+
+    res.status(500).json({
       success: false,
       message: "Erreur lors de la validation de la commande",
       error: error.message
@@ -1615,6 +1615,92 @@ const updateCommanderef = async (req, res) => {
   }
 };
 
+// const updateCommanderef = async (req, res) => {
+//   try {
+//     const {
+//       oldReference,
+//       newReference,
+//       livraisonDetails,
+//       prod,
+//       statusPayment,
+//     } = req.body;
+//     console.log({ oldReference,
+//       newReference,
+//       livraisonDetails,
+//       // prod,
+//       statusPayment,});
+
+//     const data = req.body;
+
+//     // Vérifier que la commande existe avec l'ancienne référence
+//     const commande = await Commande.findOne({ reference: oldReference });
+//     if (!commande) {
+//       console.error("Commande non trouvée pour la référence:", oldReference);
+//       return res.status(404).json({
+//         message: "Commande non trouvée",
+//       });
+//     }
+
+//     // Gérer la réactivation des transactions si nécessaire
+//     let reactivationResult = null;
+//     try {
+//       reactivationResult = await gererRelanceCommande(commande._id, newReference);
+//     } catch (financialError) {
+//       console.error("Erreur lors de la réactivation financière:", financialError);
+//       // On continue même si la partie financière échoue
+//     }
+
+//     // Mettre à jour la référence de la commande
+//     const dataUpdate = {
+//       clefUser: data.clefUser,
+//       nbrProduits: data.nbrProduits,
+//       prix: data.prix,
+//       codePro: data.codePro,
+//       idCodePro: data.idCodePro,
+//       reference: newReference,
+//       livraisonDetails: livraisonDetails,
+//       prod: prod,
+//       statusLivraison: "en cours",
+//       etatTraitement:"traitement"
+//     };
+
+//     // if (statusPayment && statusPayment === "payé à la livraison") {
+//     //   dataUpdate.statusPayment = statusPayment;
+//     // }
+
+//     if (statusPayment) {
+//   dataUpdate.statusPayment = statusPayment;
+// }
+
+
+//     await Commande.findOneAndUpdate({ reference: oldReference }, dataUpdate);
+
+//     console.log("Référence mise à jour:", { oldReference, newReference });
+
+//     // Réponse incluant les informations de réactivation
+//     const response = {
+//       message: "Référence mise à jour avec succès",
+//       commande: {
+//         reference: newReference,
+//       }
+//     };
+
+//     if (reactivationResult && reactivationResult.count > 0) {
+//       response.financialReactivation = reactivationResult;
+//       response.message += ` et ${reactivationResult.count} transaction(s) réactivée(s)`;
+//     }
+
+//     res.status(200).json(response);
+
+//   } catch (error) {
+//     console.error("Erreur lors de la mise à jour de la référence:", error);
+//     res.status(500).json({
+//       message: "Erreur lors de la mise à jour de la référence",
+//       error: error.message,
+//     });
+//   }
+// };
+
 // Route pour la redirection en cas d'échec de paiement
 
 const updateEtatTraitement = async (req, res) => {
@@ -1624,39 +1710,39 @@ const updateEtatTraitement = async (req, res) => {
 
 
     // Récupérer l'état actuel avant mise à jour
-  const currentOrder = await Commande.findById(commandeId);
-  if (!currentOrder) {
-    return res.status(404).json({
-      success: false,
-      message: "Commande non trouvée",
-    });
-  }
-  
-  const ancienEtat = currentOrder.etatTraitement;
+    const currentOrder = await Commande.findById(commandeId);
+    if (!currentOrder) {
+      return res.status(404).json({
+        success: false,
+        message: "Commande non trouvée",
+      });
+    }
+
+    const ancienEtat = currentOrder.etatTraitement;
 
 
     // Mettre à jour l'état de la commande
-  const updatedOrder = await Commande.findByIdAndUpdate(
-    commandeId,
-    { etatTraitement: nouvelEtat },
-    { new: true, runValidators: true }
-  );
-  
-  if (!updatedOrder) {
-    return res.status(404).json({
-      success: false,
-      message: "Erreur lors de la mise à jour",
-    });
-  }
+    const updatedOrder = await Commande.findByIdAndUpdate(
+      commandeId,
+      { etatTraitement: nouvelEtat },
+      { new: true, runValidators: true }
+    );
 
-     // Gérer les transitions financières
-  await handleFinancialTransitions(commandeId, ancienEtat, nouvelEtat);
-  
-  res.status(200).json({
-    success: true,
-    message: "État de traitement mis à jour avec succès",
-    data: updatedOrder,
-  });
+    if (!updatedOrder) {
+      return res.status(404).json({
+        success: false,
+        message: "Erreur lors de la mise à jour",
+      });
+    }
+
+    // Gérer les transitions financières
+    await handleFinancialTransitions(commandeId, ancienEtat, nouvelEtat);
+
+    res.status(200).json({
+      success: true,
+      message: "État de traitement mis à jour avec succès",
+      data: updatedOrder,
+    });
   } catch (error) {
     res.status(400).json({
       success: false,
@@ -1669,9 +1755,25 @@ const updateStatusLivraison = async (req, res) => {
     const { commandeId } = req.params;
     const { nouveauStatus } = req.body;
 
+
+    // Récupérer l'état actuel avant mise à jour
+    const currentOrder = await Commande.findById(commandeId);
+    if (!currentOrder) {
+      return res.status(404).json({
+        success: false,
+        message: "Commande non trouvée",
+      });
+    }
+
+    const ancienEtat = currentOrder.statusLivraison;
+    const updateFields = { statusLivraison: nouveauStatus };
+
+    if (nouveauStatus === "annule") {
+      updateFields.statusPayment = "en cours";
+    }
     const commande = await Commande.findByIdAndUpdate(
       commandeId,
-      { statusLivraison: nouveauStatus },
+      updateFields,
       { new: true, runValidators: true }
     );
 
@@ -1680,6 +1782,11 @@ const updateStatusLivraison = async (req, res) => {
         success: false,
         message: "Commande non trouvée",
       });
+    }
+    if (nouveauStatus === "Annulée" || nouveauStatus === "annulé") {
+
+      // Gérer les transitions financières
+      await handleFinancialTransitions(commandeId, ancienEtat, nouveauStatus, isDelete = true);
     }
 
     res.status(200).json({
@@ -1693,6 +1800,350 @@ const updateStatusLivraison = async (req, res) => {
     });
   }
 };
+
+
+// Fonction pour récupérer les commandes d'un client avec tous les détails
+async function getClientOrdersWithFullDetails(clefUser) {
+  try {
+    const orders = await Commande.aggregate([
+      // Filtrer par clefUser dès le début
+      { $match: { clefUser } },
+
+      // Dénormaliser les produits
+      { $unwind: "$nbrProduits" },
+
+      // Récupérer les informations des produits
+      {
+        $lookup: {
+          from: "produits",
+          localField: "nbrProduits.produit",
+          foreignField: "_id",
+          as: "productInfo",
+        },
+      },
+      { $unwind: "$productInfo" },
+
+      // Récupérer les informations des vendeurs
+      {
+        $lookup: {
+          from: "users", // ou le nom de votre collection vendeurs
+          localField: "productInfo.Clefournisseur",
+          foreignField: "_id",
+          as: "sellerInfo",
+        },
+      },
+      { $unwind: { path: "$sellerInfo", preserveNullAndEmptyArrays: true } },
+
+      // Regrouper par commande et organiser par vendeur
+      {
+        $group: {
+          _id: "$_id",
+          // Informations générales de la commande
+          clefUser: { $first: "$clefUser" },
+          reference: { $first: "$reference" },
+          statusPayment: { $first: "$statusPayment" },
+          statusLivraison: { $first: "$statusLivraison" },
+          livraisonDetails: { $first: "$livraisonDetails" },
+          prix: { $first: "$prix" },
+          reduction: { $first: "$reduction" },
+          date: { $first: "$date" },
+          etatTraitement: { $first: "$etatTraitement" },
+
+          // Regrouper les produits par vendeur
+          sellers: {
+            $push: {
+              sellerId: "$productInfo.Clefournisseur",
+              sellerName: "$sellerInfo.firstName", // Adaptez selon votre modèle
+              sellerEmail: "$sellerInfo.email",
+              product: {
+                produitId: "$nbrProduits.produit",
+                isValideSeller: "$nbrProduits.isValideSeller",
+                quantite: "$nbrProduits.quantite",
+                tailles: "$nbrProduits.tailles",
+                couleurs: "$nbrProduits.couleurs",
+                nom: "$productInfo.name",
+                prix: "$productInfo.prix",
+                prixPromo: "$productInfo.prixPromo",
+                image: "$productInfo.image1",
+                totalProduit: {
+                  $multiply: [
+                    "$nbrProduits.quantite",
+                    {
+                      $cond: {
+                        if: { $gt: ["$productInfo.prixPromo", 0] },
+                        then: "$productInfo.prixPromo",
+                        else: "$productInfo.prix"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+
+          // Total général de la commande
+          totalCommande: {
+            $sum: {
+              $multiply: [
+                "$nbrProduits.quantite",
+                {
+                  $cond: {
+                    if: { $gt: ["$productInfo.prixPromo", 0] },
+                    then: "$productInfo.prixPromo",
+                    else: "$productInfo.prix"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+
+      // Regrouper les vendeurs et calculer leurs totaux
+      {
+        $addFields: {
+          sellersGrouped: {
+            $map: {
+              input: { $setUnion: ["$sellers.sellerId"] }, // Liste unique des vendeurs
+              as: "sellerId",
+              in: {
+                sellerId: "$$sellerId",
+                sellerName: {
+                  $arrayElemAt: [
+                    {
+                      $filter: {
+                        input: "$sellers",
+                        cond: { $eq: ["$$this.sellerId", "$$sellerId"] }
+                      }
+                    },
+                    0
+                  ]
+                },
+                products: {
+                  $filter: {
+                    input: "$sellers",
+                    cond: { $eq: ["$$this.sellerId", "$$sellerId"] }
+                  }
+                },
+                totalSeller: {
+                  $sum: {
+                    $map: {
+                      input: {
+                        $filter: {
+                          input: "$sellers",
+                          cond: { $eq: ["$$this.sellerId", "$$sellerId"] }
+                        }
+                      },
+                      as: "item",
+                      in: "$$item.product.totalProduit"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+
+      // Lookup des transactions pour chaque vendeur
+      {
+        $lookup: {
+          from: "transactionsellers",
+          let: { commandeId: "$_id" },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ["$commandeId", "$$commandeId"] },
+                    { $eq: ["$type", "CREDIT_COMMANDE"] }
+                  ]
+                }
+              }
+            }
+          ],
+          as: "transactions"
+        }
+      },
+
+      // Ajouter les informations de transaction à chaque vendeur
+      {
+        $addFields: {
+          sellersWithTransactions: {
+            $map: {
+              input: "$sellersGrouped",
+              as: "seller",
+              in: {
+                $mergeObjects: [
+                  "$$seller",
+                  {
+                    transaction: {
+                      $arrayElemAt: [
+                        {
+                          $filter: {
+                            input: "$transactions",
+                            cond: { $eq: ["$$this.sellerId", "$$seller.sellerId"] }
+                          }
+                        },
+                        0
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+
+      // Nettoyer et finaliser les données
+      {
+        $project: {
+          _id: 1,
+          clefUser: 1,
+          reference: 1,
+          statusPayment: 1,
+          statusLivraison: 1,
+          livraisonDetails: 1,
+          prix: 1,
+          reduction: 1,
+          date: 1,
+          etatTraitement: 1,
+          totalCommande: 1,
+          sellers: {
+            $map: {
+              input: "$sellersWithTransactions",
+              as: "seller",
+              in: {
+                sellerId: "$$seller.sellerId",
+                sellerName: "$$seller.sellerName.sellerName",
+                sellerEmail: "$$seller.sellerName.sellerEmail",
+                totalSeller: "$$seller.totalSeller",
+                products: {
+                  $map: {
+                    input: "$$seller.products",
+                    as: "prod",
+                    in: "$$prod.product"
+                  }
+                },
+                // Informations de transaction
+                transactionStatus: {
+                  $ifNull: ["$$seller.transaction.statut", "AUCUNE"]
+                },
+                montantNet: {
+                  $ifNull: ["$$seller.transaction.montantNet", 0]
+                },
+                commission: {
+                  $ifNull: ["$$seller.transaction.commission", 0]
+                },
+                estDisponible: {
+                  $ifNull: ["$$seller.transaction.estDisponible", false]
+                },
+                dateDisponibilite: {
+                  $ifNull: ["$$seller.transaction.dateDisponibilite", null]
+                },
+                transactionReference: {
+                  $ifNull: ["$$seller.transaction.reference", null]
+                }
+              }
+            }
+          }
+        }
+      },
+
+      { $sort: { date: -1 } }
+    ]);
+
+    return orders;
+  } catch (error) {
+    console.error("Erreur lors de la récupération des commandes du client:", error);
+    throw error;
+  }
+}
+
+// Fonction pour obtenir les statistiques d'achat d'un client
+async function getClientPurchaseStatistics(clefUser, periode = 30) {
+  try {
+    const dateDebut = new Date();
+    dateDebut.setDate(dateDebut.getDate() - periode);
+
+    const [commandes, statistiques] = await Promise.all([
+      Commande.find({
+        clefUser,
+        date: { $gte: dateDebut }
+      }).sort({ date: -1 }),
+
+      Commande.aggregate([
+        { $match: { clefUser } },
+        {
+          $group: {
+            _id: null,
+            totalCommandes: { $sum: 1 },
+            totalDepense: { $sum: "$prix" },
+            moyenneCommande: { $avg: "$prix" },
+            commandesLivrees: {
+              $sum: {
+                $cond: [{ $eq: ["$statusLivraison", "LIVRE"] }, 1, 0]
+              }
+            },
+            commandesAnnulees: {
+              $sum: {
+                $cond: [{ $eq: ["$etatTraitement", "ANNULE"] }, 1, 0]
+              }
+            }
+          }
+        }
+      ])
+    ]);
+
+    const stats = statistiques[0] || {
+      totalCommandes: 0,
+      totalDepense: 0,
+      moyenneCommande: 0,
+      commandesLivrees: 0,
+      commandesAnnulees: 0
+    };
+
+    return {
+      statistiques: stats,
+      commandesRecentes: commandes.slice(0, 10),
+      tauxLivraison: stats.totalCommandes > 0 ?
+        (stats.commandesLivrees / stats.totalCommandes * 100).toFixed(2) : 0,
+      tauxAnnulation: stats.totalCommandes > 0 ?
+        (stats.commandesAnnulees / stats.totalCommandes * 100).toFixed(2) : 0
+    };
+
+  } catch (error) {
+    console.error('Erreur lors de la récupération des statistiques client:', error);
+    throw error;
+  }
+}
+
+// Controller mis à jour
+const getCommandesByClefUser2 = async (req, res) => {
+  try {
+    const clefUser = req.params.clefUser;
+
+    const [clientOrders, clientStats] = await Promise.all([
+      getClientOrdersWithFullDetails(clefUser),
+      getClientPurchaseStatistics(clefUser)
+    ]);
+
+    res.status(200).json({
+      success: true,
+      orders: clientOrders,
+      statistics: clientStats
+    });
+  } catch (error) {
+    console.error('Erreur lors de la récupération des commandes client:', error);
+    res.status(500).json({
+      success: false,
+      message: "Erreur lors de la récupération des commandes du client",
+      error: error.message,
+    });
+  }
+};
+
 
 module.exports = {
   createUser,
@@ -1737,6 +2188,7 @@ module.exports = {
   updateCommanderef,
   updateEtatTraitement,
   updateStatusLivraison,
+  getCommandesByClefUser2
   // getUsers,
   // getUserByEmail
 };

@@ -1,14 +1,15 @@
-// Obtenir le dashboard financier du seller
 const { Commande } = require('../Models');
 const Portefeuille = require('../models/portefeuilleSchema');
 const Retrait = require('../models/retraitSchema');
 const Transaction = require('../models/transactionSchema');
 const FinancialService = require('../services/FinancialService');
 const mongoose = require("mongoose");
+
+// Obtenir le dashboard financier du seller
 const getSellerDashboard = async (req, res) => {
   try {
     const sellerId = req.params.sellerId;
-    const periode = req.query.periode || 30;
+    const periode = parseInt(req.query.periode) || 30;
     
     const stats = await FinancialService.getStatistiquesFinancieres(sellerId, periode);
     
@@ -18,6 +19,7 @@ const getSellerDashboard = async (req, res) => {
     });
     
   } catch (error) {
+    console.error('Erreur dashboard seller:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur lors de la récupération du dashboard',
@@ -26,6 +28,19 @@ const getSellerDashboard = async (req, res) => {
   }
 };
 
+function generateReference() {
+  const now = new Date();
+
+  const year   = now.getFullYear();
+  const month  = String(now.getMonth() + 1).padStart(2, '0');
+  const day    = String(now.getDate()).padStart(2, '0');
+  const hour   = String(now.getHours()).padStart(2, '0');
+  const minute = String(now.getMinutes()).padStart(2, '0');
+  const second = String(now.getSeconds()).padStart(2, '0');
+
+  return `${year}${month}${day}${hour}${minute}${second}`;
+}
+
 // Demander un retrait
 const demanderRetrait = async (req, res) => {
   try {
@@ -33,18 +48,26 @@ const demanderRetrait = async (req, res) => {
     const { montantDemande, methodeRetrait, detailsRetrait } = req.body;
     
     // Validation
-    if (!montantDemande || montantDemande <= 0) {
+    if (!montantDemande || montantDemande < 5000) {
       return res.status(400).json({
         success: false,
-        message: 'Montant invalide'
+        message: 'Le montant minimum est de 5,000 FCFA'
       });
     }
-    
+
+    if (!methodeRetrait || !['MOBILE_MONEY', 'VIREMENT_BANCAIRE', 'ESPECES'].includes(methodeRetrait)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Méthode de retrait invalide'
+      });
+    }
+    const reference = generateReference();
     const retrait = await FinancialService.demanderRetrait(
       sellerId, 
       montantDemande, 
       methodeRetrait, 
-      detailsRetrait
+      detailsRetrait,
+      reference
     );
     
     res.status(201).json({
@@ -54,6 +77,7 @@ const demanderRetrait = async (req, res) => {
     });
     
   } catch (error) {
+    console.error('Erreur demande retrait:', error);
     res.status(400).json({
       success: false,
       message: error.message
@@ -65,13 +89,29 @@ const demanderRetrait = async (req, res) => {
 const getHistoriqueTransactions = async (req, res) => {
   try {
     const sellerId = req.params.sellerId;
-    const { page = 1, limit = 20, type } = req.query;
+    const { 
+      page = 1, 
+      limit = 20, 
+      type, 
+      statut,
+      dateStart,
+      dateEnd 
+    } = req.query;
     
     const query = { sellerId };
+    
     if (type) query.type = type;
+    if (statut) query.statut = statut;
+    
+    if (dateStart || dateEnd) {
+      query.dateTransaction = {};
+      if (dateStart) query.dateTransaction.$gte = new Date(dateStart);
+      if (dateEnd) query.dateTransaction.$lte = new Date(dateEnd);
+    }
     
     const transactions = await Transaction.find(query)
       .populate('commandeId', 'reference date')
+      .populate('retraitId', 'reference methodeRetrait')
       .sort({ dateTransaction: -1 })
       .limit(limit * 1)
       .skip((page - 1) * limit);
@@ -92,6 +132,7 @@ const getHistoriqueTransactions = async (req, res) => {
     });
     
   } catch (error) {
+    console.error('Erreur historique transactions:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur lors de la récupération des transactions',
@@ -99,7 +140,6 @@ const getHistoriqueTransactions = async (req, res) => {
     });
   }
 };
-
 
 // Middleware à appeler quand une commande passe à "livraison reçu"
 const onCommandeLivree = async (commandeId) => {
@@ -134,10 +174,15 @@ const onCommandeLivree = async (commandeId) => {
       );
     }
     
+    console.log(`Commande ${commande.reference} traitée financièrement`);
+    
   } catch (error) {
     console.error('Erreur lors de la mise à jour des finances:', error);
+    throw error;
   }
 };
+
+// Fonction pour obtenir les commandes avec informations financières
 async function getSellerOrdersWithFinancialInfo(sellerId) {
   try {
     const orders = await Commande.aggregate([
@@ -153,7 +198,7 @@ async function getSellerOrdersWithFinancialInfo(sellerId) {
       { $unwind: "$productInfo" },
       {
         $match: {
-          "productInfo.Clefournisseur": sellerId, // ✅ GARDER COMME AVANT
+          "productInfo.Clefournisseur": sellerId,
         },
       },
       {
@@ -200,13 +245,13 @@ async function getSellerOrdersWithFinancialInfo(sellerId) {
         },
       },
 
-      // ✅ SEULE PARTIE MODIFIÉE : Lookup pour les transactions
+      // Lookup pour les transactions
       {
         $lookup: {
-          from: "transactionsellers", // ✅ Nom de collection correct
+          from: "transactionsellers",
           let: { 
-            commandeId: "$_id",      // ObjectId
-            sellerId: sellerId       // String (comme reçu en paramètre)
+            commandeId: "$_id",
+            sellerId: sellerId
           },
           pipeline: [
             {
@@ -248,6 +293,20 @@ async function getSellerOrdersWithFinancialInfo(sellerId) {
               then: { $arrayElemAt: ["$transactionInfo.commission", 0] },
               else: 0
             }
+          },
+          estDisponible: {
+            $cond: {
+              if: { $gt: [{ $size: "$transactionInfo" }, 0] },
+              then: { $arrayElemAt: ["$transactionInfo.estDisponible", 0] },
+              else: false
+            }
+          },
+          dateDisponibilite: {
+            $cond: {
+              if: { $gt: [{ $size: "$transactionInfo" }, 0] },
+              then: { $arrayElemAt: ["$transactionInfo.dateDisponibilite", 0] },
+              else: null
+            }
           }
         }
       },
@@ -262,16 +321,15 @@ async function getSellerOrdersWithFinancialInfo(sellerId) {
   }
 }
 
-// Contrôleur original
+// Contrôleur pour les commandes avec informations financières
 const seller_orders_with_financial = async (req, res) => {
   try {
     const sellerId = req.params.sellerId;
     
-    // Récupérer les commandes avec informations financières
-    const sellerOrders = await getSellerOrdersWithFinancialInfo(sellerId);
-    
-    // Récupérer le résumé financier
-    const financialSummary = await FinancialService.getStatistiquesFinancieres(sellerId);
+    const [sellerOrders, financialSummary] = await Promise.all([
+      getSellerOrdersWithFinancialInfo(sellerId),
+      FinancialService.getStatistiquesFinancieres(sellerId)
+    ]);
     
     res.status(200).json({
       success: true,
@@ -279,6 +337,7 @@ const seller_orders_with_financial = async (req, res) => {
       financial: financialSummary
     });
   } catch (error) {
+    console.error('Erreur orders with financial:', error);
     res.status(500).json({
       success: false,
       message: "Erreur lors de la récupération des commandes",
@@ -290,7 +349,6 @@ const seller_orders_with_financial = async (req, res) => {
 // Fonction à appeler périodiquement pour confirmer les transactions
 const confirmerTransactionsLivrees = async () => {
   try {
-    // Trouver toutes les transactions en attente avec commandes livrées
     const transactionsAConfirmer = await Transaction.aggregate([
       {
         $match: {
@@ -313,96 +371,94 @@ const confirmerTransactionsLivrees = async () => {
       }
     ]);
 
-    // Confirmer chaque transaction
+    let confirmees = 0;
     for (const transaction of transactionsAConfirmer) {
-      await FinancialService.confirmerTransaction(transaction._id);
-      console.log(`Transaction confirmée: ${transaction.reference}`);
+      try {
+        await FinancialService.confirmerTransaction(transaction._id);
+        confirmees++;
+      } catch (error) {
+        console.error(`Erreur confirmation transaction ${transaction._id}:`, error);
+      }
     }
 
-    console.log(`${transactionsAConfirmer.length} transactions confirmées`);
+    console.log(`${confirmees}/${transactionsAConfirmer.length} transactions confirmées`);
+    return { confirmees, total: transactionsAConfirmer.length };
     
   } catch (error) {
     console.error('Erreur lors de la confirmation des transactions:', error);
+    throw error;
   }
 };
+
+// Tâche de déblocage
 const tacheDeblocage = async () => {
   try {
-    await FinancialService.debloquerArgentDisponible();
+    const result = await FinancialService.debloquerArgentDisponible();
+    console.log('Tâche de déblocage terminée:', result);
+    return result;
   } catch (error) {
     console.error('Erreur dans la tâche de déblocage:', error);
+    throw error;
   }
 };
 
-// 5. FONCTIONS UTILITAIRES POUR L'ADMIN
-
-const adminApprouverRetrait = async (req, res) => {
+// Tâche de nettoyage
+const tacheNettoyage = async () => {
   try {
-    const { retraitId } = req.params;
-    const { statut, commentaire } = req.body;
+    const result = await FinancialService.nettoyageAutomatique();
+    console.log('Tâche de nettoyage terminée:', result);
+    return result;
+  } catch (error) {
+    console.error('Erreur dans la tâche de nettoyage:', error);
+    throw error;
+  }
+};
+
+// Recalculer les soldes (fonction d'audit)
+const recalculerSoldes = async (req, res) => {
+  try {
+    const sellerId = req.params.sellerId;
     
-    const retrait = await Retrait.findByIdAndUpdate(
-      retraitId,
-      {
-        statut,
-        commentaireAdmin: commentaire,
-        dateTraitement: new Date()
-      },
-      { new: true }
-    );
-    
-    if (!retrait) {
-      return res.status(404).json({
-        success: false,
-        message: 'Demande de retrait non trouvée'
-      });
-    }
-    
-    // Si approuvé, créer une transaction de retrait
-    if (statut === 'APPROUVE') {
-      const transaction = new Transaction({
-        sellerId: retrait.sellerId,
-        type: 'RETRAIT',
-        statut: 'CONFIRME',
-        montant: -retrait.montantDemande,
-        montantNet: -retrait.montantAccorde,
-        commission: retrait.fraisRetrait,
-        description: `Retrait ${retrait.methodeRetrait}`,
-        reference: `RETRAIT_${retrait.reference}`,
-        dateConfirmation: new Date()
-      });
-      
-      await transaction.save();
-      
-      retrait.transactionId = transaction._id;
-      await retrait.save();
-    }
-    
-    // Si rejeté, remettre l'argent dans le solde disponible
-    if (statut === 'REJETE') {
-      await Portefeuille.findOneAndUpdate(
-        { sellerId: retrait.sellerId },
-        {
-          $inc: {
-            soldeDisponible: retrait.montantDemande
-          }
-        }
-      );
-    }
+    const result = await FinancialService.recalculerSoldes(sellerId);
     
     res.status(200).json({
       success: true,
-      data: retrait
+      message: 'Soldes recalculés avec succès',
+      data: result
     });
     
   } catch (error) {
+    console.error('Erreur recalcul soldes:', error);
     res.status(500).json({
       success: false,
-      message: 'Erreur lors du traitement de la demande',
+      message: 'Erreur lors du recalcul des soldes',
       error: error.message
     });
   }
 };
 
+const gererRelanceCommande = async (commandeId, newReference) => {
+  try {
+    console.log(`🚀 Gestion de la relance pour commande ${commandeId}`);
+
+    // Vérifier s'il y a des transactions annulées
+    const aTransactionsAnnulees = await FinancialService.aDesTransactionsAnnulees(commandeId);
+
+    if (aTransactionsAnnulees) {
+      console.log(`🔄 Réactivation des transactions annulées...`);
+      const resultat = await FinancialService.reactiverTransactionsAnnulees(commandeId, newReference);
+      console.log(`✅ Résultat de la réactivation:`, resultat);
+      return resultat;
+    } else {
+      console.log(`ℹ️ Aucune transaction annulée à réactiver`);
+      return { message: "Aucune transaction annulée trouvée", count: 0 };
+    }
+
+  } catch (error) {
+    console.error(`❌ Erreur lors de la gestion de la relance:`, error);
+    throw error;
+  }
+};
 
 module.exports = {
   getSellerDashboard,
@@ -412,6 +468,8 @@ module.exports = {
   getSellerOrdersWithFinancialInfo,
   seller_orders_with_financial,
   confirmerTransactionsLivrees,
-  adminApprouverRetrait,
-  tacheDeblocage
+  tacheDeblocage,
+  tacheNettoyage,
+  recalculerSoldes,
+  gererRelanceCommande
 };

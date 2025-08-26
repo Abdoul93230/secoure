@@ -1,21 +1,28 @@
 const express = require('express');
 const router = express.Router();
 const Retrait = require('../models/retraitSchema');
-const TransactionSeller = require('../models/transactionSchema'); // Utiliser le bon nom
+const TransactionSeller = require('../models/transactionSchema');
 const Portefeuille = require('../models/portefeuilleSchema');
 const { Commande } = require('../Models');
 const FinancialService = require('../services/FinancialService');
 const mongoose = require('mongoose');
 
-// Middleware de vérification admin (à adapter selon votre système d'auth)
+// Middleware de vérification admin
 const verifyAdmin = (req, res, next) => {
     const token = req.headers.authorization?.split(' ')[1];
-    // Ici vous devriez vérifier le token JWT et s'assurer que c'est un admin
-    // Pour l'exemple, on passe directement
+    // TODO: Implémenter la vérification JWT réelle
+    if (!token) {
+        return res.status(401).json({
+            success: false,
+            message: 'Token d\'authentification requis'
+        });
+    }
+    // Pour l'instant, on passe directement
+    req.admin = { id: 'admin_id', name: 'Admin' }; // À remplacer par les vraies données du token
     next();
 };
 
-// Dashboard financier global - ROUTE SPÉCIFIQUE EN PREMIER
+// Dashboard financier global
 router.get('/finances/dashboard', verifyAdmin, async (req, res) => {
     try {
         const { periode = 30 } = req.query;
@@ -26,35 +33,86 @@ router.get('/finances/dashboard', verifyAdmin, async (req, res) => {
         const [
             totalVentes,
             totalCommissions,
-            retraitsEnAttente,
+            retraitsStats,
             sellersActifs,
             transactionsRecentes,
-            commandesEnCours
+            commandesEnCours,
+            retraitsParStatut
         ] = await Promise.all([
+            // Total des ventes
             TransactionSeller.aggregate([
-                { $match: { type: 'CREDIT_COMMANDE', statut: 'CONFIRME', dateTransaction: { $gte: dateDebut } } },
-                { $group: { _id: null, total: { $sum: '$montant' }, count: { $sum: 1 } } }
+                { 
+                    $match: { 
+                        type: 'CREDIT_COMMANDE', 
+                        statut: 'CONFIRME', 
+                        dateTransaction: { $gte: dateDebut } 
+                    } 
+                },
+                { 
+                    $group: { 
+                        _id: null, 
+                        total: { $sum: '$montant' }, 
+                        count: { $sum: 1 } 
+                    } 
+                }
             ]),
+            
+            // Total des commissions
             TransactionSeller.aggregate([
-                { $match: { type: 'CREDIT_COMMANDE', statut: 'CONFIRME', dateTransaction: { $gte: dateDebut } } },
-                { $group: { _id: null, total: { $sum: '$commission' } } }
+                { 
+                    $match: { 
+                        type: 'CREDIT_COMMANDE', 
+                        statut: 'CONFIRME', 
+                        dateTransaction: { $gte: dateDebut } 
+                    } 
+                },
+                { 
+                    $group: { 
+                        _id: null, 
+                        total: { $sum: '$commission' } 
+                    } 
+                }
             ]),
-            Retrait.countDocuments({ statut: 'EN_ATTENTE' }),
+            
+            // Statistiques des retraits
+            Retrait.aggregate([
+                {
+                    $group: {
+                        _id: '$statut',
+                        count: { $sum: 1 },
+                        montant: { $sum: '$montantDemande' }
+                    }
+                }
+            ]),
+            
+            // Sellers actifs
             Portefeuille.countDocuments({ soldeTotal: { $gt: 0 } }),
-            TransactionSeller.find().sort({ dateTransaction: -1 }).limit(10),
-            Commande.countDocuments({ etatTraitement: { $ne: 'livraison reçu' } })
+            
+            // Transactions récentes
+            TransactionSeller.find()
+                .sort({ dateTransaction: -1 })
+                .limit(10)
+                .populate('commandeId', 'reference')
+                .populate('retraitId', 'reference'),
+            
+            // Commandes en cours
+            Commande.countDocuments({ etatTraitement: { $ne: 'livraison reçu' } }),
+            
+            // Répartition des retraits par statut
+            Retrait.aggregate([
+                {
+                    $group: {
+                        _id: '$statut',
+                        count: { $sum: 1 },
+                        montant: { $sum: '$montantDemande' }
+                    }
+                }
+            ])
         ]);
 
-        // Répartition des retraits par statut
-        const retraitsParStatut = await Retrait.aggregate([
-            {
-                $group: {
-                    _id: '$statut',
-                    count: { $sum: 1 },
-                    montant: { $sum: '$montantDemande' }
-                }
-            }
-        ]);
+        // Calculs supplémentaires
+        const retraitsEnAttente = retraitsStats.find(r => r._id === 'EN_ATTENTE')?.count || 0;
+        const argentBloqueRetraits = retraitsStats.find(r => r._id === 'EN_ATTENTE')?.montant || 0;
 
         res.json({
             success: true,
@@ -62,13 +120,16 @@ router.get('/finances/dashboard', verifyAdmin, async (req, res) => {
                 ventesTotales: totalVentes[0] || { total: 0, count: 0 },
                 commissionsTotal: totalCommissions[0]?.total || 0,
                 retraitsEnAttente,
+                argentBloqueRetraits,
                 sellersActifs,
                 commandesEnCours,
                 transactionsRecentes,
-                retraitsParStatut
+                retraitsParStatut,
+                periode: Number(periode)
             }
         });
     } catch (error) {
+        console.error('Erreur dashboard admin:', error);
         res.status(500).json({
             success: false,
             message: 'Erreur lors de la récupération du dashboard',
@@ -77,7 +138,7 @@ router.get('/finances/dashboard', verifyAdmin, async (req, res) => {
     }
 });
 
-// Voir toutes les demandes de retrait - ROUTE SPÉCIFIQUE
+// Voir toutes les demandes de retrait
 router.get('/finances/retraits', verifyAdmin, async (req, res) => {
     try {
         const {
@@ -85,21 +146,30 @@ router.get('/finances/retraits', verifyAdmin, async (req, res) => {
             limit = 20,
             statut,
             sellerId,
-            methodeRetrait
+            methodeRetrait,
+            dateStart,
+            dateEnd
         } = req.query;
 
         const query = {};
         if (statut) query.statut = statut;
         if (sellerId) query.sellerId = sellerId;
         if (methodeRetrait) query.methodeRetrait = methodeRetrait;
+        
+        if (dateStart || dateEnd) {
+            query.datedemande = {};
+            if (dateStart) query.datedemande.$gte = new Date(dateStart);
+            if (dateEnd) query.datedemande.$lte = new Date(dateEnd);
+        }
 
         const retraits = await Retrait.find(query)
             .sort({ datedemande: -1 })
             .limit(limit * 1)
             .skip((page - 1) * limit)
+            .populate('transactionId')
             .lean();
 
-        // Récupérer les infos des sellers pour chaque retrait
+        // Enrichir avec les infos des sellers
         const retraitsAvecSeller = await Promise.all(
             retraits.map(async (retrait) => {
                 const portefeuille = await Portefeuille.findOne({ sellerId: retrait.sellerId });
@@ -107,7 +177,8 @@ router.get('/finances/retraits', verifyAdmin, async (req, res) => {
                     ...retrait,
                     sellerInfo: portefeuille ? {
                         soldeDisponible: portefeuille.soldeDisponible,
-                        soldeTotal: portefeuille.soldeTotal
+                        soldeTotal: portefeuille.soldeTotal,
+                        soldeBloqueTemporairement: portefeuille.soldeBloqueTemporairement
                     } : null
                 };
             })
@@ -128,6 +199,7 @@ router.get('/finances/retraits', verifyAdmin, async (req, res) => {
             }
         });
     } catch (error) {
+        console.error('Erreur liste retraits:', error);
         res.status(500).json({
             success: false,
             message: 'Erreur lors de la récupération des retraits',
@@ -136,64 +208,25 @@ router.get('/finances/retraits', verifyAdmin, async (req, res) => {
     }
 });
 
-// Approuver/Rejeter une demande de retrait - ROUTE SPÉCIFIQUE
+// Traiter une demande de retrait
 router.put('/finances/retraits/:retraitId/status', verifyAdmin, async (req, res) => {
     try {
         const { retraitId } = req.params;
         const { statut, commentaire } = req.body;
 
-        if (!['APPROUVE', 'REJETE', 'TRAITE'].includes(statut)) {
+        if (!['APPROUVE', 'REJETE', 'TRAITE', 'ANNULE'].includes(statut)) {
             return res.status(400).json({
                 success: false,
                 message: 'Statut invalide'
             });
         }
 
-        const retrait = await Retrait.findByIdAndUpdate(
+        const retrait = await FinancialService.traiterRetrait(
             retraitId,
-            {
-                statut,
-                commentaireAdmin: commentaire,
-                dateTraitement: new Date()
-            },
-            { new: true }
+            statut,
+            req.admin.id,
+            commentaire
         );
-
-        if (!retrait) {
-            return res.status(404).json({
-                success: false,
-                message: 'Demande de retrait non trouvée'
-            });
-        }
-
-        // Si approuvé, créer une transaction de retrait
-        if (statut === 'APPROUVE') {
-            const transaction = new TransactionSeller({
-                sellerId: retrait.sellerId,
-                type: 'RETRAIT',
-                statut: 'CONFIRME',
-                montant: -retrait.montantDemande,
-                montantNet: -retrait.montantAccorde,
-                commission: retrait.fraisRetrait,
-                description: `Retrait ${retrait.methodeRetrait}`,
-                reference: `RETRAIT_${retrait.reference}`,
-                dateConfirmation: new Date()
-            });
-
-            await transaction.save();
-            retrait.transactionId = transaction._id;
-            await retrait.save();
-        }
-
-        // Si rejeté, remettre l'argent dans le solde disponible
-        if (statut === 'REJETE') {
-            await Portefeuille.findOneAndUpdate(
-                { sellerId: retrait.sellerId },
-                {
-                    $inc: { soldeDisponible: retrait.montantDemande }
-                }
-            );
-        }
 
         res.json({
             success: true,
@@ -201,45 +234,88 @@ router.put('/finances/retraits/:retraitId/status', verifyAdmin, async (req, res)
             message: `Demande de retrait ${statut.toLowerCase()}`
         });
     } catch (error) {
+        console.error('Erreur traitement retrait:', error);
         res.status(500).json({
             success: false,
-            message: 'Erreur lors du traitement de la demande',
-            error: error.message
+            message: error.message
         });
     }
 });
 
-// Audit financier - ROUTE SPÉCIFIQUE
+// Audit financier
 router.get('/finances/audit', verifyAdmin, async (req, res) => {
     try {
-        // Vérifier la cohérence des soldes
         const portefeuilles = await Portefeuille.find({});
         const anomalies = [];
 
+        // Vérifier la cohérence des soldes
         for (const portefeuille of portefeuilles) {
             const transactions = await TransactionSeller.find({
                 sellerId: portefeuille.sellerId,
                 statut: 'CONFIRME'
             });
 
-            const soldeCalcule = transactions.reduce((sum, t) => {
-                return sum + (t.type === 'CREDIT_COMMANDE' ? t.montantNet : t.montantNet);
-            }, 0);
+            let soldeCalcule = 0;
+            let soldeDisponibleCalcule = 0;
+            let soldeBloqueCalcule = 0;
 
-            if (Math.abs(soldeCalcule - portefeuille.soldeTotal) > 1) {
+            transactions.forEach(t => {
+                if (t.type === 'CREDIT_COMMANDE') {
+                    soldeCalcule += t.montantNet;
+                    if (t.estDisponible) {
+                        soldeDisponibleCalcule += t.montantNet;
+                    } else {
+                        soldeBloqueCalcule += t.montantNet;
+                    }
+                } else if (t.type === 'RETRAIT') {
+                    soldeCalcule += t.montantNet; // négatif
+                }
+            });
+
+            const retraitsEnAttente = await Retrait.find({
+                sellerId: portefeuille.sellerId,
+                statut: 'EN_ATTENTE'
+            });
+            const soldeReserveCalcule = retraitsEnAttente.reduce((sum, r) => sum + r.montantDemande, 0);
+
+            // Vérifier les incohérences
+            const tolerance = 1; // 1 FCFA de tolérance
+            if (Math.abs(soldeCalcule - portefeuille.soldeTotal) > tolerance ||
+                Math.abs(soldeDisponibleCalcule - portefeuille.soldeDisponible) > tolerance ||
+                Math.abs(soldeBloqueCalcule - portefeuille.soldeBloqueTemporairement) > tolerance ||
+                Math.abs(soldeReserveCalcule - portefeuille.soldeReserveRetrait) > tolerance) {
+                
                 anomalies.push({
                     sellerId: portefeuille.sellerId,
-                    soldeEnregistre: portefeuille.soldeTotal,
-                    soldeCalcule,
-                    difference: soldeCalcule - portefeuille.soldeTotal
+                    soldeEnregistre: {
+                        total: portefeuille.soldeTotal,
+                        disponible: portefeuille.soldeDisponible,
+                        bloque: portefeuille.soldeBloqueTemporairement,
+                        reserve: portefeuille.soldeReserveRetrait
+                    },
+                    soldeCalcule: {
+                        total: soldeCalcule,
+                        disponible: soldeDisponibleCalcule,
+                        bloque: soldeBloqueCalcule,
+                        reserve: soldeReserveCalcule
+                    },
+                    differences: {
+                        total: soldeCalcule - portefeuille.soldeTotal,
+                        disponible: soldeDisponibleCalcule - portefeuille.soldeDisponible,
+                        bloque: soldeBloqueCalcule - portefeuille.soldeBloqueTemporairement,
+                        reserve: soldeReserveCalcule - portefeuille.soldeReserveRetrait
+                    }
                 });
             }
         }
 
-        // Transactions sans commande associée
+        // Transactions orphelines
         const transactionsSansCommande = await TransactionSeller.find({
             type: 'CREDIT_COMMANDE',
-            commandeId: { $exists: false }
+            $or: [
+                { commandeId: { $exists: false } },
+                { commandeId: null }
+            ]
         }).limit(10);
 
         // Commandes livrées sans transaction
@@ -254,29 +330,41 @@ router.get('/finances/audit', verifyAdmin, async (req, res) => {
                 }
             },
             { $match: { transactions: { $size: 0 } } },
-            { $limit: 10 }
+            { $limit: 10 },
+            {
+                $project: {
+                    reference: 1,
+                    prix: 1,
+                    date: 1,
+                    etatTraitement: 1
+                }
+            }
         ]);
+
+        // Retraits sans transaction associée
+        const retraitsApprouvesSansTransaction = await Retrait.find({
+            statut: 'APPROUVE',
+            transactionId: { $exists: false }
+        }).limit(10);
 
         res.json({
             success: true,
             data: {
                 anomaliesSoldes: anomalies,
                 transactionsSansCommande,
-                commandesSansTransaction: commandesSansTransaction.map(c => ({
-                    id: c._id,
-                    reference: c.reference,
-                    prix: c.prix,
-                    date: c.date
-                })),
+                commandesSansTransaction,
+                retraitsApprouvesSansTransaction,
                 statistiques: {
                     totalPortefeuilles: portefeuilles.length,
                     anomaliesDetectees: anomalies.length,
                     transactionsOrphelines: transactionsSansCommande.length,
-                    commandesSansTransaction: commandesSansTransaction.length
+                    commandesSansTransaction: commandesSansTransaction.length,
+                    retraitsInconsistants: retraitsApprouvesSansTransaction.length
                 }
             }
         });
     } catch (error) {
+        console.error('Erreur audit:', error);
         res.status(500).json({
             success: false,
             message: 'Erreur lors de l\'audit',
@@ -285,52 +373,20 @@ router.get('/finances/audit', verifyAdmin, async (req, res) => {
     }
 });
 
-// Recalculer les soldes d'un seller - ROUTE SPÉCIFIQUE
+// Recalculer les soldes d'un seller
 router.post('/finances/recalculate-balances/:sellerId', verifyAdmin, async (req, res) => {
     try {
         const { sellerId } = req.params;
-
-        const transactions = await TransactionSeller.find({
-            sellerId,
-            statut: 'CONFIRME'
-        });
-
-        const soldeTotal = transactions.reduce((sum, t) => {
-            return sum + (t.type === 'CREDIT_COMMANDE' ? t.montantNet : t.montantNet);
-        }, 0);
-
-        const transactionsDisponibles = transactions.filter(t =>
-            t.type === 'CREDIT_COMMANDE' && t.estDisponible
-        );
-        const soldeDisponible = transactionsDisponibles.reduce((sum, t) => sum + t.montantNet, 0);
-
-        const transactionsBloquees = transactions.filter(t =>
-            t.type === 'CREDIT_COMMANDE' && !t.estDisponible
-        );
-        const soldeBloqueTemporairement = transactionsBloquees.reduce((sum, t) => sum + t.montantNet, 0);
-
-        await Portefeuille.findOneAndUpdate(
-            { sellerId },
-            {
-                soldeTotal,
-                soldeDisponible,
-                soldeBloqueTemporairement,
-                soldeEnAttente: 0, // Reset car géré différemment maintenant
-                dateMiseAJour: new Date()
-            },
-            { upsert: true }
-        );
+        
+        const result = await FinancialService.recalculerSoldes(sellerId);
 
         res.json({
             success: true,
             message: 'Soldes recalculés avec succès',
-            data: {
-                soldeTotal,
-                soldeDisponible,
-                soldeBloqueTemporairement
-            }
+            data: result
         });
     } catch (error) {
+        console.error('Erreur recalcul:', error);
         res.status(500).json({
             success: false,
             message: 'Erreur lors du recalcul des soldes',
@@ -339,7 +395,7 @@ router.post('/finances/recalculate-balances/:sellerId', verifyAdmin, async (req,
     }
 });
 
-// Forcer la confirmation des transactions - ROUTE SPÉCIFIQUE
+// Forcer la confirmation des transactions
 router.post('/finances/force-confirm-transactions', verifyAdmin, async (req, res) => {
     try {
         const { commandeIds } = req.body;
@@ -352,20 +408,30 @@ router.post('/finances/force-confirm-transactions', verifyAdmin, async (req, res
         }
 
         const transactions = await TransactionSeller.find({
-            commandeId: { $in: commandeIds },
+            commandeId: { $in: commandeIds.map(id => new mongoose.Types.ObjectId(id)) },
             statut: 'EN_ATTENTE'
         });
 
+        let confirmees = 0;
         for (const transaction of transactions) {
-            await FinancialService.confirmerTransaction(transaction._id);
+            try {
+                await FinancialService.confirmerTransaction(transaction._id);
+                confirmees++;
+            } catch (error) {
+                console.error(`Erreur confirmation ${transaction._id}:`, error);
+            }
         }
 
         res.json({
             success: true,
-            message: `${transactions.length} transactions confirmées`,
-            data: { transactionsConfirmees: transactions.length }
+            message: `${confirmees}/${transactions.length} transactions confirmées`,
+            data: { 
+                transactionsConfirmees: confirmees,
+                transactionsTrouvees: transactions.length 
+            }
         });
     } catch (error) {
+        console.error('Erreur confirmation forcée:', error);
         res.status(500).json({
             success: false,
             message: 'Erreur lors de la confirmation forcée',
@@ -374,7 +440,7 @@ router.post('/finances/force-confirm-transactions', verifyAdmin, async (req, res
     }
 });
 
-// Obtenir les détails financiers d'une commande - ROUTE SPÉCIFIQUE
+// Obtenir les détails financiers d'une commande
 router.get('/finances/commandes/:commandeId/details', verifyAdmin, async (req, res) => {
     try {
         const { commandeId } = req.params;
@@ -434,6 +500,7 @@ router.get('/finances/commandes/:commandeId/details', verifyAdmin, async (req, r
             }
         });
     } catch (error) {
+        console.error('Erreur détails commande:', error);
         res.status(500).json({
             success: false,
             message: 'Erreur lors de la récupération des détails',
@@ -442,7 +509,7 @@ router.get('/finances/commandes/:commandeId/details', verifyAdmin, async (req, r
     }
 });
 
-// Obtenir la liste des sellers avec leurs statistiques - ROUTE SPÉCIFIQUE
+// Obtenir la liste des sellers avec leurs statistiques
 router.get('/finances/sellers-stats', verifyAdmin, async (req, res) => {
     try {
         const stats = await Portefeuille.aggregate([
@@ -455,13 +522,31 @@ router.get('/finances/sellers-stats', verifyAdmin, async (req, res) => {
                 }
             },
             {
+                $lookup: {
+                    from: 'retraits',
+                    localField: 'sellerId',
+                    foreignField: 'sellerId',
+                    as: 'retraits'
+                }
+            },
+            {
                 $project: {
                     sellerId: 1,
                     soldeTotal: 1,
                     soldeDisponible: 1,
                     soldeBloqueTemporairement: 1,
+                    soldeReserveRetrait: 1,
                     nombreTransactions: { $size: '$transactions' },
-                    derniereActivite: { $max: '$transactions.dateTransaction' }
+                    nombreRetraits: { $size: '$retraits' },
+                    derniereActivite: { $max: '$transactions.dateTransaction' },
+                    retraitsEnAttente: {
+                        $size: {
+                            $filter: {
+                                input: '$retraits',
+                                cond: { $eq: ['$$this.statut', 'EN_ATTENTE'] }
+                            }
+                        }
+                    }
                 }
             },
             { $sort: { soldeTotal: -1 } }
@@ -472,9 +557,96 @@ router.get('/finances/sellers-stats', verifyAdmin, async (req, res) => {
             data: stats
         });
     } catch (error) {
+        console.error('Erreur stats sellers:', error);
         res.status(500).json({
             success: false,
             message: 'Erreur lors de la récupération des statistiques sellers',
+            error: error.message
+        });
+    }
+});
+
+// Exécuter les tâches de maintenance
+router.post('/finances/maintenance/deblocage', verifyAdmin, async (req, res) => {
+    try {
+        const result = await FinancialService.debloquerArgentDisponible();
+        res.json({
+            success: true,
+            message: 'Tâche de déblocage exécutée',
+            data: result
+        });
+    } catch (error) {
+        console.error('Erreur déblocage:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Erreur lors du déblocage',
+            error: error.message
+        });
+    }
+});
+
+router.post('/finances/maintenance/nettoyage', verifyAdmin, async (req, res) => {
+    try {
+        const result = await FinancialService.nettoyageAutomatique();
+        res.json({
+            success: true,
+            message: 'Tâche de nettoyage exécutée',
+            data: result
+        });
+    } catch (error) {
+        console.error('Erreur nettoyage:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Erreur lors du nettoyage',
+            error: error.message
+        });
+    }
+});
+
+// Créer une transaction de correction manuelle
+router.post('/finances/correction-transaction', verifyAdmin, async (req, res) => {
+    try {
+        const { sellerId, montant, description, type = 'CORRECTION' } = req.body;
+
+        if (!sellerId || !montant || !description) {
+            return res.status(400).json({
+                success: false,
+                message: 'Paramètres manquants'
+            });
+        }
+
+        const transaction = new TransactionSeller({
+            sellerId,
+            type,
+            statut: 'CONFIRME',
+            montant,
+            montantNet: montant,
+            commission: 0,
+            description,
+            dateConfirmation: new Date(),
+            creeParAdmin: true,
+            adminId: req.admin.id,
+            commentaireAdmin: `Correction manuelle par ${req.admin.name}`
+        });
+
+        await transaction.save();
+
+        // Mettre à jour le portefeuille
+        await FinancialService.mettreAJourPortefeuille(sellerId, {
+            soldeTotal: montant,
+            soldeDisponible: montant > 0 ? montant : 0
+        });
+
+        res.json({
+            success: true,
+            message: 'Transaction de correction créée',
+            data: transaction
+        });
+    } catch (error) {
+        console.error('Erreur correction:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Erreur lors de la création de la correction',
             error: error.message
         });
     }

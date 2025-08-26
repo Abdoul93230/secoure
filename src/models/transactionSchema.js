@@ -1,9 +1,10 @@
-// Modèle pour les transactions financières
 const mongoose = require("mongoose");
+
 const transactionSchema = new mongoose.Schema({
   sellerId: {
     type: String,
-    required: true
+    required: true,
+    index: true
   },
   commandeId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -12,14 +13,21 @@ const transactionSchema = new mongoose.Schema({
       return this.type === 'CREDIT_COMMANDE';
     }
   },
+  retraitId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Retrait',
+    required: function() {
+      return this.type === 'RETRAIT';
+    }
+  },
   type: {
     type: String,
-    enum: ['CREDIT_COMMANDE', 'RETRAIT', 'COMMISSION', 'ANNULATION'],
+    enum: ['CREDIT_COMMANDE', 'RETRAIT', 'COMMISSION', 'ANNULATION', 'CORRECTION'],
     required: true
   },
   statut: {
     type: String,
-    enum: ['EN_ATTENTE', 'CONFIRME', 'ANNULE'],
+    enum: ['EN_ATTENTE', 'CONFIRME', 'ANNULE', 'EXPIRE'],
     default: 'EN_ATTENTE'
   },
   montant: {
@@ -27,7 +35,7 @@ const transactionSchema = new mongoose.Schema({
     required: true
   },
   montantNet: {
-    type: Number, // Montant après déduction des commissions
+    type: Number,
     required: true
   },
   commission: {
@@ -36,7 +44,7 @@ const transactionSchema = new mongoose.Schema({
   },
   tauxCommission: {
     type: Number,
-    default: 0 // en pourcentage
+    default: 0
   },
   description: {
     type: String,
@@ -49,26 +57,54 @@ const transactionSchema = new mongoose.Schema({
   },
   dateTransaction: {
     type: Date,
-    default: Date.now
+    default: Date.now,
+    index: true
   },
   dateConfirmation: {
     type: Date
   },
-  metadata: {
-    type: Object,
-    default: {}
-  },
-   dateDisponibilite: {
+  dateDisponibilite: {
     type: Date,
     required: function() {
-      return this.type === 'CREDIT_COMMANDE';
+      return this.type === 'CREDIT_COMMANDE' && this.statut === 'CONFIRME';
     }
   },
   estDisponible: {
     type: Boolean,
     default: false
   },
-}, { timestamps: true });
+  metadata: {
+    type: Object,
+    default: {}
+  },
+  // Champs d'audit
+  creeParAdmin: {
+    type: Boolean,
+    default: false
+  },
+  adminId: {
+    type: String
+  },
+  commentaireAdmin: {
+    type: String
+  }
+}, { 
+  timestamps: true 
+});
+
+// Index composés pour optimiser les requêtes
+transactionSchema.index({ sellerId: 1, dateTransaction: -1 });
+transactionSchema.index({ type: 1, statut: 1 });
+transactionSchema.index({ dateDisponibilite: 1, estDisponible: 1 });
+transactionSchema.index({ commandeId: 1 });
+
+// Middleware pour générer une référence unique si non fournie
+transactionSchema.pre('save', function(next) {
+  if (!this.reference) {
+    this.reference = `TXN_${Date.now()}_${this.sellerId}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+  next();
+});
 
 const TransactionSeller = mongoose.model('TransactionSeller', transactionSchema);
 module.exports = TransactionSeller;

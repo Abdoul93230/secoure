@@ -8,6 +8,7 @@ const { Commande } = require('../Models');
 router.post('/createCommande', userController.createCommande);
 router.get('/getCommandesById/:id', userController.getCommandesById);
 router.get('/getCommandesByClefUser/:clefUser', userController.getCommandesByClefUser);
+router.get('/getCommandesByClefUser2/:clefUser', userController.getCommandesByClefUser2);
 router.get('/getAllCommandes', userController.getAllCommandes);
 router.delete('/deleteCommandeById/:commandeId', userController.deleteCommandeById);
 

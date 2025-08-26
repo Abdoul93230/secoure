@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const cron = require("cron");
 const models = require("./Models");
+const FinancialService = require('./services/FinancialService');
 const { confirmerTransactionsLivrees, tacheDeblocage } = require("./controllers/financeController");
 // PromoCode
 // 'mongodb://127.0.0.1:27017/dbschagona'
@@ -23,9 +24,14 @@ mongoose
     const job = new cron.CronJob("*/30 * * * *", async () => {
       try {
         await models.PromoCode.updateIsValideAsync();
-        await confirmerTransactionsLivrees();
-        await tacheDeblocage();
+         const result = await confirmerTransactionsLivrees();
+        console.log(`✅ Confirmation terminée: ${result.confirmees}/${result.total} transactions`);
+        // await tacheDeblocage();
+         const result2 = await FinancialService.debloquerArgentDisponible();
+        console.log(`✅ Déblocage terminé: ${result2.count} transactions, ${result2.montant} FCFA`);
 
+         const result3 = await FinancialService.nettoyageAutomatique();
+        console.log(`✅ Nettoyage terminé: ${result3.retraitsExpires} retraits expirés`);
         console.log("Mise a jour de l'attribut isValide effectuée.");
       } catch (error) {
         console.error(

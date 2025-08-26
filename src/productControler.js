@@ -690,7 +690,8 @@ const creerTransactionsEnAttente = async (commandeId) => {
           sellerId,
           commandeId,
           vente.montant,
-          `Vente en cours - Commande ${commande.reference}`
+          `Vente en cours - Commande ${commande.reference}`,
+          commande.reference
         );
         
         transactionsCreees.push({
@@ -733,6 +734,30 @@ const confirmerPaiements = async (commandeId) => {
     // Confirmer chaque transaction
     for (const transaction of transactionsEnAttente) {
       await FinancialService.confirmerTransaction(transaction._id);
+      console.log(`Transaction confirmée pour le seller ${transaction.sellerId}: ${transaction.montantNet} FCFA`);
+    }
+    
+    console.log(`${transactionsEnAttente.length} transactions confirmées pour la commande ${commandeId}`);
+    
+  } catch (error) {
+    console.error('Erreur lors de la confirmation des paiements:', error);
+    throw error;
+  }
+};
+const confirmerPaiements2 = async (commandeId) => {
+  try {
+    // Trouver toutes les transactions en attente pour cette commande
+    const  Transaction  = require('./models/transactionSchema');
+    
+    const transactionsEnAttente = await Transaction.find({
+      commandeId: commandeId,
+      type: 'CREDIT_COMMANDE',
+      statut: 'ANNULE'
+    });
+    
+    // Confirmer chaque transaction
+    for (const transaction of transactionsEnAttente) {
+      await FinancialService.confirmerTransaction2(transaction._id);
       console.log(`Transaction confirmée pour le seller ${transaction.sellerId}: ${transaction.montantNet} FCFA`);
     }
     
@@ -831,15 +856,24 @@ const annulerTransactions = async (commandeId) => {
 
 // 2. FONCTION POUR GÉRER LES TRANSITIONS FINANCIÈRES
 
-const handleFinancialTransitions = async (commandeId, ancienEtat, nouvelEtat) => {
-  console.log("Abdoul Razak");
+const handleFinancialTransitions = async (commandeId, ancienEtat, nouvelEtat,isDelete=false) => {
+  // console.log("Abdoul Razak");
   
   console.log({commandeId, ancienEtat, nouvelEtat});
   try {
     
-    // Quand la commande passe à "reçu par le livreur" -> Créer les transactions en attente
+   if(isDelete){
+    // Si la commande est annulée -> Annuler les transactions
+    if (nouvelEtat === "Annulée" || nouvelEtat==="annulé") {
+      await annulerTransactions(commandeId);
+    }
+   }else{
+     // Quand la commande passe à "reçu par le livreur" -> Créer les transactions en attente
     if (ancienEtat !== "reçu par le livreur" && nouvelEtat === "reçu par le livreur") {
       await creerTransactionsEnAttente(commandeId);
+    }
+    if (ancienEtat !== "ANNULE" && nouvelEtat === "reçu par le livreur") {
+      await confirmerPaiements2(commandeId);
     }
     
     // Quand la commande passe à "livraison reçu" -> Confirmer les paiements
@@ -851,6 +885,7 @@ const handleFinancialTransitions = async (commandeId, ancienEtat, nouvelEtat) =>
     if (nouvelEtat === "Annulée" && ancienEtat !== "Annulée") {
       await annulerTransactions(commandeId);
     }
+   }
     
   } catch (error) {
     console.error('Erreur lors de la gestion financière:', error);
@@ -1043,6 +1078,7 @@ module.exports = {
   handleFinancialTransitions,
   creerTransactionsEnAttente,
   confirmerPaiements,
+  confirmerPaiements2,
   annulerTransactions,
   getCommandeFinancialSummary,
   getCommandeFinancialDetails,
