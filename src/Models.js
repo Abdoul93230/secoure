@@ -240,7 +240,7 @@ const variantSchema = new mongoose.Schema({
     default: 2,
     min: [0, "Le stock ne peut pas être négatif"],
   },
-    price: {
+  price: {
     type: Number,
     required: false,
     min: [0, "Le prix ne peut pas être négatif"],
@@ -1220,6 +1220,16 @@ const sellerRequestSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    suspensionReason: {
+      type: String,
+      required: false,
+      default: null
+    },
+    suspensionDate: {
+      type: Date,
+      required: false,
+      default: null
+    }
   },
   { strict: false }
 );

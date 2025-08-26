@@ -16,6 +16,7 @@ const axios = require("axios");
 const fs = require("fs");
 const cloudinary = require("cloudinary").v2;
 const nodemailer = require("nodemailer");
+const { gererValidationFinanciere, handleFinancialTransitions } = require("./productControler");
 
 cloudinary.config({
   cloud_name: "dkfddtykk",
@@ -406,31 +407,77 @@ const deleteCommandeById = async (req, res) => {
   }
 };
 
-const mettreAJourStatuts = (req, res) => {
+const mettreAJourStatuts = async (req, res) => {
   const commandeId = req.params.commandeId;
-  Commande.findOneAndUpdate(
-    { _id: commandeId },
-    {
-      $set: {
-        statusPayment: "recu",
-        statusLivraison: "recu",
-        etatTraitement: "livraison reçu",
+  
+  try {
+    // 1. Récupérer l'état actuel de la commande
+    const commandeActuelle = await Commande.findById(commandeId);
+    
+    if (!commandeActuelle) {
+      return res.status(404).json({ 
+        success: false,
+        message: "Commande non trouvée" 
+      });
+    }
+    
+    // Vérifier si la commande n'est pas déjà validée
+    if (commandeActuelle.etatTraitement === "livraison reçu") {
+      return res.status(400).json({
+        success: false,
+        message: "Cette commande est déjà validée"
+      });
+    }
+    
+    // Vérifier si la commande n'est pas annulée
+    if (commandeActuelle.etatTraitement === "Annulée") {
+      return res.status(400).json({
+        success: false,
+        message: "Impossible de valider une commande annulée"
+      });
+    }
+    
+    console.log(`Validation de la commande ${commandeId} - État actuel: ${commandeActuelle.etatTraitement}`);
+    
+    // 2. Mettre à jour la commande
+    const updatedCommande = await Commande.findOneAndUpdate(
+      { _id: commandeId },
+      {
+        $set: {
+          statusPayment: "recu",
+          statusLivraison: "recu",
+          etatTraitement: "livraison reçu",
+          dateValidation: new Date() // Ajouter la date de validation
+        },
       },
-    },
-    { new: true }
-  )
-    .then((updatedCommande) => {
-      if (updatedCommande) {
-        res.status(200).json(updatedCommande);
-      } else {
-        res.status(404).json({ message: "Commande non trouvée" });
+      { new: true }
+    );
+    
+    // 3. Gérer les aspects financiers
+    await gererValidationFinanciere(commandeId, commandeActuelle.etatTraitement);
+    
+    // 4. Réponse de succès
+    res.status(200).json({
+      success: true,
+      message: "Commande validée avec succès",
+      data: updatedCommande,
+      financial: {
+        message: "Paiements sellers traités",
+        timestamp: new Date()
       }
-    })
-    .catch((error) => {
-      res
-        .status(500)
-        .json({ error: "Erreur lors de la mise à jour de la commande" });
     });
+    
+    console.log(`✅ Commande ${commandeId} validée avec succès`);
+    
+  } catch (error) {
+    console.error(`❌ Erreur lors de la validation de la commande ${commandeId}:`, error);
+    
+    res.status(500).json({ 
+      success: false,
+      message: "Erreur lors de la validation de la commande",
+      error: error.message
+    });
+  }
 };
 
 function createOrUpdateAddress(req, res) {
@@ -1575,23 +1622,41 @@ const updateEtatTraitement = async (req, res) => {
     const { commandeId } = req.params;
     const { nouvelEtat } = req.body;
 
-    const commande = await Commande.findByIdAndUpdate(
-      commandeId,
-      { etatTraitement: nouvelEtat },
-      { new: true, runValidators: true }
-    );
 
-    if (!commande) {
-      return res.status(404).json({
-        success: false,
-        message: "Commande non trouvée",
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      data: commande,
+    // Récupérer l'état actuel avant mise à jour
+  const currentOrder = await Commande.findById(commandeId);
+  if (!currentOrder) {
+    return res.status(404).json({
+      success: false,
+      message: "Commande non trouvée",
     });
+  }
+  
+  const ancienEtat = currentOrder.etatTraitement;
+
+
+    // Mettre à jour l'état de la commande
+  const updatedOrder = await Commande.findByIdAndUpdate(
+    commandeId,
+    { etatTraitement: nouvelEtat },
+    { new: true, runValidators: true }
+  );
+  
+  if (!updatedOrder) {
+    return res.status(404).json({
+      success: false,
+      message: "Erreur lors de la mise à jour",
+    });
+  }
+
+     // Gérer les transitions financières
+  await handleFinancialTransitions(commandeId, ancienEtat, nouvelEtat);
+  
+  res.status(200).json({
+    success: true,
+    message: "État de traitement mis à jour avec succès",
+    data: updatedOrder,
+  });
   } catch (error) {
     res.status(400).json({
       success: false,

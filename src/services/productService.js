@@ -153,13 +153,41 @@ class ProductService {
     }
   }
 
-  async updateOrderStatus(orderId, newStatus) {
-    return await Commande.findByIdAndUpdate(
-      orderId,
-      { etatTraitement: newStatus },
-      { new: true }
-    );
+  // async updateOrderStatus(orderId, newStatus) {
+  //   return await Commande.findByIdAndUpdate(
+  //     orderId,
+  //     { etatTraitement: newStatus },
+  //     { new: true }
+  //   );
+  // }
+
+async updateOrderStatus(orderId, newStatus) {
+  // Valider le nouveau statut
+  const validStatuses = [
+    "traitement",
+    "reçu par le livreur", 
+    "en cours de livraison",
+    "livraison reçu",
+    "Traité",
+    "Annulée"
+  ];
+  
+  if (!validStatuses.includes(newStatus)) {
+    throw new Error(`Statut invalide: ${newStatus}`);
   }
+  
+  const updatedOrder = await Commande.findByIdAndUpdate(
+    orderId,
+    { 
+      etatTraitement: newStatus,
+      // Mettre à jour aussi la date de modification
+      updatedAt: new Date()
+    },
+    { new: true }
+  );
+  
+  return updatedOrder;
+}
 
 
   // Préparer les données du produit pour la création

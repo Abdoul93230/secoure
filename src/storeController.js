@@ -992,35 +992,42 @@ const deleteSeller = async (req, res) => {
 };
 
 async function validerDemandeVendeur(req, res) {
-  const requestId = req.params.id; // Supposons que l'ID de la demande est passé en tant que paramètre d'URL
+  const requestId = req.params.id;
+  const { suspensionMessage } = req.body; // Récupérer le message de suspension du body
 
   try {
-    // Recherchez la demande de vendeur par ID
     const demande = await SellerRequest.findById(requestId);
 
     if (!demande) {
-      // Si la demande n'existe pas, renvoyez une réponse d'erreur
       return res
         .status(404)
         .json({ message: "Demande de vendeur introuvable." });
     }
+
     let message = "";
     if (demande.isvalid === true) {
+      // Suspension du compte
+      if (!suspensionMessage) {
+        return res.status(400).json({ 
+          message: "Le message de suspension est obligatoire pour suspendre un compte." 
+        });
+      }
+      
       demande.isvalid = false;
-      message = "Compte de vendeur deactiver avec succès.";
+      demande.suspensionReason = suspensionMessage;
+      demande.suspensionDate = new Date();
+      message = "Compte de vendeur suspendu avec succès.";
     } else {
+      // Validation du compte
       demande.isvalid = true;
-      message = "Demande de vendeur validée avec succès. compte creer";
+      demande.suspensionReason = null; // Effacer la raison de suspension
+      demande.suspensionDate = null;   // Effacer la date de suspension
+      message = "Demande de vendeur validée avec succès. Compte créé";
     }
-    // Marquez la demande comme validée (isvalid à true)
 
-    // Sauvegardez la demande mise à jour dans la base de données
     await demande.save();
-
-    // Renvoyez une réponse de succès
     return res.status(200).json({ message: message });
   } catch (error) {
-    // Gérez les erreurs ici, par exemple, en renvoyant une réponse d'erreur
     return res.status(500).json({
       message: `Erreur lors de la validation de la demande de vendeur : ${error.message}`,
     });
@@ -1066,6 +1073,7 @@ const login = async (req, res) => {
       id: user._id,
       name: user.name,
       isvalid: user.isvalid,
+      suspensionReason: user.suspensionReason,
     });
   } catch (error) {
     const message =
@@ -1078,7 +1086,7 @@ const getSeller = (req, res) => {
   const Id = req.params.Id;
   SellerRequest.findById(Id)
     .then((response) => {
-      console.log({response});
+      // console.log({response});
       
       const message = `vous avez demander le Sellers :${response.name}`;
       if (!response) {

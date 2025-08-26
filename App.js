@@ -21,6 +21,8 @@ const paymentRoutes = require("./src/routes/paymentRoutes");
 const shippingRoutes = require("./src/routes/shippingRoutes");
 const socialRoutes = require("./src/routes/socialRoutes");
 const marketingRoutes = require("./src/routes/marketingRoutes");
+const financeRoutes = require("./src/routes/financeRoutes");
+const adminFinancialRoutes = require('./src/routes/adminFinancialRoutes');
 
 const port = 8083;
 const app = express();
@@ -116,6 +118,9 @@ app.use("/", paymentRoutes);
 app.use("/", shippingRoutes);
 app.use("/api/marketing", marketingRoutes);
 app.use("/api", socialRoutes);
+app.use("/api/financial", financeRoutes);
+app.use('/adminf', adminFinancialRoutes);
+
 
 // Start server
 server.listen(port, () => {
