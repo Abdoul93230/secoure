@@ -1734,9 +1734,14 @@ const updateEtatTraitement = async (req, res) => {
         message: "Erreur lors de la mise à jour",
       });
     }
-
-    // Gérer les transitions financières
-    await handleFinancialTransitions(commandeId, ancienEtat, nouvelEtat);
+    // Gérer les transitions financières avec le nouveau système
+    const { gererChangementEtatCommande } = require('./controllers/financeController');
+    try {
+      await gererChangementEtatCommande(commandeId, ancienEtat, nouvelEtat, updatedOrder);
+    } catch (financialError) {
+      console.error('❌ Erreur financière:', financialError);
+      // Ne pas faire échouer la mise à jour pour une erreur financière
+    }
 
     res.status(200).json({
       success: true,

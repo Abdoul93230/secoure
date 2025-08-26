@@ -1,0 +1,2 @@
+{"timestamp":"2025-08-26T19:00:00.515Z","level":"SUCCESS","operation":"CONFIRMATION_AUTOMATIQUE","data":{"confirmees":0,"total":0}}
+{"timestamp":"2025-08-26T19:00:01.000Z","level":"SUCCESS","operation":"DEBLOCAGE_AUTOMATIQUE","data":{"ok":1,"$clusterTime":{"clusterTime":{"$timestamp":"7542971030097100808"},"signature":{"hash":"L2xkSDAhiks6sZ0FvGjLPnlnBeY=","keyId":{"low":7,"high":1744141991,"unsigned":false}}},"operationTime":{"$timestamp":"7542971030097100808"}}}

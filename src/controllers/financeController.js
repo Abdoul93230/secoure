@@ -19,7 +19,7 @@ const getSellerDashboard = async (req, res) => {
     });
     
   } catch (error) {
-    console.error('Erreur dashboard seller:', error);
+    console.error('❌ Erreur dashboard seller:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur lors de la récupération du dashboard',
@@ -30,11 +30,10 @@ const getSellerDashboard = async (req, res) => {
 
 function generateReference() {
   const now = new Date();
-
-  const year   = now.getFullYear();
-  const month  = String(now.getMonth() + 1).padStart(2, '0');
-  const day    = String(now.getDate()).padStart(2, '0');
-  const hour   = String(now.getHours()).padStart(2, '0');
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const hour = String(now.getHours()).padStart(2, '0');
   const minute = String(now.getMinutes()).padStart(2, '0');
   const second = String(now.getSeconds()).padStart(2, '0');
 
@@ -61,6 +60,7 @@ const demanderRetrait = async (req, res) => {
         message: 'Méthode de retrait invalide'
       });
     }
+
     const reference = generateReference();
     const retrait = await FinancialService.demanderRetrait(
       sellerId, 
@@ -77,7 +77,7 @@ const demanderRetrait = async (req, res) => {
     });
     
   } catch (error) {
-    console.error('Erreur demande retrait:', error);
+    console.error('❌ Erreur demande retrait:', error);
     res.status(400).json({
       success: false,
       message: error.message
@@ -132,7 +132,7 @@ const getHistoriqueTransactions = async (req, res) => {
     });
     
   } catch (error) {
-    console.error('Erreur historique transactions:', error);
+    console.error('❌ Erreur historique transactions:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur lors de la récupération des transactions',
@@ -141,43 +141,36 @@ const getHistoriqueTransactions = async (req, res) => {
   }
 };
 
-// Middleware à appeler quand une commande passe à "livraison reçu"
-const onCommandeLivree = async (commandeId) => {
+// NOUVELLE FONCTION: Gérer les changements d'état de commande
+const gererChangementEtatCommande = async (commandeId, ancienEtat, nouvelEtat, commandeData = null) => {
   try {
-    const commande = await Commande.findById(commandeId).populate('nbrProduits.produit');
-    
-    if (!commande) {
-      throw new Error('Commande non trouvée');
-    }
-    
-    // Grouper les produits par seller
-    const ventesParlSeller = {};
-    
-    for (const item of commande.nbrProduits) {
-      const sellerId = item.produit.Clefournisseur;
-      const prix = item.produit.prixPromo > 0 ? item.produit.prixPromo : item.produit.prix;
-      const montant = item.quantite * prix;
-      
-      if (!ventesParlSeller[sellerId]) {
-        ventesParlSeller[sellerId] = 0;
+    console.log(`🔄 Gestion changement état commande ${commandeId}: ${ancienEtat} → ${nouvelEtat}`);
+
+    // Récupérer les données de la commande si pas fournies
+    let donneesCommande = commandeData;
+    if (!donneesCommande) {
+      donneesCommande = await Commande.findById(commandeId).populate('nbrProduits.produit');
+      if (!donneesCommande) {
+        throw new Error('Commande non trouvée');
       }
-      ventesParlSeller[sellerId] += montant;
     }
-    
-    // Créditer chaque seller
-    for (const [sellerId, montant] of Object.entries(ventesParlSeller)) {
-      await FinancialService.crediterPortefeuille(
-        sellerId,
-        commandeId,
-        montant,
-        `Vente - Commande ${commande.reference}`
-      );
-    }
-    
-    console.log(`Commande ${commande.reference} traitée financièrement`);
-    
+
+    const reference = donneesCommande.reference || generateReference();
+
+    // Utiliser le nouveau service financier
+    const resultat = await FinancialService.gererChangementEtatCommande(
+      commandeId, 
+      ancienEtat, 
+      nouvelEtat, 
+      donneesCommande, 
+      reference
+    );
+
+    console.log(`✅ Changement d'état traité:`, resultat);
+    return resultat;
+
   } catch (error) {
-    console.error('Erreur lors de la mise à jour des finances:', error);
+    console.error(`❌ Erreur gestion changement état:`, error);
     throw error;
   }
 };
@@ -316,7 +309,7 @@ async function getSellerOrdersWithFinancialInfo(sellerId) {
 
     return orders;
   } catch (error) {
-    console.error("Erreur lors de la récupération des commandes du vendeur:", error);
+    console.error("❌ Erreur récupération commandes seller:", error);
     throw error;
   }
 }
@@ -337,7 +330,7 @@ const seller_orders_with_financial = async (req, res) => {
       financial: financialSummary
     });
   } catch (error) {
-    console.error('Erreur orders with financial:', error);
+    console.error('❌ Erreur orders with financial:', error);
     res.status(500).json({
       success: false,
       message: "Erreur lors de la récupération des commandes",
@@ -346,9 +339,11 @@ const seller_orders_with_financial = async (req, res) => {
   }
 };
 
-// Fonction à appeler périodiquement pour confirmer les transactions
+// NOUVELLE FONCTION: Fonction à appeler périodiquement pour confirmer les transactions
 const confirmerTransactionsLivrees = async () => {
   try {
+    console.log('🔍 Recherche des transactions à confirmer...');
+
     const transactionsAConfirmer = await Transaction.aggregate([
       {
         $match: {
@@ -366,27 +361,93 @@ const confirmerTransactionsLivrees = async () => {
       },
       {
         $match: {
-          'commande.etatTraitement': 'livraison reçu'
+          'commande.etatTraitement': { $in: ['livraison reçu', 'Traité'] }
         }
       }
     ]);
 
     let confirmees = 0;
-    for (const transaction of transactionsAConfirmer) {
+    for (const transactionData of transactionsAConfirmer) {
       try {
-        await FinancialService.confirmerTransaction(transaction._id);
+        await FinancialService.confirmerTransactionsCommande(transactionData.commandeId);
         confirmees++;
       } catch (error) {
-        console.error(`Erreur confirmation transaction ${transaction._id}:`, error);
+        console.error(`❌ Erreur confirmation commande ${transactionData.commandeId}:`, error);
       }
     }
 
-    console.log(`${confirmees}/${transactionsAConfirmer.length} transactions confirmées`);
+    console.log(`✅ ${confirmees}/${transactionsAConfirmer.length} commandes confirmées`);
     return { confirmees, total: transactionsAConfirmer.length };
     
   } catch (error) {
-    console.error('Erreur lors de la confirmation des transactions:', error);
+    console.error('❌ Erreur confirmation automatique:', error);
     throw error;
+  }
+};
+
+// NOUVELLE FONCTION: Obtenir le résumé financier d'une commande
+const getCommandeFinancialSummary = async (req, res) => {
+  try {
+    const { commandeId } = req.params;
+    
+    const resume = await FinancialService.getResumeCommande(commandeId);
+    
+    res.json({
+      success: true,
+      data: resume
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur résumé financier:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la récupération du résumé financier',
+      error: error.message
+    });
+  }
+};
+
+// NOUVELLE FONCTION: Vérifier la cohérence financière
+const verifierCoherenceFinanciere = async (req, res) => {
+  try {
+    const { sellerId } = req.params;
+    
+    const verification = await FinancialService.verifierCoherencePortefeuille(sellerId);
+    
+    res.json({
+      success: true,
+      data: verification
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur vérification cohérence:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la vérification',
+      error: error.message
+    });
+  }
+};
+
+// NOUVELLE FONCTION: Corriger les incohérences
+const corrigerIncoherences = async (req, res) => {
+  try {
+    const { sellerId } = req.params;
+    
+    const correction = await FinancialService.corrigerIncoherences(sellerId);
+    
+    res.json({
+      success: true,
+      data: correction
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur correction:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la correction',
+      error: error.message
+    });
   }
 };
 
@@ -394,10 +455,10 @@ const confirmerTransactionsLivrees = async () => {
 const tacheDeblocage = async () => {
   try {
     const result = await FinancialService.debloquerArgentDisponible();
-    console.log('Tâche de déblocage terminée:', result);
+    console.log('🔓 Tâche de déblocage terminée:', result);
     return result;
   } catch (error) {
-    console.error('Erreur dans la tâche de déblocage:', error);
+    console.error('❌ Erreur tâche déblocage:', error);
     throw error;
   }
 };
@@ -406,10 +467,10 @@ const tacheDeblocage = async () => {
 const tacheNettoyage = async () => {
   try {
     const result = await FinancialService.nettoyageAutomatique();
-    console.log('Tâche de nettoyage terminée:', result);
+    console.log('🧹 Tâche de nettoyage terminée:', result);
     return result;
   } catch (error) {
-    console.error('Erreur dans la tâche de nettoyage:', error);
+    console.error('❌ Erreur tâche nettoyage:', error);
     throw error;
   }
 };
@@ -428,7 +489,7 @@ const recalculerSoldes = async (req, res) => {
     });
     
   } catch (error) {
-    console.error('Erreur recalcul soldes:', error);
+    console.error('❌ Erreur recalcul soldes:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur lors du recalcul des soldes',
@@ -437,39 +498,18 @@ const recalculerSoldes = async (req, res) => {
   }
 };
 
-const gererRelanceCommande = async (commandeId, newReference) => {
-  try {
-    console.log(`🚀 Gestion de la relance pour commande ${commandeId}`);
-
-    // Vérifier s'il y a des transactions annulées
-    const aTransactionsAnnulees = await FinancialService.aDesTransactionsAnnulees(commandeId);
-
-    if (aTransactionsAnnulees) {
-      console.log(`🔄 Réactivation des transactions annulées...`);
-      const resultat = await FinancialService.reactiverTransactionsAnnulees(commandeId, newReference);
-      console.log(`✅ Résultat de la réactivation:`, resultat);
-      return resultat;
-    } else {
-      console.log(`ℹ️ Aucune transaction annulée à réactiver`);
-      return { message: "Aucune transaction annulée trouvée", count: 0 };
-    }
-
-  } catch (error) {
-    console.error(`❌ Erreur lors de la gestion de la relance:`, error);
-    throw error;
-  }
-};
-
 module.exports = {
   getSellerDashboard,
   demanderRetrait,
   getHistoriqueTransactions,
-  onCommandeLivree,
   getSellerOrdersWithFinancialInfo,
   seller_orders_with_financial,
   confirmerTransactionsLivrees,
   tacheDeblocage,
   tacheNettoyage,
   recalculerSoldes,
-  gererRelanceCommande
+  gererChangementEtatCommande,
+  getCommandeFinancialSummary,
+  verifierCoherenceFinanciere,
+  corrigerIncoherences
 };

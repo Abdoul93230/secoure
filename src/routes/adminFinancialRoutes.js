@@ -5,6 +5,7 @@ const TransactionSeller = require('../models/transactionSchema');
 const Portefeuille = require('../models/portefeuilleSchema');
 const { Commande } = require('../Models');
 const FinancialService = require('../services/FinancialService');
+const FinancialStateManager = require('../utils/financialStateManager');
 const mongoose = require('mongoose');
 
 // Middleware de vérification admin
@@ -650,6 +651,134 @@ router.post('/finances/correction-transaction', verifyAdmin, async (req, res) =>
             error: error.message
         });
     }
+});
+
+// NOUVELLES ROUTES POUR LA GESTION AMÉLIORÉE
+
+// Diagnostiquer une commande
+router.get('/finances/commandes/:commandeId/diagnostic', verifyAdmin, async (req, res) => {
+  try {
+    const { commandeId } = req.params;
+    const diagnostic = await FinancialStateManager.diagnostiquerCommande(commandeId);
+    
+    res.json({
+      success: true,
+      data: diagnostic
+    });
+  } catch (error) {
+    console.error('❌ Erreur diagnostic:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors du diagnostic',
+      error: error.message
+    });
+  }
+});
+
+// Réparer une commande
+router.post('/finances/commandes/:commandeId/repair', verifyAdmin, async (req, res) => {
+  try {
+    const { commandeId } = req.params;
+    const { recalculerSoldes = false } = req.body;
+    
+    const reparation = await FinancialStateManager.reparerCommande(commandeId, {
+      recalculerSoldes
+    });
+    
+    res.json({
+      success: true,
+      data: reparation
+    });
+  } catch (error) {
+    console.error('❌ Erreur réparation:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la réparation',
+      error: error.message
+    });
+  }
+});
+
+// Changer l'état d'une commande avec validation
+router.put('/finances/commandes/:commandeId/change-state', verifyAdmin, async (req, res) => {
+  try {
+    const { commandeId } = req.params;
+    const { nouvelEtat, reference } = req.body;
+    
+    const commande = await Commande.findById(commandeId);
+    if (!commande) {
+      return res.status(404).json({
+        success: false,
+        message: 'Commande non trouvée'
+      });
+    }
+    
+    const ancienEtat = commande.etatTraitement;
+    
+    // Utiliser le gestionnaire d'état
+    const resultat = await FinancialStateManager.changerEtatCommande(
+      commandeId,
+      ancienEtat,
+      nouvelEtat,
+      commande,
+      { reference }
+    );
+    
+    if (resultat.success) {
+      // Mettre à jour la commande dans la base de données
+      await Commande.findByIdAndUpdate(commandeId, { 
+        etatTraitement: nouvelEtat,
+        reference: reference || commande.reference
+      });
+    }
+    
+    res.json({
+      success: resultat.success,
+      data: resultat
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur changement état:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors du changement d\'état',
+      error: error.message
+    });
+  }
+});
+
+// Obtenir les transitions possibles pour une commande
+router.get('/finances/commandes/:commandeId/transitions', verifyAdmin, async (req, res) => {
+  try {
+    const { commandeId } = req.params;
+    
+    const commande = await Commande.findById(commandeId);
+    if (!commande) {
+      return res.status(404).json({
+        success: false,
+        message: 'Commande non trouvée'
+      });
+    }
+    
+    const transitionsPossibles = FinancialStateManager.getTransitionsPossibles(commande.etatTraitement);
+    
+    res.json({
+      success: true,
+      data: {
+        etatActuel: commande.etatTraitement,
+        transitionsPossibles,
+        commandeId
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur transitions:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la récupération des transitions',
+      error: error.message
+    });
+  }
 });
 
 module.exports = router;
