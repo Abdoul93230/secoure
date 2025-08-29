@@ -4,17 +4,17 @@ const cloudinary = require('../cloudinary');
 const fs = require("fs");
 class ProductService {
   async getAllProductsSeller() {
-    return await Produit.find({ isDeleted: false });
+    return await Produit.find({ isDeleted: false }).populate('Clefournisseur');
   }
   async getAllProductsAdmin() {
-    return await Produit.find();
+    return await Produit.find().populate('Clefournisseur');
   }
 
   async getProductById(productId) {
-    return await Produit.findOne({ _id: productId, isDeleted: false });
+    return await Produit.findOne({ _id: productId, isDeleted: false }).populate('Clefournisseur');
   }
   async getProductByIdAdmin(productId) {
-    return await Produit.findOne({ _id: productId });
+    return await Produit.findOne({ _id: productId }).populate('Clefournisseur');
   }
 
   // Créer un produit

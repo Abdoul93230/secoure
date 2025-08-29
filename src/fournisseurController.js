@@ -93,7 +93,7 @@ const searchProductBySupplier = async (req, res) => {
     const products = await Produit.find({
       Clefournisseur: supplierId,
       isDeleted: false,
-    });
+    }).populate('Clefournisseur');
 
     if (!products || products.length == 0) {
       return res
