@@ -379,7 +379,7 @@ const getCommandesByClefUser = async (req, res) => {
 
 const getAllCommandes = async (req, res) => {
   try {
-    const commandes = await Commande.find();
+    const commandes = await Commande.find().sort({ date: -1 });
 
     return res.json({ commandes });
   } catch (error) {

@@ -23,10 +23,28 @@ const socialRoutes = require("./src/routes/socialRoutes");
 const marketingRoutes = require("./src/routes/marketingRoutes");
 const financeRoutes = require("./src/routes/financeRoutes");
 const adminFinancialRoutes = require('./src/routes/adminFinancialRoutes');
+const shippingAddressRoutes = require("./src/routes/shippingRoutesF");
+
+const adminZonesRoutes = require('./src/routes/adminZones');
+const sellerShippingRoutes = require('./src/routes/sellerShipping');
+const publicShippingRoutes = require('./src/routes/publicShipping');
+
+// Import middleware
+const { errorHandler } = require('./src/middleware/errorHandler');
+const authMiddleware = require('./src/middleware/auth');
+
 
 const port = 8083;
 const app = express();
 const server = http.createServer(app);
+
+// Rate limiting
+// const limiter = rateLimit({
+//   windowMs: 15 * 60 * 1000, // 15 minutes
+//   max: 100 // limit each IP to 100 requests per windowMs
+// });
+// app.use(limiter);
+
 
 // Socket.IO configuration
 const io = socketIo(server, {
@@ -80,7 +98,7 @@ io.on("connection", (socket) => {
   socket.on("delete_message", (data) => {
     io.emit("delete_message", data);
   });
-  
+
   socket.on("new_message_u", (data) => {
     io.emit("new_message_user", data);
   });
@@ -102,10 +120,10 @@ app.get("/proxy/ip-api", async (req, res) => {
 });
 
 app.get("/health", (req, res) => {
-  res.json({ 
-    status: "OK", 
-    message: "Serveur backend fonctionnel", 
-    timestamp: new Date().toISOString() 
+  res.json({
+    status: "OK",
+    message: "Serveur backend fonctionnel",
+    timestamp: new Date().toISOString()
   });
 });
 
@@ -122,6 +140,11 @@ app.use("/api/marketing", marketingRoutes);
 app.use("/api", socialRoutes);
 app.use("/api/financial", financeRoutes);
 app.use('/adminf', adminFinancialRoutes);
+app.use("/api/shipping", shippingAddressRoutes);
+
+app.use('/api/admin/zones', authMiddleware.requireAdmin, adminZonesRoutes);
+app.use('/api/seller', authMiddleware.requireSeller, sellerShippingRoutes);
+app.use('/api/shipping2', publicShippingRoutes);
 
 
 // Start server

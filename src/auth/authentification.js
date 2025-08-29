@@ -101,7 +101,7 @@ const AdminLogin = async (req, res) => {
                 { userId: user._id, role: "admin" },
                 ADMIN_PRIVATe_KEY,
                 {
-                  expiresIn: "1h",
+                  expiresIn: "1m",
                 }
               );
               const refreshAdminToken = jwt.sign(
@@ -122,6 +122,7 @@ const AdminLogin = async (req, res) => {
                 token: jeton,
                 id: user._id,
                 name: user.name,
+                role: "admin",
               });
             }
           })

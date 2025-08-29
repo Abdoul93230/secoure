@@ -375,7 +375,8 @@ const produitSchema = new mongoose.Schema(
       ],
     },
     Clefournisseur: {
-      type: String,
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'SellerRequest',
       required: [true, "Un produit doit comporter la clef de son fournisseur."],
     },
     prixLivraison: {
