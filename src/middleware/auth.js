@@ -22,6 +22,8 @@ const extractToken = async (req, res, next) => {
   }
 
   const token = authHeader.substring(7);
+  // console.log({token});
+  
   
   
   try {
@@ -89,6 +91,8 @@ const extractToken = async (req, res, next) => {
     
     next();
   } catch (error) {
+    // console.log({error});
+    
     return res.status(401).json({
       success: false,
       message: 'Token invalide ou expiré'

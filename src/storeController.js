@@ -1565,41 +1565,70 @@ const listPricingPlans = async (req, res) => {
 };
 
 // Fonction pour récupérer les commandes d'un vendeur spécifique
-async function getSellerOrders(sellerId) {
+async function getSellerOrders(sellerId, options = {}) {
   try {
-    const orders = await Commande.aggregate([
+    // 🔥 CORRECTION: Convertir sellerId en ObjectId si ce n'est pas déjà fait
+    const sellerObjectId = mongoose.Types.ObjectId.isValid(sellerId) 
+      ? new mongoose.Types.ObjectId(sellerId)
+      : sellerId;
+
+    // 🔥 NOUVEAU: Options de pagination
+    const page = parseInt(options.page) || 1;
+    const limit = parseInt(options.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    // Pipeline d'agrégation avec pagination
+    const pipeline = [
       // Premièrement, on fait un match pour trouver les commandes potentiellement pertinentes
-      // Cette étape est optionnelle mais peut améliorer les performances
       {
         $match: {
           statusPayment: { $exists: true }, // Pour s'assurer qu'on ne prend que des commandes valides
         },
       },
 
-      // Étape 1: Dénormaliser les produits de chaque commande
-      { $unwind: "$nbrProduits" },
+      // Étape 1: Ajouter un index à chaque produit dans nbrProduits
+      {
+        $addFields: {
+          nbrProduitsWithIndex: {
+            $map: {
+              input: { $range: [0, { $size: "$nbrProduits" }] },
+              as: "index",
+              in: {
+                $mergeObjects: [
+                  { $arrayElemAt: ["$nbrProduits", "$$index"] },
+                  { originalIndex: "$$index" }
+                ]
+              }
+            }
+          }
+        }
+      },
 
-      // Étape 2: Lookup pour obtenir les détails du produit
+      // Étape 2: Dénormaliser les produits de chaque commande
+      { $unwind: "$nbrProduitsWithIndex" },
+
+      // Étape 3: Lookup pour obtenir les détails du produit
       {
         $lookup: {
           from: "produits", // Nom de votre collection de produits
-          localField: "nbrProduits.produit",
+          localField: "nbrProduitsWithIndex.produit",
           foreignField: "_id",
           as: "productInfo",
         },
       },
 
-      // Étape 3: Dénormaliser le résultat du lookup
+      // Étape 4: Dénormaliser le résultat du lookup
       { $unwind: "$productInfo" },
 
-      // Étape 4: Filtrer seulement les produits du vendeur
+      // Étape 5: Filtrer seulement les produits du vendeur
+      // 🔥 CORRECTION: Utiliser sellerObjectId au lieu de sellerId
       {
         $match: {
-          "productInfo.Clefournisseur": sellerId,
+          "productInfo.Clefournisseur": sellerObjectId,
         },
       },
 
-      // Étape 5: Regrouper par commande
+      // Étape 6: Regrouper par commande
       {
         $group: {
           _id: "$_id",
@@ -1617,11 +1646,12 @@ async function getSellerOrders(sellerId) {
           // Ajouter les produits du vendeur avec leurs détails complets
           sellerProducts: {
             $push: {
-              produitId: "$nbrProduits.produit",
-              isValideSeller: "$nbrProduits.isValideSeller",
-              quantite: "$nbrProduits.quantite",
-              tailles: "$nbrProduits.tailles",
-              couleurs: "$nbrProduits.couleurs",
+              originalIndex: "$nbrProduitsWithIndex.originalIndex", // 🔥 NOUVEAU: Index original
+              produitId: "$nbrProduitsWithIndex.produit",
+              isValideSeller: "$nbrProduitsWithIndex.isValideSeller",
+              quantite: "$nbrProduitsWithIndex.quantite",
+              tailles: "$nbrProduitsWithIndex.tailles",
+              couleurs: "$nbrProduitsWithIndex.couleurs",
               nom: "$productInfo.name",
               prix: "$productInfo.prix",
               prixPromo:"$productInfo.prixPromo",
@@ -1633,7 +1663,7 @@ async function getSellerOrders(sellerId) {
           sellerTotal: {
             $sum: {
                $multiply: [
-            "$nbrProduits.quantite",
+            "$nbrProduitsWithIndex.quantite",
             {
               $cond: {
                 if: { $gt: ["$productInfo.prixPromo", 0] }, // prixPromo > 0
@@ -1647,11 +1677,36 @@ async function getSellerOrders(sellerId) {
         },
       },
 
-      // Étape 6: Trier par date de commande (le plus récent en premier)
+      // Étape 7: Trier par date de commande (le plus récent en premier)
       { $sort: { date: -1 } },
-    ]);
+    ];
 
-    return orders;
+    // 🔥 NOUVEAU: Exécuter le pipeline avec pagination
+    const orders = await Commande.aggregate(pipeline)
+      .skip(skip)
+      .limit(limit);
+
+    // 🔥 NOUVEAU: Compter le total pour la pagination
+    const totalPipeline = [
+      ...pipeline.slice(0, -1), // Tous les stages sauf le sort
+      { $count: "total" }
+    ];
+    
+    const totalResult = await Commande.aggregate(totalPipeline);
+    const total = totalResult.length > 0 ? totalResult[0].total : 0;
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      orders,
+      pagination: {
+        currentPage: page,
+        totalPages,
+        totalOrders: total,
+        hasNext: page < totalPages,
+        hasPrev: page > 1,
+        limit
+      }
+    };
   } catch (error) {
     console.error(
       "Erreur lors de la récupération des commandes du vendeur:",
@@ -1665,15 +1720,25 @@ async function getSellerOrders(sellerId) {
 const seller_orders = async (req, res) => {
   try {
     // Récupérer l'ID du vendeur depuis le token d'authentification
-    // const sellerId = req.seller._id; // ou req.seller.id selon votre implémentation
-    const sellerId = req.params.Id; // ou req.seller.id selon votre implémentation
+    const sellerId = req.params.Id;
 
-    // Appeler la fonction pour récupérer les commandes
-    const sellerOrders = await getSellerOrders(sellerId);
+    // 🔥 NOUVEAU: Récupérer les paramètres de pagination depuis la query
+    const options = {
+      page: req.query.page || 1,
+      limit: req.query.limit || 10,
+      status: req.query.status, // Optionnel: filtre par statut
+      search: req.query.search  // Optionnel: recherche
+    };
+
+    // Appeler la fonction pour récupérer les commandes avec pagination
+    const result = await getSellerOrders(sellerId, options);
 
     res.status(200).json({
       success: true,
-      orders: sellerOrders,
+      data: result,
+      // Compatibilité avec l'ancien format
+      orders: result.orders,
+      pagination: result.pagination
     });
   } catch (error) {
     res.status(500).json({
@@ -1687,6 +1752,11 @@ const seller_orders = async (req, res) => {
 // Fonction pour valider les produits d'un vendeur dans une commande spécifique
 async function validateSellerProducts(orderId, sellerId) {
   try {
+    // 🔥 CORRECTION: Convertir sellerId en ObjectId
+    const sellerObjectId = mongoose.Types.ObjectId.isValid(sellerId) 
+      ? new mongoose.Types.ObjectId(sellerId)
+      : sellerId;
+
     // Recherche de la commande par son ID
     const commande = await Commande.findById(orderId);
 
@@ -1698,9 +1768,10 @@ async function validateSellerProducts(orderId, sellerId) {
     const productIds = commande.nbrProduits.map((item) => item.produit);
 
     // Rechercher tous les produits qui appartiennent au vendeur spécifié
+    // 🔥 CORRECTION: Utiliser sellerObjectId
     const sellerProducts = await Produit.find({
       _id: { $in: productIds },
-      Clefournisseur: sellerId,
+      Clefournisseur: sellerObjectId,
     }).select("_id");
 
     // Créer un Set des IDs de produits du vendeur pour une recherche efficace
@@ -1760,6 +1831,153 @@ const validate_seller_products = async (req, res) => {
   }
 };
 
+// 🔥 NOUVEAU: Fonction pour valider un produit individuel
+async function validateIndividualProduct(orderId, sellerId, productId, isValid = true, productIndex = null) {
+  try {
+    // Convertir les IDs en ObjectId
+    const sellerObjectId = mongoose.Types.ObjectId.isValid(sellerId) 
+      ? new mongoose.Types.ObjectId(sellerId)
+      : sellerId;
+    
+    const productObjectId = mongoose.Types.ObjectId.isValid(productId) 
+      ? new mongoose.Types.ObjectId(productId)
+      : productId;
+
+    // Recherche de la commande
+    const commande = await Commande.findById(orderId);
+    if (!commande) {
+      throw new Error("Commande non trouvée");
+    }
+
+    // Vérifier que le produit appartient au vendeur
+    const produitVendeur = await Produit.findOne({
+      _id: productObjectId,
+      Clefournisseur: sellerObjectId,
+    });
+
+    if (!produitVendeur) {
+      throw new Error("Ce produit ne vous appartient pas ou n'existe pas");
+    }
+
+    // Trouver l'item dans la commande et le mettre à jour
+    let produitTrouve = false;
+    let ancienEtat = false;
+
+    if (productIndex !== null) {
+      // Mode index : mettre à jour seulement l'élément à l'index spécifié
+      const index = parseInt(productIndex);
+      if (index >= 0 && index < commande.nbrProduits.length) {
+        const item = commande.nbrProduits[index];
+        if (item.produit.toString() === productObjectId.toString()) {
+          ancienEtat = item.isValideSeller;
+          item.isValideSeller = isValid;
+          produitTrouve = true;
+        }
+      }
+    } else {
+      // Mode legacy : mettre à jour tous les éléments avec le même productId
+      commande.nbrProduits.forEach((item) => {
+        if (item.produit.toString() === productObjectId.toString()) {
+          ancienEtat = item.isValideSeller;
+          item.isValideSeller = isValid;
+          produitTrouve = true;
+        }
+      });
+    }
+
+    if (!produitTrouve) {
+      throw new Error("Ce produit n'est pas dans cette commande");
+    }
+
+    // Sauvegarder la commande
+    await commande.save();
+
+    return {
+      success: true,
+      message: isValid 
+        ? "Produit validé avec succès" 
+        : "Validation du produit annulée",
+      data: {
+        orderId,
+        productId,
+        sellerId,
+        isValideSeller: isValid,
+        previousState: ancienEtat,
+        changed: ancienEtat !== isValid
+      }
+    };
+  } catch (error) {
+    console.error("Erreur lors de la validation individuelle:", error);
+    throw error;
+  }
+}
+
+// Route pour valider un produit individuel
+const validate_individual_product = async (req, res) => {
+  try {
+    const { orderId, sellerId, productId } = req.params;
+    const { isValid = true } = req.body; // Permettre de spécifier true/false
+
+    const result = await validateIndividualProduct(orderId, sellerId, productId, isValid);
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Erreur lors de la validation du produit",
+      error: error.message,
+    });
+  }
+};
+
+// Route pour basculer l'état de validation d'un produit
+const toggle_product_validation = async (req, res) => {
+  try {
+    const { orderId, sellerId, productId, productIndex } = req.params;
+
+    // D'abord récupérer l'état actuel
+    const commande = await Commande.findById(orderId);
+    if (!commande) {
+      return res.status(404).json({
+        success: false,
+        message: "Commande non trouvée"
+      });
+    }
+
+    // Trouver l'état actuel du produit à l'index spécifique
+    let etatActuel = false;
+    const index = parseInt(productIndex);
+    
+    if (index >= 0 && index < commande.nbrProduits.length) {
+      const item = commande.nbrProduits[index];
+      if (item.produit.toString() === productId) {
+        etatActuel = item.isValideSeller || false;
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: "L'index du produit ne correspond pas au produit spécifié"
+        });
+      }
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: "Index de produit invalide"
+      });
+    }
+
+    // Basculer l'état
+    const nouvelEtat = !etatActuel;
+    const result = await validateIndividualProduct(orderId, sellerId, productId, nouvelEtat, productIndex);
+    
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Erreur lors du basculement de validation",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   createSeller,
   deleteSeller,
@@ -1779,4 +1997,6 @@ module.exports = {
   updateSeller,
   seller_orders,
   validate_seller_products,
+  validate_individual_product,
+  toggle_product_validation,
 };

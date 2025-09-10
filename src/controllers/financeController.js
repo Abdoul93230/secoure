@@ -176,9 +176,20 @@ const gererChangementEtatCommande = async (commandeId, ancienEtat, nouvelEtat, c
 };
 
 // Fonction pour obtenir les commandes avec informations financières
-async function getSellerOrdersWithFinancialInfo(sellerId) {
+async function getSellerOrdersWithFinancialInfo(sellerId, options = {}) {
   try {
-    const orders = await Commande.aggregate([
+    // 🔥 CORRECTION: Convertir sellerId en ObjectId
+    const sellerObjectId = mongoose.Types.ObjectId.isValid(sellerId) 
+      ? new mongoose.Types.ObjectId(sellerId)
+      : sellerId;
+
+    // 🔥 NOUVEAU: Options de pagination
+    const page = parseInt(options.page) || 1;
+    const limit = parseInt(options.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    // Pipeline principal avec pagination
+    const pipeline = [
       { $unwind: "$nbrProduits" },
       {
         $lookup: {
@@ -191,7 +202,8 @@ async function getSellerOrdersWithFinancialInfo(sellerId) {
       { $unwind: "$productInfo" },
       {
         $match: {
-          "productInfo.Clefournisseur": sellerId,
+          // 🔥 CORRECTION: Utiliser sellerObjectId
+          "productInfo.Clefournisseur": sellerObjectId,
         },
       },
       {
@@ -244,7 +256,7 @@ async function getSellerOrdersWithFinancialInfo(sellerId) {
           from: "transactionsellers",
           let: { 
             commandeId: "$_id",
-            sellerId: sellerId
+            sellerId: sellerObjectId
           },
           pipeline: [
             {
@@ -305,9 +317,34 @@ async function getSellerOrdersWithFinancialInfo(sellerId) {
       },
 
       { $sort: { date: -1 } },
-    ]);
+    ];
 
-    return orders;
+    // 🔥 NOUVEAU: Exécuter le pipeline avec pagination
+    const orders = await Commande.aggregate(pipeline)
+      .skip(skip)
+      .limit(limit);
+
+    // 🔥 NOUVEAU: Compter le total pour la pagination
+    const totalPipeline = [
+      ...pipeline.slice(0, -1), // Tous les stages sauf le sort
+      { $count: "total" }
+    ];
+    
+    const totalResult = await Commande.aggregate(totalPipeline);
+    const total = totalResult.length > 0 ? totalResult[0].total : 0;
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      orders,
+      pagination: {
+        currentPage: page,
+        totalPages,
+        totalOrders: total,
+        hasNext: page < totalPages,
+        hasPrev: page > 1,
+        limit
+      }
+    };
   } catch (error) {
     console.error("❌ Erreur récupération commandes seller:", error);
     throw error;
@@ -319,14 +356,25 @@ const seller_orders_with_financial = async (req, res) => {
   try {
     const sellerId = req.params.sellerId;
     
-    const [sellerOrders, financialSummary] = await Promise.all([
-      getSellerOrdersWithFinancialInfo(sellerId),
+    // 🔥 NOUVEAU: Récupérer les paramètres de pagination depuis la query
+    const options = {
+      page: req.query.page || 1,
+      limit: req.query.limit || 10,
+      status: req.query.status, // Optionnel: filtre par statut
+      search: req.query.search  // Optionnel: recherche
+    };
+    
+    const [sellerOrdersResult, financialSummary] = await Promise.all([
+      getSellerOrdersWithFinancialInfo(sellerId, options),
       FinancialService.getStatistiquesFinancieres(sellerId)
     ]);
     
     res.status(200).json({
       success: true,
-      orders: sellerOrders,
+      data: sellerOrdersResult,
+      // Compatibilité avec l'ancien format
+      orders: sellerOrdersResult.orders,
+      pagination: sellerOrdersResult.pagination,
       financial: financialSummary
     });
   } catch (error) {

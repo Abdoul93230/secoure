@@ -24,14 +24,19 @@ const marketingRoutes = require("./src/routes/marketingRoutes");
 const financeRoutes = require("./src/routes/financeRoutes");
 const adminFinancialRoutes = require('./src/routes/adminFinancialRoutes');
 const shippingAddressRoutes = require("./src/routes/shippingRoutesF");
+const stockRoutes = require("./src/routes/stockRoutes");
 
 const adminZonesRoutes = require('./src/routes/adminZones');
 const sellerShippingRoutes = require('./src/routes/sellerShipping');
 const publicShippingRoutes = require('./src/routes/publicShipping');
+const adminSellersRoutes = require('./src/routes/adminSellersRoutes');
+const enhancedAdminRoutes = require('./src/routes/enhancedAdminRoutes');
+const sellerSubscriptionRoutes = require('./src/routes/sellerSubscriptionRoutes');
 
 // Import middleware
 const { errorHandler } = require('./src/middleware/errorHandler');
 const authMiddleware = require('./src/middleware/auth');
+const CronJobs = require('./src/utils/cronJobs');
 
 
 const port = 8083;
@@ -63,6 +68,7 @@ const io = socketIo(server, {
       "https://i-pay.money",
       "https://ihambaobadmin.onrender.com",
       "https://ihambaobabv.onrender.com",
+      "https://www.ihambaobab.com",
     ],
     credentials: true,
   },
@@ -86,6 +92,7 @@ app
         "https://i-pay.money",
         "https://ihambaobadmin.onrender.com",
         "https://ihambaobabv.onrender.com",
+        "https://www.ihambaobab.com",
       ],
       credentials: true,
     })
@@ -143,10 +150,14 @@ app.use("/api", socialRoutes);
 app.use("/api/financial", financeRoutes);
 app.use('/adminf', adminFinancialRoutes);
 app.use("/api/shipping", shippingAddressRoutes);
+app.use("/api/stock", stockRoutes);
 
 app.use('/api/admin/zones', authMiddleware.requireAdmin, adminZonesRoutes);
 app.use('/api/seller', authMiddleware.requireSeller, sellerShippingRoutes);
 app.use('/api/shipping2', publicShippingRoutes);
+app.use('/api/adminSeller', authMiddleware.requireAdmin, adminSellersRoutes);
+app.use('/api/adminSeller', authMiddleware.requireAdmin, enhancedAdminRoutes);
+app.use('/api/seller/subscription', authMiddleware.requireSeller, sellerSubscriptionRoutes);
 
 
 // Start server
@@ -154,4 +165,9 @@ server.listen(port, () => {
   console.log(
     `Votre application est en écoute sur : https://habou227.onrender.com:${port}`
   );
+  
+  // Initialize cron jobs for subscription management and financial tasks
+  console.log('Initializing cron jobs...');
+  CronJobs.init();
+  console.log('Cron jobs initialized successfully');
 });

@@ -327,27 +327,68 @@ const getUserProfile = (req, res) => {
 
 const createCommande = async (req, res) => {
   const data = req.body;
+  const StockService = require('./services/stockService');
+  const mongoose = require('mongoose');
 
+  // Démarrer une transaction pour assurer la cohérence
+  const session = await mongoose.startSession();
+  
   try {
-    const commande = new Commande({
-      clefUser: data.clefUser,
-      nbrProduits: data.nbrProduits,
-      prix: data.prix,
-      codePro: data.codePro,
-      idCodePro: data.idCodePro,
-      reference: data.reference,
-      livraisonDetails: data.livraisonDetails,
-      prod: data.prod,
-      statusPayment: data?.statusPayment ? data.statusPayment : "en cours",
+    await session.withTransaction(async () => {
+      // 1. Valider la disponibilité du stock
+      console.log('🔍 Validation du stock pour la commande...');
+      const stockValidation = await StockService.validateStockAvailability(data.nbrProduits);
+      
+      if (!stockValidation.valid) {
+        const errors = stockValidation.invalidItems.map(item => item.error).join(', ');
+        throw new Error(`Stock insuffisant: ${errors}`);
+      }
+
+      // 2. Créer la commande
+      const commande = new Commande({
+        clefUser: data.clefUser,
+        nbrProduits: data.nbrProduits,
+        prix: data.prix,
+        codePro: data.codePro,
+        idCodePro: data.idCodePro,
+        reference: data.reference,
+        livraisonDetails: data.livraisonDetails,
+        prod: data.prod,
+        statusPayment: data?.statusPayment ? data.statusPayment : "en cours",
+      });
+
+      await commande.save({ session });
+
+      // 3. Décrémenter le stock
+      console.log('📦 Décrémentation du stock...');
+      const stockResult = await StockService.decrementStock(data.nbrProduits, { session });
+      
+      console.log('✅ Commande créée et stock mis à jour:', {
+        commandeId: commande._id,
+        stockOperations: stockResult.operations.length
+      });
+
+      // Retourner les données pour la réponse
+      req.commandeResult = { commande, stockResult };
     });
 
-    await commande.save();
+    const { commande, stockResult } = req.commandeResult;
+    const message = "Commande créée avec succès et stock mis à jour.";
+    return res.json({ 
+      message, 
+      commande,
+      stockOperations: stockResult.operations
+    });
 
-    const message = "Commande créée avec succès.";
-    return res.json({ message, commande });
   } catch (error) {
+    console.error('❌ Erreur lors de la création de la commande:', error);
     const message = "Erreur lors de la création de la commande.";
-    return res.status(500).json({ message, error });
+    return res.status(500).json({ 
+      message, 
+      error: error.message 
+    });
+  } finally {
+    await session.endSession();
   }
 };
 const getCommandesById = async (req, res) => {
@@ -389,21 +430,57 @@ const getAllCommandes = async (req, res) => {
 };
 
 const deleteCommandeById = async (req, res) => {
-  const commandeId = req.params.commandeId;
+  const StockService = require('./services/stockService');
+  const mongoose = require('mongoose');
+
+  // Démarrer une transaction
+  const session = await mongoose.startSession();
 
   try {
-    const deletedCommande = await Commande.findByIdAndDelete(commandeId);
+    await session.withTransaction(async () => {
+      const commandeId = req.params.commandeId;
 
-    if (!deletedCommande) {
-      const message = "La commande spécifiée n'a pas été trouvée.";
-      return res.status(404).json({ message });
-    }
+      const commandeToDelete = await Commande.findById(commandeId).session(session);
 
-    const message = "La commande a été supprimée avec succès.";
-    return res.json({ message });
+      if (!commandeToDelete) {
+        throw new Error("La commande spécifiée n'a pas été trouvée.");
+      }
+
+      // Restaurer le stock avant de supprimer la commande
+      console.log('🔄 Suppression de commande - Restauration du stock...');
+      const stockResult = await StockService.incrementStock(
+        commandeToDelete.nbrProduits, 
+        { session }
+      );
+
+      // Supprimer la commande
+      const deletedCommande = await Commande.findByIdAndDelete(commandeId).session(session);
+
+      console.log('✅ Commande supprimée et stock restauré:', {
+        commandeId,
+        stockOperations: stockResult.operations.length
+      });
+
+      // Sauvegarder le résultat pour la réponse
+      req.deleteResult = { deletedCommande, stockResult };
+    });
+
+    const { deletedCommande, stockResult } = req.deleteResult;
+    const message = "Commande supprimée avec succès et stock restauré.";
+    return res.json({ 
+      message, 
+      stockOperations: stockResult.operations
+    });
+
   } catch (error) {
+    console.error('❌ Erreur lors de la suppression de la commande:', error);
     const message = "Erreur lors de la suppression de la commande.";
-    return res.status(500).json({ message, error });
+    return res.status(500).json({ 
+      message, 
+      error: error.message 
+    });
+  } finally {
+    await session.endSession();
   }
 };
 
@@ -1563,55 +1640,96 @@ const payment_callback = async (req, res) => {
 
 // Route pour mettre à jour la référence d'une commande
 const updateCommanderef = async (req, res) => {
+  const StockService = require('./services/stockService');
+  const mongoose = require('mongoose');
+
+  // Démarrer une transaction
+  const session = await mongoose.startSession();
+  
   try {
-    const {
-      oldReference,
-      newReference,
-      livraisonDetails,
-      prod,
-      statusPayment,
-    } = req.body;
-    data = req.body;
+    await session.withTransaction(async () => {
+      const {
+        oldReference,
+        newReference,
+        livraisonDetails,
+        prod,
+        statusPayment,
+      } = req.body;
+      data = req.body;
 
-    // Vérifier que la commande existe avec l'ancienne référence
-    const commande = await Commande.findOne({ reference: oldReference });
-    if (!commande) {
-      console.error("Commande non trouvée pour la référence:", oldReference);
-      return res.status(404).json({
-        message: "Commande non trouvée",
-      });
-    }
+      // Vérifier que la commande existe avec l'ancienne référence
+      const commande = await Commande.findOne({ reference: oldReference }).session(session);
+      if (!commande) {
+        console.error("Commande non trouvée pour la référence:", oldReference);
+        throw new Error("Commande non trouvée");
+      }
 
-    // Mettre à jour la référence de la commande
-    const dataUpdate = {
-      clefUser: data.clefUser,
-      nbrProduits: data.nbrProduits,
-      prix: data.prix,
-      codePro: data.codePro,
-      idCodePro: data.idCodePro,
-      reference: newReference,
-      livraisonDetails: livraisonDetails,
-      prod: prod,
-    };
-    if (statusPayment && statusPayment === "payé à la livraison") {
-      dataUpdate.statusPayment = statusPayment;
-    }
-    console.log(statusPayment);
-    await Commande.findOneAndUpdate({ reference: oldReference }, dataUpdate);
+      // Sauvegarder l'ancien état des produits pour la gestion du stock
+      const oldNbrProduits = commande.nbrProduits;
 
-    console.log("Référence mise à jour:", { oldReference, newReference });
-    res.status(200).json({
-      message: "Référence mise à jour avec succès",
-      commande: {
+      // Valider la disponibilité du stock pour les nouveaux produits
+      console.log('🔍 Validation du stock pour la mise à jour de commande...');
+      const stockValidation = await StockService.validateStockAvailability(data.nbrProduits);
+      
+      if (!stockValidation.valid) {
+        const errors = stockValidation.invalidItems.map(item => item.error).join(', ');
+        throw new Error(`Stock insuffisant: ${errors}`);
+      }
+
+      // Mettre à jour la référence de la commande
+      const dataUpdate = {
+        clefUser: data.clefUser,
+        nbrProduits: data.nbrProduits,
+        prix: data.prix,
+        codePro: data.codePro,
+        idCodePro: data.idCodePro,
         reference: newReference,
-      },
+        livraisonDetails: livraisonDetails,
+        prod: prod,
+      };
+      
+      if (statusPayment && statusPayment === "payé à la livraison") {
+        dataUpdate.statusPayment = statusPayment;
+      }
+      
+      console.log(statusPayment);
+
+      await Commande.findOneAndUpdate({ reference: oldReference }, dataUpdate, { session });
+
+      // Mettre à jour le stock (restaurer ancien + décrémenter nouveau)
+      console.log('📦 Mise à jour du stock...');
+      const stockResult = await StockService.decrementStock(
+        data.nbrProduits, 
+        { 
+          session, 
+          isUpdate: true, 
+          oldNbrProduits 
+        }
+      );
+
+      console.log("✅ Référence mise à jour et stock mis à jour:", { oldReference, newReference });
+      
+      // Sauvegarder le résultat pour la réponse
+      req.updateResult = { stockResult };
     });
+
+    const { stockResult } = req.updateResult;
+    res.status(200).json({
+      message: "Référence mise à jour avec succès et stock mis à jour",
+      commande: {
+        reference: req.body.newReference,
+      },
+      stockOperations: stockResult.operations
+    });
+    
   } catch (error) {
-    console.error("Erreur lors de la mise à jour de la référence:", error);
+    console.error("❌ Erreur lors de la mise à jour de la référence:", error);
     res.status(500).json({
       message: "Erreur lors de la mise à jour de la référence",
       error: error.message,
     });
+  } finally {
+    await session.endSession();
   }
 };
 
@@ -1756,10 +1874,12 @@ const updateEtatTraitement = async (req, res) => {
   }
 };
 const updateStatusLivraison = async (req, res) => {
+  const StockService = require('./services/stockService');
+  const mongoose = require('mongoose');
+
   try {
     const { commandeId } = req.params;
     const { nouveauStatus } = req.body;
-
 
     // Récupérer l'état actuel avant mise à jour
     const currentOrder = await Commande.findById(commandeId);
@@ -1776,6 +1896,25 @@ const updateStatusLivraison = async (req, res) => {
     if (nouveauStatus === "annule") {
       updateFields.statusPayment = "en cours";
     }
+
+    // Si la commande est annulée, restaurer le stock
+    if (nouveauStatus === "Annulée" || nouveauStatus === "annulé") {
+      console.log('🔄 Annulation de commande - Restauration du stock...');
+      
+      try {
+        const stockResult = await StockService.incrementStock(currentOrder.nbrProduits);
+        console.log('✅ Stock restauré avec succès:', stockResult.operations);
+        
+        updateFields.stockRestored = true;
+        updateFields.stockRestorationDate = new Date();
+      } catch (stockError) {
+        console.error('❌ Erreur lors de la restauration du stock:', stockError);
+        // On continue même si la restauration échoue
+        updateFields.stockRestored = false;
+        updateFields.stockRestorationError = stockError.message;
+      }
+    }
+
     const commande = await Commande.findByIdAndUpdate(
       commandeId,
       updateFields,
@@ -1788,8 +1927,8 @@ const updateStatusLivraison = async (req, res) => {
         message: "Commande non trouvée",
       });
     }
-    if (nouveauStatus === "Annulée" || nouveauStatus === "annulé") {
 
+    if (nouveauStatus === "Annulée" || nouveauStatus === "annulé") {
       // Gérer les transitions financières
       await handleFinancialTransitions(commandeId, ancienEtat, nouveauStatus, isDelete = true);
     }
@@ -1797,6 +1936,9 @@ const updateStatusLivraison = async (req, res) => {
     res.status(200).json({
       success: true,
       data: commande,
+      message: nouveauStatus === "Annulée" || nouveauStatus === "annulé" 
+        ? "Commande annulée et stock restauré"
+        : "Statut de livraison mis à jour"
     });
   } catch (error) {
     res.status(400).json({

@@ -549,9 +549,14 @@ async updateOrderStatus(orderId, newStatus) {
           let imageUrl = variant.imageUrl;
 
           // Trouver la variante existante dans la base de données pour récupérer l'ancienne imageUrl
-          const existingVariant = product.variants.find(
-            (v) => v._id.toString() === (variant._id || variant.id).toString()
-          );
+          let existingVariant = null;
+          
+          // Seulement chercher une variante existante si ce n'est pas une nouvelle variante
+          if (!variant.isNew && variant._id) {
+            existingVariant = product.variants.find(
+              (v) => v._id.toString() === variant._id.toString()
+            );
+          }
 
           // Vérifier si cette variante a une image à supprimer explicitement
           if (variant.deleteImage && imageUrl) {
@@ -575,8 +580,7 @@ async updateOrderStatus(orderId, newStatus) {
           }
 
           // Retourner la variante mise à jour
-          return {
-            _id: variant._id || variant.id,
+          const processedVariant = {
             color: variant.colorName,
             colorCode: variant.color,
             sizes: variant.sizes,
@@ -587,6 +591,13 @@ async updateOrderStatus(orderId, newStatus) {
             isOnPromo: variant.isOnPromo || false,
             promoPrice: variant.promoPrice || 0,
           };
+
+          // Seulement ajouter _id pour les variantes existantes
+          if (!variant.isNew && variant._id) {
+            processedVariant._id = variant._id;
+          }
+
+          return processedVariant;
         });
 
         // Attendre que toutes les promesses soient résolues

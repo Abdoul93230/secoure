@@ -1079,6 +1079,10 @@ const sellerRequestSchema = new mongoose.Schema(
         message: "Format d'email invalide",
       },
     },
+    subscriptionId:{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "PricingPlan", // Référence à ton modèle de plan de tarification
+      },
     emailp: {
       type: String,
       required: false,
@@ -1239,42 +1243,133 @@ const SellerRequest = mongoose.model("SellerRequest", sellerRequestSchema);
 
 // Schéma pour les plans tarifaires
 // Schéma pour les plans tarifaires
+// const pricingPlanSchema = new mongoose.Schema({
+//   // Référence au store
+//   storeId: {
+//     type: mongoose.Schema.Types.ObjectId,
+//     ref: "SellerRequest",
+//     required: true,
+//   },
+
+//   // Type de plan
+//   planType: {
+//     type: String,
+//     required: true,
+//     enum: ["Starter", "Pro", "Business"],
+//   },
+
+//   // Informations générées automatiquement selon le type
+//   price: {
+//     monthly: {
+//       type: Number,
+//       required: true,
+//     },
+//     annual: {
+//       type: Number,
+//       required: true,
+//     },
+//   },
+//   commission: {
+//     type: Number,
+//     required: true,
+//   },
+//   productLimit: {
+//     type: Number,
+//     required: true,
+//   },
+
+//   // Fonctionnalités activées
+//   features: {
+//     productManagement: {
+//       maxProducts: Number,
+//       maxVariants: Number,
+//       maxCategories: Number,
+//       catalogImport: Boolean,
+//     },
+//     paymentOptions: {
+//       manualPayment: Boolean,
+//       mobileMoney: Boolean,
+//       cardPayment: Boolean,
+//       customPayment: Boolean,
+//     },
+//     support: {
+//       responseTime: Number,
+//       channels: [
+//         {
+//           type: String,
+//           enum: ["email", "chat", "phone", "vip"],
+//         },
+//       ],
+//       onboarding: String,
+//     },
+//     marketing: {
+//       marketplaceVisibility: {
+//         type: String,
+//         enum: ["standard", "prioritaire", "premium"],
+//       },
+//       maxActiveCoupons: Number,
+//       emailMarketing: Boolean,
+//       abandonedCartRecovery: Boolean,
+//     },
+//   },
+
+//   // Statut et dates
+//   status: {
+//     type: String,
+//     enum: ["active", "inactive", "pending"],
+//     default: "active",
+//   },
+//   startDate: {
+//     type: Date,
+//     default: Date.now,
+//   },
+//   endDate: {
+//     type: Date,
+//   },
+//   createdAt: {
+//     type: Date,
+//     default: Date.now,
+//   },
+//   updatedAt: {
+//     type: Date,
+//   },
+// });
+
+// // Middleware pre-save
+// pricingPlanSchema.pre("save", function (next) {
+//   this.updatedAt = new Date();
+//   next();
+// });
+
+// const PricingPlan = mongoose.model("PricingPlan", pricingPlanSchema);
+
+/**
+ * Modèle d'abonnement amélioré avec gestion des états et transitions
+ */
 const pricingPlanSchema = new mongoose.Schema({
-  // Référence au store
+  // Référence au vendeur
   storeId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "SellerRequest",
     required: true,
   },
 
-  // Type de plan
+  // Type de plan et configuration
   planType: {
     type: String,
     required: true,
     enum: ["Starter", "Pro", "Business"],
   },
 
-  // Informations générées automatiquement selon le type
+  // Configuration financière
   price: {
-    monthly: {
-      type: Number,
-      required: true,
-    },
-    annual: {
-      type: Number,
-      required: true,
-    },
+    monthly: { type: Number, required: true },
+    annual: { type: Number, required: true },
   },
-  commission: {
-    type: Number,
-    required: true,
-  },
-  productLimit: {
-    type: Number,
-    required: true,
-  },
+  commission: { type: Number, required: true },
+  productLimit: { type: Number, required: true },
 
-  // Fonctionnalités activées
+  // Caractéristiques du plan
   features: {
     productManagement: {
       maxProducts: Number,
@@ -1290,54 +1385,131 @@ const pricingPlanSchema = new mongoose.Schema({
     },
     support: {
       responseTime: Number,
-      channels: [
-        {
-          type: String,
-          enum: ["email", "chat", "phone", "vip"],
-        },
-      ],
+      channels: [String],
       onboarding: String,
     },
     marketing: {
-      marketplaceVisibility: {
-        type: String,
-        enum: ["standard", "prioritaire", "premium"],
-      },
+      marketplaceVisibility: String,
       maxActiveCoupons: Number,
       emailMarketing: Boolean,
       abandonedCartRecovery: Boolean,
     },
   },
 
-  // Statut et dates
+  // Dates et durée
+  startDate: { type: Date, required: true },
+  endDate: { type: Date, required: true },
+  
+  // Statut de l'abonnement
   status: {
     type: String,
-    enum: ["active", "inactive", "pending"],
-    default: "active",
+    enum: ['trial', 'active', 'pending_activation', 'expired', 'cancelled', 'queued'],
+    default: 'trial'
   },
-  startDate: {
-    type: Date,
-    default: Date.now,
+
+  // Type de période
+  subscriptionType: {
+    type: String,
+    enum: ['trial', 'paid_monthly', 'paid_annual'],
+    default: 'trial'
   },
-  endDate: {
-    type: Date,
+
+  // Position dans la file d'attente (si applicable)
+  queuePosition: {
+    type: Number,
+    default: null
   },
-  createdAt: {
-    type: Date,
-    default: Date.now,
+
+  // Cycle de facturation
+  billingCycle: {
+    type: String,
+    enum: ['monthly', 'annual'],
+    default: 'monthly'
   },
-  updatedAt: {
-    type: Date,
+
+  // Période d'essai
+  isTrialPeriod: {
+    type: Boolean,
+    default: false
   },
+  trialEndDate: Date,
+
+  // Gestion des notifications
+  notifications: {
+    expiry7Days: { sent: Boolean, sentAt: Date },
+    expiry1Day: { sent: Boolean, sentAt: Date },
+    expired: { sent: Boolean, sentAt: Date },
+    suspended: { sent: Boolean, sentAt: Date }
+  },
+
+  // Informations de paiement
+  paymentInfo: {
+    method: String,
+    amount: Number,
+    paidAt: Date,
+    transactionId: String,
+    verified: Boolean,
+    verifiedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Admin"
+    },
+    verifiedAt: Date
+  },
+
+  // Référence à l'abonnement précédent (pour les renouvellements)
+  previousSubscriptionId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "PricingPlan"
+  },
+
+  // Référence à l'abonnement suivant (file d'attente)
+  nextSubscriptionId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "PricingPlan"
+  },
+
+  // Métadonnées
+  invoiceNumber: String,
+  createdBy: {
+    userId: mongoose.Schema.Types.ObjectId,
+    role: { type: String, enum: ['system', 'admin', 'seller'] }
+  },
+  
+  // Historique des changements de statut
+  statusHistory: [{
+    status: String,
+    changedAt: { type: Date, default: Date.now },
+    changedBy: {
+      userId: mongoose.Schema.Types.ObjectId,
+      role: String
+    },
+    reason: String
+  }]
+
+}, {
+  timestamps: true
 });
 
-// Middleware pre-save
-pricingPlanSchema.pre("save", function (next) {
-  this.updatedAt = new Date();
+// Index pour optimiser les requêtes
+pricingPlanSchema.index({ storeId: 1, status: 1 });
+pricingPlanSchema.index({ status: 1, endDate: 1 });
+pricingPlanSchema.index({ queuePosition: 1 });
+
+// Middleware pour ajouter automatiquement les changements de statut
+pricingPlanSchema.pre('save', function(next) {
+  if (this.isModified('status')) {
+    this.statusHistory.push({
+      status: this.status,
+      changedAt: new Date(),
+      changedBy: this.createdBy || { role: 'system' },
+      reason: 'Changement de statut automatique'
+    });
+  }
   next();
 });
 
 const PricingPlan = mongoose.model("PricingPlan", pricingPlanSchema);
+
 
 const Zone = mongoose.model("Zone", zoneSchema);
 const Transporteur = mongoose.model("Transporteur", transporteurSchema);
