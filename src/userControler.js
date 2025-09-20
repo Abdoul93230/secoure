@@ -1582,7 +1582,7 @@ const payment_callback = async (req, res) => {
   {
     try {
       const {
-        status, // Statut du paiement (success/failed)
+        status, // Statut du paiement (succeeded/failed)
         customerName, // Nom du client
         msisdn, // Numéro de téléphone
         reference, // Référence iPay
@@ -1607,7 +1607,7 @@ const payment_callback = async (req, res) => {
       }
 
       // Mettre à jour le statut de la commande
-      if (status === "success") {
+      if (status === "succeeded") {
         await Commande.findByIdAndUpdate(commande._id, {
           statusPayment: "payé",
           paymentDetails: {
