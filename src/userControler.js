@@ -405,20 +405,19 @@ const getCommandesById = async (req, res) => {
   }
 };
 
-const getLastCommandeByClefUser = async (req, res) => {
-  const clefUser = req.params.clefUser;
+const getCommandeByReference = async (req, res) => {
+  const reference = req.params.reference;
 
   try {
-    const commande = await Commande.findOne({ clefUser })
-      .sort({ date: -1 }); // tri décroissant pour récupérer la dernière
+     const commande = await Commande.findOne({ "paymentDetails.reference": reference });
 
     if (!commande) {
-      return res.status(404).json({ message: "Aucune commande trouvée pour ce clefUser." });
+      return res.status(404).json({ message: "Aucune commande trouvée pour cette référence." });
     }
 
     return res.json({ commande });
   } catch (error) {
-    const message = "Erreur lors de la récupération de la dernière commande pour le clefUser spécifié.";
+    const message = "Erreur lors de la récupération de la commande pour la référence spécifiée.";
     return res.status(500).json({ message, error });
   }
 };
@@ -2356,7 +2355,7 @@ module.exports = {
   updateEtatTraitement,
   updateStatusLivraison,
   getCommandesByClefUser2,
-  getLastCommandeByClefUser
+  getCommandeByReference
   // getUsers,
   // getUserByEmail
 };
