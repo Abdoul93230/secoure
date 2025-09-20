@@ -1103,6 +1103,27 @@ const getSeller = (req, res) => {
       return res.status(500).json({ message: message, error: error });
     });
 };
+const getSellerByName = (req, res) => {
+  const name = req.params.name;
+  SellerRequest.findOne({ storeName: name })
+    .then((response) => {
+      // console.log({response});
+      
+      const message = `vous avez demander le Sellers :${response.name}`;
+      if (!response) {
+        return res.status(400).json(`le Seller demander n'existe pas!`);
+      } else {
+        return res.json({ message: message, data: response });
+      }
+    })
+    .catch((error) => {
+      console.log({error});
+      
+      const message =
+        "une erreur s'est produit lors de la recuperation du Seller veuillez ressayer !";
+      return res.status(500).json({ message: message, error: error });
+    });
+};
 
 const getSellers = (req, res) => {
   // const Id = req.params.Id;
@@ -1999,4 +2020,5 @@ module.exports = {
   validate_seller_products,
   validate_individual_product,
   toggle_product_validation,
+  getSellerByName
 };

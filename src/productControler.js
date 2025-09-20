@@ -730,5 +730,6 @@ module.exports = {
   
   // Order operations
   updateEtatTraitementCommande,
-  getCommandeFinancialDetails
+  getCommandeFinancialDetails,
+  gererValidationFinanciere
 };
