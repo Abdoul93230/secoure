@@ -404,6 +404,26 @@ const getCommandesById = async (req, res) => {
     return res.status(500).json({ message, error });
   }
 };
+
+const getLastCommandeByClefUser = async (req, res) => {
+  const clefUser = req.params.clefUser;
+
+  try {
+    const commande = await Commande.findOne({ clefUser })
+      .sort({ date: -1 }); // tri décroissant pour récupérer la dernière
+
+    if (!commande) {
+      return res.status(404).json({ message: "Aucune commande trouvée pour ce clefUser." });
+    }
+
+    return res.json({ commande });
+  } catch (error) {
+    const message = "Erreur lors de la récupération de la dernière commande pour le clefUser spécifié.";
+    return res.status(500).json({ message, error });
+  }
+};
+
+
 const getCommandesByClefUser = async (req, res) => {
   const clefUser = req.params.clefUser;
 
@@ -2335,7 +2355,8 @@ module.exports = {
   updateCommanderef,
   updateEtatTraitement,
   updateStatusLivraison,
-  getCommandesByClefUser2
+  getCommandesByClefUser2,
+  getLastCommandeByClefUser
   // getUsers,
   // getUserByEmail
 };

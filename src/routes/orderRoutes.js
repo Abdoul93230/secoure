@@ -7,6 +7,7 @@ const { Commande } = require('../Models');
 // Order creation and management
 router.post('/createCommande', userController.createCommande);
 router.get('/getCommandesById/:id', userController.getCommandesById);
+router.get('/getLastCommandeByClefUser/:clefUser', userController.getLastCommandeByClefUser);
 router.get('/getCommandesByClefUser/:clefUser', userController.getCommandesByClefUser);
 router.get('/getCommandesByClefUser2/:clefUser', userController.getCommandesByClefUser2);
 router.get('/getAllCommandes', userController.getAllCommandes);
