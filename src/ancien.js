@@ -12,17 +12,10 @@ const { validateProduct } = require('./validators/productValidator');
 const  FinancialService  = require('./services/FinancialService'); // Importer le service financier
 const Transaction = require('./models/transactionSchema');
 const { Commande } = require('./Models');
-const { gererChangementEtatCommande } = require('./controllers/financeController');
 
 // Product CRUD Operations
 const getAllProductsSeller = handleAsyncError(async (req, res) => {
   const products = await productService.getAllProductsSeller();
-  // console.log({ products });
-
-  res.json({ message: "Tous les produits", data: products });
-});
-const getAllProductsClients = handleAsyncError(async (req, res) => {
-  const products = await productService.getAllProductsClients();
   // console.log({ products });
 
   res.json({ message: "Tous les produits", data: products });
@@ -548,6 +541,8 @@ const getCouleurClusters = handleAsyncError(async (req, res) => {
 
 // Order Operations
 
+// 3. FONCTION POUR CRÉER LES TRANSACTIONS EN ATTENTE
+
 const creerTransactionsEnAttente = async (commandeId) => {
   try {
     // Récupérer la commande complète (elle contient déjà les produits dans le champ 'prod')
@@ -749,7 +744,6 @@ const confirmerPaiements = async (commandeId) => {
     throw error;
   }
 };
-
 const confirmerPaiements2 = async (commandeId) => {
   try {
     // Trouver toutes les transactions en attente pour cette commande
@@ -860,6 +854,7 @@ const annulerTransactions = async (commandeId) => {
   }
 };
 
+// 2. FONCTION POUR GÉRER LES TRANSITIONS FINANCIÈRES
 
 const handleFinancialTransitions = async (commandeId, ancienEtat, nouvelEtat,isDelete=false) => {
   // console.log("Abdoul Razak");
@@ -919,14 +914,8 @@ const updateEtatTraitementCommande = handleAsyncError(async (req, res) => {
     return res.status(404).json({ message: "Erreur lors de la mise à jour" });
   }
   
-  // Gérer les transitions financières avec le nouveau système
-  try {
-    await gererChangementEtatCommande(id, ancienEtat, nouvelEtat, currentOrder);
-  } catch (financialError) {
-    console.error('❌ Erreur financière lors du changement d\'état:', financialError);
-    // Ne pas faire échouer la mise à jour de la commande pour une erreur financière
-    // Mais logger pour investigation
-  }
+  // Gérer les transitions financières
+  await handleFinancialTransitions(id, ancienEtat, nouvelEtat);
   
   res.json({ 
     message: "État de traitement mis à jour avec succès", 
@@ -1026,7 +1015,6 @@ module.exports = {
   // Product operations
   getAllProductsSeller,
   getAllProductsAdmin,
-  getAllProductsClients,
   getProductById,
   getProductByIdAdmin,
   createProduct,
@@ -1087,7 +1075,12 @@ module.exports = {
   
   // Order operations
   updateEtatTraitementCommande,
+  handleFinancialTransitions,
+  creerTransactionsEnAttente,
+  confirmerPaiements,
+  confirmerPaiements2,
+  annulerTransactions,
+  getCommandeFinancialSummary,
   getCommandeFinancialDetails,
-  gererValidationFinanciere,
-  handleFinancialTransitions
+  gererValidationFinanciere
 };
