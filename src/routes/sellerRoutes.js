@@ -14,7 +14,9 @@ createSellerWithSubscription
 );
 
 router.get('/getSeller/:Id', sellerController.getSeller);
+router.get('/getSellerClients/:Id', sellerController.getSellerClients);
 router.get('/getSellerByName/:name', sellerController.getSellerByName);
+router.get('/getSellerByNameClients/:name', sellerController.getSellerByNameClients);
 router.get('/getSellers/', sellerController.getSellers);
 router.put('/updateSeller/:id',
   middelware.uploadsecond.fields([

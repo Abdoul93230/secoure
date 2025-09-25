@@ -1103,9 +1103,59 @@ const getSeller = (req, res) => {
       return res.status(500).json({ message: message, error: error });
     });
 };
+const getSellerClients = (req, res) => {
+  const Id = req.params.Id;
+
+  SellerRequest.findById(Id)
+    .then((response) => {
+      if (!response) {
+        return res.status(404).json({
+          message: "Le vendeur demandé n'existe pas !"
+        });
+      }
+
+      // Vérifier si le fournisseur est actif
+      if (!response.isvalid) {
+        return res.status(404).json({
+          message: "Le vendeur demandé existe mais il n'est pas actif pour le moment."
+        });
+      }
+
+      const message = `Vous avez demandé le vendeur : ${response.name}`;
+      return res.json({ message: message, data: response });
+    })
+    .catch((error) => {
+      console.error({ error });
+      const message =
+        "Une erreur s'est produite lors de la récupération du vendeur, veuillez réessayer !";
+      return res.status(500).json({ message: message, error: error });
+    });
+};
+
 const getSellerByName = (req, res) => {
   const name = req.params.name;
   SellerRequest.findOne({ storeName: name })
+    .then((response) => {
+      // console.log({response});
+      
+      const message = `vous avez demander le Sellers :${response.name}`;
+      if (!response) {
+        return res.status(400).json(`le Seller demander n'existe pas!`);
+      } else {
+        return res.json({ message: message, data: response });
+      }
+    })
+    .catch((error) => {
+      console.log({error});
+      
+      const message =
+        "une erreur s'est produit lors de la recuperation du Seller veuillez ressayer !";
+      return res.status(500).json({ message: message, error: error });
+    });
+};
+const getSellerByNameClients = (req, res) => {
+  const name = req.params.name;
+  SellerRequest.findOne({ storeName: name, isvalid: true })
     .then((response) => {
       // console.log({response});
       
@@ -2020,5 +2070,7 @@ module.exports = {
   validate_seller_products,
   validate_individual_product,
   toggle_product_validation,
-  getSellerByName
+  getSellerByName,
+  getSellerClients,
+  getSellerByNameClients
 };

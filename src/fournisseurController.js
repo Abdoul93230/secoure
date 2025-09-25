@@ -118,23 +118,30 @@ const searchProductBySupplierClients = async (req, res) => {
       Clefournisseur: supplierId,
       isDeleted: false,
       isPublished: "Published"
-    }).populate('Clefournisseur');
+    })
+    .populate({
+      path: 'Clefournisseur',
+      match: { isvalid: true } // On ne prend que les fournisseurs valides
+    });
 
-    if (!products || products.length == 0) {
+    // Filtrer les produits dont le fournisseur n'est pas valide (Clefournisseur = null après match)
+    const validProducts = products.filter(p => p.Clefournisseur);
+
+    if (!validProducts || validProducts.length === 0) {
       return res
         .status(404)
-        .json({ message: "Aucun produit trouvé pour ce fournisseur" });
+        .json({ message: "Aucun produit trouvé pour ce fournisseur actif" });
     }
 
-    return res.json({ data: products });
+    return res.json({ data: validProducts });
   } catch (error) {
-    // console.error("Une erreur s'est produite lors de la recherche des produits par fournisseur", error);
     return res.status(500).json({
       message:
         "Une erreur s'est produite lors de la recherche des produits par fournisseur",
     });
   }
 };
+
 const searchProductBySupplierAdmin = async (req, res) => {
   const supplierId = req.params.supplierId;
 
