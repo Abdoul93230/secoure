@@ -7,7 +7,13 @@ class ProductService {
     return await Produit.find({ isDeleted: false }).populate('Clefournisseur');
   }
   async getAllProductsClients() {
-    return await Produit.find({ isDeleted: false, isPublished: "Published" }).populate('Clefournisseur');
+    const products = await Produit.find({ isDeleted: false, isPublished: "Published" }).populate({
+      path: 'Clefournisseur',
+      match: { isvalid: true } // On ne prend que les fournisseurs valides
+    });
+
+    const validProducts = products.filter(p => p.Clefournisseur);
+    return validProducts;
   }
   async getAllProductsAdmin() {
     return await Produit.find().populate('Clefournisseur');
