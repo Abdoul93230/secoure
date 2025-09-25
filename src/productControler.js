@@ -21,6 +21,12 @@ const getAllProductsSeller = handleAsyncError(async (req, res) => {
 
   res.json({ message: "Tous les produits", data: products });
 });
+const getAllProductsClients = handleAsyncError(async (req, res) => {
+  const products = await productService.getAllProductsClients();
+  // console.log({ products });
+
+  res.json({ message: "Tous les produits", data: products });
+});
 const getAllProductsAdmin = handleAsyncError(async (req, res) => {
   const products = await productService.getAllProductsAdmin();
   // console.log({ products });
@@ -670,6 +676,7 @@ module.exports = {
   // Product operations
   getAllProductsSeller,
   getAllProductsAdmin,
+  getAllProductsClients,
   getProductById,
   getProductByIdAdmin,
   createProduct,

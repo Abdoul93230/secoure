@@ -5,6 +5,7 @@ const middelware = require('../auth/middelware');
 
 // Product CRUD
 router.get('/Products', productControler.getAllProductsSeller);
+router.get('/ProductsClients', productControler.getAllProductsClients);
 router.get('/ProductsAdmin', productControler.getAllProductsAdmin);
 router.post('/product', middelware.handleUpload, productControler.createProduct);
 router.get('/Product/:productId', productControler.getProductById);

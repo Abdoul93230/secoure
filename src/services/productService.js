@@ -6,6 +6,9 @@ class ProductService {
   async getAllProductsSeller() {
     return await Produit.find({ isDeleted: false }).populate('Clefournisseur');
   }
+  async getAllProductsClients() {
+    return await Produit.find({ isDeleted: false, isPublished: "Published" }).populate('Clefournisseur');
+  }
   async getAllProductsAdmin() {
     return await Produit.find().populate('Clefournisseur');
   }
