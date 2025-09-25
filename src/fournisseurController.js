@@ -110,6 +110,31 @@ const searchProductBySupplier = async (req, res) => {
     });
   }
 };
+const searchProductBySupplierClients = async (req, res) => {
+  const supplierId = req.params.supplierId;
+
+  try {
+    const products = await Produit.find({
+      Clefournisseur: supplierId,
+      isDeleted: false,
+      isPublished: "Published"
+    }).populate('Clefournisseur');
+
+    if (!products || products.length == 0) {
+      return res
+        .status(404)
+        .json({ message: "Aucun produit trouvé pour ce fournisseur" });
+    }
+
+    return res.json({ data: products });
+  } catch (error) {
+    // console.error("Une erreur s'est produite lors de la recherche des produits par fournisseur", error);
+    return res.status(500).json({
+      message:
+        "Une erreur s'est produite lors de la recherche des produits par fournisseur",
+    });
+  }
+};
 const searchProductBySupplierAdmin = async (req, res) => {
   const supplierId = req.params.supplierId;
 
@@ -246,5 +271,6 @@ module.exports = {
   sendmail,
   updateFournisseur,
   findFournisseurByName,
-  searchProductBySupplierAdmin
+  searchProductBySupplierAdmin,
+  searchProductBySupplierClients
 };

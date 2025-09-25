@@ -12,6 +12,7 @@ router.put('/updateFournisseur/:id', middelware.upload.single('image'), fourniss
 // Supplier search
 router.get('/findFournisseurByName/:name', fournisseurControler.findFournisseurByName);
 router.get('/searchProductBySupplier/:supplierId', fournisseurControler.searchProductBySupplier);
+router.get('/searchProductBySupplierClients/:supplierId', fournisseurControler.searchProductBySupplierClients);
 router.get('/searchProductBySupplierAdmin/:supplierId', fournisseurControler.searchProductBySupplierAdmin);
 
 module.exports = router;
