@@ -149,7 +149,8 @@ router.post('/create-future-request', requireSeller, async (req, res) => {
   try {
     const { planType, billingCycle, paymentMethod } = req.body;
     const sellerId = req.seller._id;
-
+    console.log({planType, billingCycle, paymentMethod, sellerId});
+    
     // Validations
     if (!['Starter', 'Pro', 'Business'].includes(planType)) {
       return res.status(400).json({
@@ -376,102 +377,102 @@ router.get('/invoice/:subscriptionId', requireSeller, async (req, res) => {
 /**
  * Soumettre la preuve de paiement
  */
-router.put('/submit-payment/:requestId', requireSeller, upload.single('receipt'), async (req, res) => {
-  try {
-    const { requestId } = req.params;
-    const { transferCode, senderPhone } = req.body;
-    let receiptUrl = null;
+// router.put('/submit-payment/:requestId', requireSeller, upload.single('receipt'), async (req, res) => {
+//   try {
+//     const { requestId } = req.params;
+//     const { transferCode, senderPhone } = req.body;
+//     let receiptUrl = null;
 
-    // Validation des paramètres
-    if (!transferCode || transferCode.trim().length === 0) {
-      return res.status(400).json({
-        status: 'error',
-        message: 'Le code de transfert est obligatoire'
-      });
-    }
+//     // Validation des paramètres
+//     if (!transferCode || transferCode.trim().length === 0) {
+//       return res.status(400).json({
+//         status: 'error',
+//         message: 'Le code de transfert est obligatoire'
+//       });
+//     }
 
-    // Vérifier que la demande appartient au vendeur
-    const request = await SubscriptionRequest.findOne({
-      _id: requestId,
-      storeId: req.seller._id
-    });
+//     // Vérifier que la demande appartient au vendeur
+//     const request = await SubscriptionRequest.findOne({
+//       _id: requestId,
+//       storeId: req.seller._id
+//     });
 
-    if (!request) {
-      return res.status(404).json({
-        status: 'error',
-        message: 'Demande non trouvée ou non autorisée'
-      });
-    }
+//     if (!request) {
+//       return res.status(404).json({
+//         status: 'error',
+//         message: 'Demande non trouvée ou non autorisée'
+//       });
+//     }
 
-    // Vérifier que la demande peut être mise à jour
-    const allowedStatuses = ['pending_payment', 'payment_submitted', 'rejected'];
-    if (!allowedStatuses.includes(request.status)) {
-      return res.status(400).json({
-        status: 'error',
-        message: `Impossible de soumettre une preuve pour une demande au statut: ${request.status}`
-      });
-    }
+//     // Vérifier que la demande peut être mise à jour
+//     const allowedStatuses = ['pending_payment', 'payment_submitted', 'rejected'];
+//     if (!allowedStatuses.includes(request.status)) {
+//       return res.status(400).json({
+//         status: 'error',
+//         message: `Impossible de soumettre une preuve pour une demande au statut: ${request.status}`
+//       });
+//     }
 
-    // Upload du reçu si fourni
-    if (req.file) {
-      try {
-        // Validation du fichier
-        const maxSize = 5 * 1024 * 1024; // 5MB
-        if (req.file.size > maxSize) {
-          return res.status(400).json({
-            status: 'error',
-            message: 'Le fichier ne doit pas dépasser 5MB'
-          });
-        }
+//     // Upload du reçu si fourni
+//     if (req.file) {
+//       try {
+//         // Validation du fichier
+//         const maxSize = 5 * 1024 * 1024; // 5MB
+//         if (req.file.size > maxSize) {
+//           return res.status(400).json({
+//             status: 'error',
+//             message: 'Le fichier ne doit pas dépasser 5MB'
+//           });
+//         }
 
-        // Utiliser la fonction helper pour uploader depuis la mémoire
-        const uploadResult = await uploadToCloudinary(req.file.buffer, req.file.mimetype);
-        receiptUrl = uploadResult.secure_url;
-      } catch (uploadError) {
-        console.error('Erreur upload reçu:', uploadError);
-        return res.status(500).json({
-          status: 'error',
-          message: 'Erreur lors de l\'upload du fichier',
-          details: uploadError.message
-        });
-      }
-    }
+//         // Utiliser la fonction helper pour uploader depuis la mémoire
+//         const uploadResult = await uploadToCloudinary(req.file.buffer, req.file.mimetype);
+//         receiptUrl = uploadResult.secure_url;
+//       } catch (uploadError) {
+//         console.error('Erreur upload reçu:', uploadError);
+//         return res.status(500).json({
+//           status: 'error',
+//           message: 'Erreur lors de l\'upload du fichier',
+//           details: uploadError.message
+//         });
+//       }
+//     }
 
-    // Appeler la fonction du contrôleur
-    try {
-      await submitPaymentProof(requestId, transferCode, receiptUrl, senderPhone);
+//     // Appeler la fonction du contrôleur
+//     try {
+//       await submitPaymentProof(requestId, transferCode, receiptUrl, senderPhone);
 
-      res.json({
-        status: 'success',
-        message: 'Preuve de paiement soumise avec succès',
-        data: {
-          submittedAt: new Date().toISOString(),
-          nextSteps: [
-            'Votre paiement est en cours de vérification',
-            'Vous recevrez une notification par email',
-            'Délai de vérification: 24-48 heures ouvrées',
-            'Vous pouvez modifier votre preuve si nécessaire'
-          ]
-        }
-      });
-    } catch (controllerError) {
-      console.error('Erreur contrôleur submitPaymentProof:', controllerError);
-      return res.status(500).json({
-        status: 'error',
-        message: 'Erreur lors de la soumission de la preuve',
-        details: controllerError.message
-      });
-    }
+//       res.json({
+//         status: 'success',
+//         message: 'Preuve de paiement soumise avec succès',
+//         data: {
+//           submittedAt: new Date().toISOString(),
+//           nextSteps: [
+//             'Votre paiement est en cours de vérification',
+//             'Vous recevrez une notification par email',
+//             'Délai de vérification: 24-48 heures ouvrées',
+//             'Vous pouvez modifier votre preuve si nécessaire'
+//           ]
+//         }
+//       });
+//     } catch (controllerError) {
+//       console.error('Erreur contrôleur submitPaymentProof:', controllerError);
+//       return res.status(500).json({
+//         status: 'error',
+//         message: 'Erreur lors de la soumission de la preuve',
+//         details: controllerError.message
+//       });
+//     }
 
-  } catch (error) {
-    console.error('Erreur générale submit-payment:', error);
-    res.status(500).json({
-      status: 'error',
-      message: 'Erreur interne du serveur',
-      details: process.env.NODE_ENV === 'development' ? error.message : 'Contactez le support technique'
-    });
-  }
-});
+//   } catch (error) {
+//     console.error('Erreur générale submit-payment:', error);
+//     res.status(500).json({
+//       status: 'error',
+//       message: 'Erreur interne du serveur',
+//       details: process.env.NODE_ENV === 'development' ? error.message : 'Contactez le support technique'
+//     });
+//   }
+// });
 
 /**
  * Activer le compte avec code de réactivation
@@ -750,7 +751,7 @@ const getPlanBestFor = (planName) => {
   const bestFor = {
     Starter: [
       "Nouvelles boutiques",
-      "Jusqu'à 10 produits",
+      "Jusqu'à 20 produits",
       "Commissions réduites"
     ],
     Pro: [

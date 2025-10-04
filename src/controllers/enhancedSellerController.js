@@ -426,7 +426,7 @@ const createSellerWithSubscription = async (req, res) => {
             daysRemaining: Math.ceil((subscriptionResult.subscription.endDate - new Date()) / (1000 * 60 * 60 * 24)),
             benefits: [
               "✨ 3 mois d'accès gratuit complet",
-              "📦 Jusqu'à 10 produits",
+              "📦 Jusqu'à 20 produits",
               "💬 Support email",
               "📱 Paiements mobile money",
               "🎯 Visibilité marketplace standard"
@@ -513,113 +513,6 @@ const createSellerWithSubscription = async (req, res) => {
     });
   }
 };
-/**
- * Login amélioré avec vérification du statut d'abonnement
- */
-// const loginWithSubscriptionCheck = async (req, res) => {
-//   try {
-//     const { email, phoneNumber, password } = req.body;
-
-//     // Recherche de l'utilisateur
-//     let user = await SellerRequest.findOne({ email })
-//       .populate('subscriptionId'); // Joindre les données d'abonnement
-    
-//     if (!user && phoneNumber) {
-//       user = await SellerRequest.findOne({ phone: phoneNumber })
-//         .populate('subscriptionId');
-//     }
-
-//     if (!user) {
-//       return res.status(400).json({ 
-//         message: "Cet e-mail ou numéro de téléphone n'est pas enregistré !" 
-//       });
-//     }
-
-//     // Vérification du mot de passe
-//     const isValidPassword = await bcrypt.compare(password, user.password);
-//     if (!isValidPassword) {
-//       return res.status(400).json({ message: "Mot de passe incorrect !" });
-//     }
-
-//     // Vérification du statut d'abonnement
-//     const subscription = user.subscriptionId || await PricingPlan.findOne({ storeId: user._id });
-    
-//     let subscriptionStatus = 'unknown';
-//     let subscriptionWarnings = [];
-
-//     if (subscription) {
-//       const now = new Date();
-//       const endDate = new Date(subscription.endDate);
-//       const daysUntilExpiry = Math.ceil((endDate - now) / (1000 * 60 * 60 * 24));
-
-//       if (subscription.status === 'expired' || endDate < now) {
-//         subscriptionStatus = 'expired';
-//         subscriptionWarnings.push('Votre abonnement a expiré. Certaines fonctionnalités sont limitées.');
-//       } else if (daysUntilExpiry <= 7) {
-//         subscriptionStatus = 'expiring';
-//         subscriptionWarnings.push(`Votre abonnement expire dans ${daysUntilExpiry} jour(s).`);
-//       } else {
-//         subscriptionStatus = 'active';
-//       }
-//     }
-
-//     // Vérification de la validation du compte
-//     if (!user.isvalid) {
-//       let message = "Votre compte est en attente de validation.";
-//       if (user.suspensionReason) {
-//         message = `Votre compte a été suspendu. Raison: ${user.suspensionReason}`;
-//       }
-      
-//       return res.status(403).json({ 
-//         message,
-//         accountStatus: 'suspended',
-//         suspensionReason: user.suspensionReason 
-//       });
-//     }
-
-//     // Génération du token JWT
-//     const token = jwt.sign(
-//       { 
-//         userId: user._id, 
-//         role: "seller",
-//         subscriptionStatus,
-//         planType: subscription?.planType 
-//       },
-//       privateKeSeller,
-//       { expiresIn: "20d" }
-//     );
-
-//     return res.json({
-//       message: "Connexion réussie !",
-//       token,
-//       user: {
-//         id: user._id,
-//         name: user.name,
-//         email: user.email,
-//         storeName: user.storeName,
-//         isvalid: user.isvalid,
-//         subscriptionStatus,
-//         token,
-//         onboardingCompleted: user.onboardingCompleted || false
-//       },
-//       subscription: subscription ? {
-//         planType: subscription.planType,
-//         status: subscription.status,
-//         endDate: subscription.endDate,
-//         features: subscription.features,
-//         commission: subscription.commission
-//       } : null,
-//       warnings: subscriptionWarnings
-//     });
-
-//   } catch (error) {
-//     console.error("Erreur login vendeur:", error);
-//     return res.status(500).json({
-//       message: "Désolé, la connexion n'a pas pu être établie. Veuillez réessayer !",
-//       error: error.message
-//     });
-//   }
-// };
 
 const loginWithSubscriptionCheck = async (req, res) => {
   try {
@@ -644,6 +537,11 @@ const loginWithSubscriptionCheck = async (req, res) => {
       return res.status(400).json({ message: "Mot de passe incorrect !" });
     }
 
+        // Obtenir le statut complet avec la nouvelle logique
+    const completeStatus = await getSellerCompleteStatus(user._id);
+    // console.log({completeStatus});
+    
+
     // Vérification de la validation du compte vendeur
     if (!user.isvalid) {
       let message = "Votre compte est en attente de validation administrative.";
@@ -653,7 +551,23 @@ const loginWithSubscriptionCheck = async (req, res) => {
         message = `Votre compte a été suspendu. Raison: ${user.suspensionReason}`;
         accountStatus = 'suspended';
       }
+      console.log({completeStatus});
+      console.log({completeStatus2 : user.suspensionReason});
       
+      if(completeStatus.statusInfo?.actions.includes("upgrade_plan") && user.suspensionReason === "Incohérence détectée - SubscriptionQueue manquante malgré subscriptionId"){
+         const resubscriptionToken = jwt.sign(
+        {
+          userId: user._id,
+          role: "seller",
+          purpose: "resubscription", // Indication que ce token est pour le réabonnement uniquement
+          subscriptionStatus: "suspended",
+          planType: completeStatus.activeSubscription?.planType,
+          accountValid: false,
+          restricted: true // Flag pour indiquer les limitations d'accès
+        },
+        privateKeSeller,
+        { expiresIn: "1d" } // Durée plus courte pour ce token spécial
+      );
       return res.status(403).json({ 
         message,
         accountStatus,
@@ -663,24 +577,153 @@ const loginWithSubscriptionCheck = async (req, res) => {
           "Vous recevrez un email de confirmation une fois validé",
           "Délai moyen de validation: 24-48h ouvrées",
           "Contactez le support si urgent: support@ihambaobab.com"
-        ]
+        ],
+        completeStatus,
+        token: resubscriptionToken, // Token pour accéder à la page de réabonnement
+      });
+      }
+      if(completeStatus.statusInfo?.actions.includes("reactivate_account")){
+         const resubscriptionToken = jwt.sign(
+        {
+          userId: user._id,
+          role: "seller",
+          purpose: "resubscription", // Indication que ce token est pour le réabonnement uniquement
+          subscriptionStatus: "suspended",
+          planType: completeStatus.activeSubscription?.planType,
+          accountValid: false,
+          restricted: true // Flag pour indiquer les limitations d'accès
+        },
+        privateKeSeller,
+        { expiresIn: "1d" } // Durée plus courte pour ce token spécial
+      );
+      return res.status(403).json({ 
+        message,
+        accountStatus,
+        suspensionReason: user.suspensionReason,
+        nextSteps: [
+          "Votre dossier est en cours de vérification par nos équipes",
+          "Vous recevrez un email de confirmation une fois validé",
+          "Délai moyen de validation: 24-48h ouvrées",
+          "Contactez le support si urgent: support@ihambaobab.com"
+        ],
+        completeStatus,
+        token: resubscriptionToken, // Token pour accéder à la page de réabonnement
+      });
+      }
+      
+      // return res.status(403).json({ 
+      //   message,
+      //   accountStatus,
+      //   suspensionReason: user.suspensionReason,
+      //   nextSteps: [
+      //     "Votre dossier est en cours de vérification par nos équipes",
+      //     "Vous recevrez un email de confirmation une fois validé",
+      //     "Délai moyen de validation: 24-48h ouvrées",
+      //     "Contactez le support si urgent: support@ihambaobab.com"
+      //   ],
+      //   completeStatus
+      // });
+    }
+
+
+    console.log({completeStatus});
+    
+
+    if(completeStatus?.status === "no_subscription"){
+      
+       const resubscriptionToken = jwt.sign(
+        {
+          userId: user._id,
+          role: "seller",
+          purpose: "resubscription", // Indication que ce token est pour le réabonnement uniquement
+          subscriptionStatus: "suspended",
+          planType: completeStatus.activeSubscription?.planType,
+          accountValid: false,
+          restricted: true // Flag pour indiquer les limitations d'accès
+        },
+        privateKeSeller,
+        { expiresIn: "1d" } // Durée plus courte pour ce token spécial
+      );
+      return res.status(403).json({
+        message: "Vous avez auccun abonnement actif. Renouvelez votre abonnement pour réactiver.",
+        accountStatus: 'suspended',
+        statusInfo: completeStatus.statusInfo,
+        canReactivate: true,
+        token: resubscriptionToken, // Token pour accéder à la page de réabonnement
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          storeName: user.storeName,
+          isvalid: user.isvalid,
+          subscriptionStatus: 'suspended'
+        },
+        subscription: {
+          current: completeStatus.activeSubscription,
+          statusInfo: completeStatus.statusInfo,
+          lastPlan: completeStatus.activeSubscription?.planType // Pour suggérer le même plan
+        },
+        accessibility: {
+          canAddProducts: false,
+          canManageStore: false,
+          canReceiveOrders: false,
+          canAccessReports: false,
+          canResubscribe: true, // Permission spéciale pour le réabonnement
+          allowedPages: ['subscription', 'payment',], // Pages accessibles
+          restrictedFeatures: ['product_management', 'order_processing', 'store_settings']
+        }
       });
     }
 
-    // Obtenir le statut complet avec la nouvelle logique
-    const completeStatus = await getSellerCompleteStatus(user._id);
-
     // Vérification si le compte est bloqué définitivement
     if (completeStatus.statusInfo?.blocked && completeStatus.statusInfo.status === 'suspended') {
+      // Générer un token limité pour permettre le réabonnement
+      const resubscriptionToken = jwt.sign(
+        {
+          userId: user._id,
+          role: "seller",
+          purpose: "resubscription", // Indication que ce token est pour le réabonnement uniquement
+          subscriptionStatus: "suspended",
+          planType: completeStatus.activeSubscription?.planType,
+          accountValid: false,
+          restricted: true // Flag pour indiquer les limitations d'accès
+        },
+        privateKeSeller,
+        { expiresIn: "1d" } // Durée plus courte pour ce token spécial
+      );
+
       return res.status(403).json({
         message: "Votre compte est suspendu. Renouvelez votre abonnement pour réactiver.",
         accountStatus: 'suspended',
         statusInfo: completeStatus.statusInfo,
-        canReactivate: true
+        canReactivate: true,
+        token: resubscriptionToken, // Token pour accéder à la page de réabonnement
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          storeName: user.storeName,
+          isvalid: user.isvalid,
+          subscriptionStatus: 'suspended'
+        },
+        subscription: {
+          current: completeStatus.activeSubscription,
+          statusInfo: completeStatus.statusInfo,
+          lastPlan: completeStatus.activeSubscription?.planType // Pour suggérer le même plan
+        },
+        accessibility: {
+          canAddProducts: false,
+          canManageStore: false,
+          canReceiveOrders: false,
+          canAccessReports: false,
+          canResubscribe: true, // Permission spéciale pour le réabonnement
+          allowedPages: ['subscription', 'payment', 'profile'], // Pages accessibles
+          restrictedFeatures: ['product_management', 'order_processing', 'store_settings']
+        }
       });
     }
 
-    // Générer le token avec informations complètes
+    // Générer le token avec informations complètes pour les comptes actifs
     const token = jwt.sign(
       {
         userId: user._id,

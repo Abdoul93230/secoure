@@ -198,7 +198,7 @@
 // const markExpiredSubscriptions = async () => {
 //   try {
 //     const now = new Date();
-    
+
 //     const expiredSubscriptions = await PricingPlan.find({
 //       endDate: { $lt: now },
 //       status: 'active'
@@ -228,7 +228,7 @@
 // const sendExpirationReminder = async (subscription, daysLeft) => {
 //   try {
 //     const seller = subscription.storeId;
-    
+
 //     const mailOptions = {
 //       from: process.env.EMAIL_USER,
 //       to: seller.email,
@@ -236,12 +236,12 @@
 //       html: `
 //         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
 //           <h2 style="color: #30A08B;">Rappel d'expiration d'abonnement</h2>
-          
+
 //           <p>Bonjour <strong>${seller.name}</strong>,</p>
-          
+
 //           <p>Votre abonnement <strong>${subscription.planType}</strong> pour la boutique 
 //           <strong>${seller.storeName}</strong> expire dans <strong>${daysLeft} jour(s)</strong>.</p>
-          
+
 //           <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
 //             <h3>Détails de votre abonnement :</h3>
 //             <ul>
@@ -250,9 +250,9 @@
 //               <li><strong>Prix de renouvellement :</strong> ${subscription.price.monthly.toLocaleString()} FCFA/mois</li>
 //             </ul>
 //           </div>
-          
+
 //           <p>Pour éviter toute interruption de service, renouvelez dès maintenant :</p>
-          
+
 //           <div style="text-align: center; margin: 30px 0;">
 //             <a href="${process.env.FRONTEND_URL}/seller/billing" 
 //                style="background: #30A08B; color: white; padding: 12px 24px; 
@@ -260,7 +260,7 @@
 //               Renouveler maintenant
 //             </a>
 //           </div>
-          
+
 //           <p style="color: #666; font-size: 14px;">
 //             Si vous avez des questions, contactez notre équipe support à
 //             <a href="mailto:support@ihambaobab.com">support@ihambaobab.com</a>
@@ -288,7 +288,7 @@
 
 //     const planDefaults = PLAN_DEFAULTS[subscription.planType];
 //     const months = billingCycle === 'annual' ? 12 : 1;
-    
+
 //     // Calculer la nouvelle date de fin
 //     let newEndDate = new Date(subscription.endDate);
 //     if (newEndDate < new Date()) {
@@ -341,7 +341,7 @@
 
 //     // Calculer la différence de prix au prorata si upgrade
 //     const isUpgrade = newPlanDefaults.price.monthly > subscription.price.monthly;
-    
+
 //     // Mettre à jour l'abonnement avec les nouvelles caractéristiques
 //     const updatedSubscription = await PricingPlan.findByIdAndUpdate(
 //       subscription._id,
@@ -372,7 +372,7 @@
 //     const stats = await Promise.all([
 //       // Total des abonnements actifs
 //       PricingPlan.countDocuments({ status: 'active' }),
-      
+
 //       // Abonnements expirant dans 7 jours
 //       PricingPlan.countDocuments({
 //         status: 'active',
@@ -381,19 +381,19 @@
 //           $lte: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
 //         }
 //       }),
-      
+
 //       // Revenus mensuels estimés
 //       PricingPlan.aggregate([
 //         { $match: { status: 'active' } },
 //         { $group: { _id: null, total: { $sum: '$price.monthly' } } }
 //       ]),
-      
+
 //       // Distribution par plan
 //       PricingPlan.aggregate([
 //         { $match: { status: 'active' } },
 //         { $group: { _id: '$planType', count: { $sum: 1 } } }
 //       ]),
-      
+
 //       // Activité récente
 //       PricingPlan.find({
 //         createdAt: { $gte: startDate }
@@ -455,7 +455,7 @@
 //   setupSubscriptionCrons,
 //   PLAN_DEFAULTS
 // };
-const { SellerRequest, PricingPlan } = require('../Models');
+const { SellerRequest, PricingPlan, Produit } = require('../Models');
 const SubscriptionQueue = require("../models/Abonnements/SubscriptionQueue");
 const SubscriptionHistory = require("../models/Abonnements/SubscriptionHistory");
 const SubscriptionRequest = require("../models/Abonnements/SubscriptionRequest");
@@ -468,10 +468,10 @@ const PLAN_DEFAULTS = {
   Starter: {
     price: { monthly: 2500, annual: 27000 },
     commission: 6,
-    productLimit: 10,
+    productLimit: 20,
     trialMonths: 3, // 3 mois d'essai gratuit
     features: {
-      productManagement: { maxProducts: 10, maxVariants: 3, maxCategories: 5, catalogImport: false },
+      productManagement: { maxProducts: 20, maxVariants: 3, maxCategories: 5, catalogImport: false },
       paymentOptions: { manualPayment: true, mobileMoney: true, cardPayment: false, customPayment: false },
       support: { responseTime: 48, channels: ["email"], onboarding: "standard" },
       marketing: { marketplaceVisibility: "standard", maxActiveCoupons: 1, emailMarketing: false, abandonedCartRecovery: false }
@@ -570,7 +570,7 @@ const createInitialSubscription = async (sellerId) => {
     await SellerRequest.findByIdAndUpdate(sellerId, {
       subscriptionId: subscription._id,
       subscriptionStatus: 'trial',
-      isvalid: true,
+      isvalid: false,
       trialEndsAt: endDate
     });
 
@@ -585,17 +585,139 @@ const createInitialSubscription = async (sellerId) => {
 /**
  * Créer une demande d'abonnement futur (peut être fait avant expiration)
  */
+// const createFutureSubscriptionRequest = async (sellerId, planType, billingCycle = 'monthly', paymentMethod) => {
+//   try {
+//     // Récupérer la file d'attente actuelle
+//     const queue = await SubscriptionQueue.findOne({ storeId: sellerId });
+//     if (!queue) {
+//       throw new Error('File d\'attente non trouvée pour ce vendeur');
+//     }
+
+//     // Calculer la date de début estimée
+//     let estimatedStartDate = new Date();
+
+//     if (queue.activeSubscriptionId) {
+//       const activeSubscription = await PricingPlan.findById(queue.activeSubscriptionId);
+//       if (activeSubscription && activeSubscription.status !== 'expired') {
+//         estimatedStartDate = new Date(activeSubscription.endDate);
+//       }
+//     }
+
+//     // Si il y a des abonnements en file, prendre la fin du dernier
+//     if (queue.queuedSubscriptions.length > 0) {
+//       const lastQueued = await PricingPlan.findById(
+//         queue.queuedSubscriptions[queue.queuedSubscriptions.length - 1].subscriptionId
+//       );
+//       if (lastQueued) {
+//         estimatedStartDate = new Date(lastQueued.endDate);
+//       }
+//     }
+
+//     const planConfig = PLAN_DEFAULTS[planType];
+//     const amount = billingCycle === 'annual' ? planConfig.price.annual : planConfig.price.monthly;
+
+//     // Calculer la date de fin
+//     const endDate = new Date(estimatedStartDate);
+//     const duration = billingCycle === 'annual' ? 12 : 1;
+//     endDate.setMonth(endDate.getMonth() + duration);
+
+//     // Créer l'abonnement futur (statut queued)
+//     const futureSubscription = new PricingPlan({
+//       storeId: sellerId,
+//       planType,
+//       ...planConfig,
+//       startDate: estimatedStartDate,
+//       endDate,
+//       status: 'queued',
+//       subscriptionType: billingCycle === 'annual' ? 'paid_annual' : 'paid_monthly',
+//       billingCycle,
+//       queuePosition: queue.queuedSubscriptions.length + 1,
+//       invoiceNumber: `QUEUE-${Date.now()}-${sellerId.toString().slice(-6)}`,
+//       createdBy: { role: 'seller' }
+//     });
+
+//     await futureSubscription.save();
+
+//     // Créer la demande de paiement
+//     const paymentRequest = new SubscriptionRequest({
+//       storeId: sellerId,
+//       requestedPlan: { planType, billingCycle },
+//       paymentDetails: {
+//         method: paymentMethod,
+//         amount,
+//         recipientPhone: getPaymentPhone(paymentMethod)
+//       },
+//       linkedSubscriptionId: futureSubscription._id, // Nouveau champ
+//       estimatedActivationDate: estimatedStartDate
+//     });
+
+//     await paymentRequest.save();
+
+//     // Mettre à jour la file d'attente
+//     queue.queuedSubscriptions.push({
+//       subscriptionId: futureSubscription._id,
+//       queuePosition: queue.queuedSubscriptions.length + 1,
+//       estimatedStartDate,
+//       status: 'pending_payment'
+//     });
+//     queue.lastUpdated = new Date();
+//     await queue.save();
+
+//     return {
+//       success: true,
+//       data: {
+//         subscriptionId: futureSubscription._id,
+//         requestId: paymentRequest._id,
+//         amount,
+//         estimatedStartDate,
+//         queuePosition: queue.queuedSubscriptions.length,
+//         paymentInstructions: {
+//           method: paymentMethod,
+//           recipientPhone: getPaymentPhone(paymentMethod),
+//           amount,
+//           deadline: paymentRequest.paymentDetails.paymentDeadline
+//         }
+//       }
+//     };
+
+//   } catch (error) {
+//     console.error('Erreur création abonnement futur:', error);
+//     throw error;
+//   }
+// };
+
+
+
 const createFutureSubscriptionRequest = async (sellerId, planType, billingCycle = 'monthly', paymentMethod) => {
   try {
-    // Récupérer la file d'attente actuelle
-    const queue = await SubscriptionQueue.findOne({ storeId: sellerId });
+    // Récupérer ou créer la file d'attente
+    let queue = await SubscriptionQueue.findOne({ storeId: sellerId });
+    
     if (!queue) {
-      throw new Error('File d\'attente non trouvée pour ce vendeur');
+      // Si la file n'existe pas, la créer
+      console.log(`Création d'une nouvelle file d'attente pour le vendeur ${sellerId}`);
+      
+      // Vérifier s'il y a un abonnement actif existant
+      const activeSubscription = await PricingPlan.findOne({ 
+        storeId: sellerId, 
+        status: { $in: ['active', 'trial'] } 
+      }).sort({ createdAt: -1 });
+
+      queue = new SubscriptionQueue({
+        storeId: sellerId,
+        activeSubscriptionId: activeSubscription ? activeSubscription._id : null,
+        queuedSubscriptions: [],
+        // accountStatus: activeSubscription ? activeSubscription.status : 'trial',
+        // accountStatus: activeSubscription ? activeSubscription.status : planType,
+        lastUpdated: new Date()
+      });
+
+      await queue.save();
     }
 
     // Calculer la date de début estimée
     let estimatedStartDate = new Date();
-    
+
     if (queue.activeSubscriptionId) {
       const activeSubscription = await PricingPlan.findById(queue.activeSubscriptionId);
       if (activeSubscription && activeSubscription.status !== 'expired') {
@@ -647,7 +769,7 @@ const createFutureSubscriptionRequest = async (sellerId, planType, billingCycle 
         amount,
         recipientPhone: getPaymentPhone(paymentMethod)
       },
-      linkedSubscriptionId: futureSubscription._id, // Nouveau champ
+      linkedSubscriptionId: futureSubscription._id,
       estimatedActivationDate: estimatedStartDate
     });
 
@@ -686,6 +808,8 @@ const createFutureSubscriptionRequest = async (sellerId, planType, billingCycle 
   }
 };
 
+
+
 /**
  * Valider le paiement et préparer l'activation
  */
@@ -695,6 +819,7 @@ const validatePaymentAndPrepareActivation = async (requestId, adminId, isApprove
     if (!request) {
       throw new Error('Demande non trouvée');
     }
+// console.log({isApproved});
 
     if (isApproved) {
       // Mettre à jour l'abonnement comme prêt à être activé
@@ -711,11 +836,11 @@ const validatePaymentAndPrepareActivation = async (requestId, adminId, isApprove
 
       // Mettre à jour la file d'attente
       await SubscriptionQueue.findOneAndUpdate(
-        { 
+        {
           storeId: request.storeId._id,
-          'queuedSubscriptions.subscriptionId': request.linkedSubscriptionId 
+          'queuedSubscriptions.subscriptionId': request.linkedSubscriptionId
         },
-        { 
+        {
           '$set': {
             'queuedSubscriptions.$.status': 'payment_verified',
             lastUpdated: new Date()
@@ -747,7 +872,7 @@ const validatePaymentAndPrepareActivation = async (requestId, adminId, isApprove
       // Retirer de la file d'attente
       await SubscriptionQueue.findOneAndUpdate(
         { storeId: request.storeId._id },
-        { 
+        {
           $pull: { queuedSubscriptions: { subscriptionId: request.linkedSubscriptionId } },
           lastUpdated: new Date()
         }
@@ -782,15 +907,15 @@ const checkAndActivateNextSubscription = async (sellerId) => {
     if (!queue) return;
 
     // Récupérer l'abonnement actuel
-    const currentSubscription = queue.activeSubscriptionId 
+    const currentSubscription = queue.activeSubscriptionId
       ? await PricingPlan.findById(queue.activeSubscriptionId)
       : null;
 
     // Vérifier si l'abonnement actuel est expiré ou va expirer
     const now = new Date();
-    const shouldActivateNext = !currentSubscription || 
-                              currentSubscription.status === 'expired' ||
-                              currentSubscription.endDate <= now;
+    const shouldActivateNext = !currentSubscription ||
+      currentSubscription.status === 'expired' ||
+      currentSubscription.endDate <= now;
 
     if (shouldActivateNext) {
       // Chercher le prochain abonnement prêt à être activé
@@ -818,7 +943,7 @@ const checkAndActivateNextSubscription = async (sellerId) => {
           const duration = nextSubscription.billingCycle === 'annual' ? 12 : 1;
           newEndDate.setMonth(newEndDate.getMonth() + duration);
           nextSubscription.endDate = newEndDate;
-          
+
           await nextSubscription.save();
 
           // Mettre à jour la file d'attente
@@ -870,20 +995,82 @@ const checkAndActivateNextSubscription = async (sellerId) => {
 /**
  * Suspendre automatiquement les comptes après 48h de grâce
  */
+// const suspendExpiredAccounts = async () => {
+//   try {
+//     const now = new Date();
+//     const gracePeriodEnd = new Date(now.getTime() + (48 * 60 * 60 * 1000)); // 48h après
+
+//     // Trouver les files d'attente où la période de grâce est terminée
+//     const expiredQueues = await SubscriptionQueue.find({
+//       // gracePeriodEnd: { $lt: now, $ne: null },
+//       gracePeriodEnd: { $lt: gracePeriodEnd, $ne: null },
+//       accountStatus: 'grace_period'
+//     });
+//     console.log({expiredQueues,gracePeriodEnd});
+    
+
+//     for (const queue of expiredQueues) {
+//       // Vérifier s'il n'y a pas d'abonnement payé en attente
+//       const hasValidPayment = queue.queuedSubscriptions.some(q => q.status === 'payment_verified');
+
+//       if (!hasValidPayment) {
+//         // Suspendre le compte
+//         queue.accountStatus = 'suspended';
+//         await queue.save();
+
+//         await SellerRequest.findByIdAndUpdate(queue.storeId, {
+//           subscriptionStatus: 'suspended',
+//           isvalid: false,
+//           suspensionReason: 'Abonnement expiré - période de grâce terminée (48h)',
+//           suspensionDate: now
+//         });
+
+//         // Ajouter à l'historique
+//         const historyEntry = new SubscriptionHistory({
+//           storeId: queue.storeId,
+//           subscriptionId: queue.activeSubscriptionId,
+//           actionType: 'suspended',
+//           actionDetails: {
+//             performedBy: 'system',
+//             reason: 'Suspension automatique après 48h de grâce',
+//             notes: `Compte suspendu automatiquement le ${now.toLocaleDateString('fr-FR')}`
+//           }
+//         });
+
+//         await historyEntry.save();
+//       } else {
+//         // Il y a un paiement validé, activer automatiquement
+//         await checkAndActivateNextSubscription(queue.storeId);
+//       }
+//     }
+
+//     console.log(`${expiredQueues.length} comptes traités pour suspension/activation`);
+
+//   } catch (error) {
+//     console.error('Erreur suspension automatique:', error);
+//   }
+// };
+
 const suspendExpiredAccounts = async () => {
   try {
     const now = new Date();
-    const gracePeriodEnd = new Date(now.getTime() - (48 * 60 * 60 * 1000)); // 48h avant
+    const gracePeriodEnd = new Date(now.getTime() + (48 * 60 * 60 * 1000)); // 48h après
 
-    // Trouver les files d'attente où la période de grâce est terminée
+    // ========================================
+    // 1. TRAITER LES FILES D'ATTENTE EXPIRÉES
+    // ========================================
     const expiredQueues = await SubscriptionQueue.find({
-      gracePeriodEnd: { $lt: now, $ne: null },
+      gracePeriodEnd: { $lt: gracePeriodEnd, $ne: null },
       accountStatus: 'grace_period'
     });
+    
+    console.log({ expiredQueues, gracePeriodEnd });
 
     for (const queue of expiredQueues) {
       // Vérifier s'il n'y a pas d'abonnement payé en attente
-      const hasValidPayment = queue.queuedSubscriptions.some(q => q.status === 'payment_verified');
+      const hasValidPayment = queue.queuedSubscriptions.some(
+        q => q.status === 'payment_verified'
+      );
 
       if (!hasValidPayment) {
         // Suspendre le compte
@@ -910,16 +1097,107 @@ const suspendExpiredAccounts = async () => {
         });
 
         await historyEntry.save();
+        console.log(`✓ Queue expirée suspendue: ${queue.storeId}`);
       } else {
         // Il y a un paiement validé, activer automatiquement
         await checkAndActivateNextSubscription(queue.storeId);
+        console.log(`✓ Queue expirée avec paiement activée: ${queue.storeId}`);
       }
     }
 
-    console.log(`${expiredQueues.length} comptes traités pour suspension/activation`);
+    console.log(`\n📦 ${expiredQueues.length} comptes avec queue expirée traités\n`);
+
+    // ========================================
+    // 2. TRAITER LES SELLERREQUEST SANS QUEUE
+    // ========================================
+    
+    // Récupérer tous les IDs des stores qui ont une SubscriptionQueue
+    const storeIdsWithQueue = await SubscriptionQueue.distinct('storeId');
+
+    // Trouver TOUS les SellerRequest sans SubscriptionQueue
+    const sellersWithoutQueue = await SellerRequest.find({
+      _id: { $nin: storeIdsWithQueue }
+    });
+
+    console.log(`🔍 ${sellersWithoutQueue.length} boutiques trouvées sans SubscriptionQueue\n`);
+
+    let suspendedCount = 0;
+    let alreadySuspendedCount = 0;
+
+    for (const seller of sellersWithoutQueue) {
+      // Si le compte est déjà invalide ET déjà suspendu, on skip
+      if (!seller.isvalid && seller.subscriptionStatus === 'suspended') {
+        console.log(`✓ Boutique "${seller.storeName}" (${seller._id}) déjà suspendue correctement`);
+        alreadySuspendedCount++;
+        continue;
+      }
+
+      // SINON, on suspend TOUT ce qui n'a pas de queue
+      const reason = seller.subscriptionId 
+        ? 'Incohérence détectée - SubscriptionQueue manquante malgré subscriptionId'
+        : 'Aucune SubscriptionQueue ni abonnement actif trouvé';
+
+      console.warn(`⚠️  Suspension de "${seller.storeName}" (${seller._id})`);
+      console.warn(`    Raison: ${reason}`);
+      console.warn(`    État avant: isvalid=${seller.isvalid}, subscriptionStatus=${seller.subscriptionStatus}`);
+
+      // Suspendre la boutique
+      await SellerRequest.findByIdAndUpdate(seller._id, {
+        subscriptionStatus: 'suspended',
+        isvalid: false,
+        suspensionReason: reason,
+        suspensionDate: now
+      });
+
+      // Ajouter à l'historique SEULEMENT si subscriptionId existe
+      if (seller.subscriptionId) {
+        const historyEntry = new SubscriptionHistory({
+          storeId: seller._id,
+          subscriptionId: seller.subscriptionId,
+          actionType: 'suspended',
+          actionDetails: {
+            performedBy: 'system',
+            reason: reason,
+            notes: `Boutique "${seller.storeName}" sans SubscriptionQueue suspendue automatiquement le ${now.toLocaleDateString('fr-FR')} à ${now.toLocaleTimeString('fr-FR')}`
+          }
+        });
+
+        await historyEntry.save();
+      } else {
+        // Log alternatif si pas de subscriptionId
+        console.log(`   ℹ️  Pas d'historique créé (aucun subscriptionId)`);
+      }
+      suspendedCount++;
+    }
+
+    // ========================================
+    // 3. RÉSUMÉ FINAL
+    // ========================================
+    console.log(`
+╔════════════════════════════════════════════════════════════╗
+║           📊 RÉSUMÉ DE L'EXÉCUTION                         ║
+╠════════════════════════════════════════════════════════════╣
+║ Queues expirées traitées:        ${String(expiredQueues.length).padStart(4)} comptes      ║
+║ Boutiques sans queue trouvées:   ${String(sellersWithoutQueue.length).padStart(4)} comptes      ║
+║   - Déjà suspendues:              ${String(alreadySuspendedCount).padStart(4)} comptes      ║
+║   - Nouvellement suspendues:      ${String(suspendedCount).padStart(4)} comptes      ║
+║                                                            ║
+║ ✅ TOTAL TRAITÉ:                  ${String(expiredQueues.length + suspendedCount).padStart(4)} comptes      ║
+╚════════════════════════════════════════════════════════════╝
+    `);
+
+    return {
+      success: true,
+      expiredQueues: expiredQueues.length,
+      sellersWithoutQueue: sellersWithoutQueue.length,
+      alreadySuspended: alreadySuspendedCount,
+      newlySuspended: suspendedCount,
+      totalProcessed: expiredQueues.length + suspendedCount
+    };
 
   } catch (error) {
-    console.error('Erreur suspension automatique:', error);
+    console.error('❌ Erreur suspension automatique:', error);
+    throw error;
   }
 };
 
@@ -933,7 +1211,7 @@ const startGracePeriod = async () => {
     // Trouver les abonnements qui viennent d'expirer
     const expiredSubscriptions = await PricingPlan.find({
       endDate: { $lt: now },
-      status: 'active'
+      status: { $in: ['active', 'trial'] }
     });
 
     for (const subscription of expiredSubscriptions) {
@@ -945,10 +1223,10 @@ const startGracePeriod = async () => {
 
       // Démarrer la période de grâce dans la file d'attente
       const gracePeriodEnd = new Date(now.getTime() + (48 * 60 * 60 * 1000)); // +48h
-      
+
       await SubscriptionQueue.findOneAndUpdate(
         { storeId: subscription.storeId },
-        { 
+        {
           accountStatus: 'grace_period',
           gracePeriodEnd,
           lastUpdated: now
@@ -971,11 +1249,17 @@ const startGracePeriod = async () => {
  */
 const getSellerCompleteStatus = async (sellerId) => {
   try {
-    const [seller, queue, activeSubscription, history] = await Promise.all([
+    const [seller, queue, activeSubscription, history,productCount] = await Promise.all([
       SellerRequest.findById(sellerId),
       SubscriptionQueue.findOne({ storeId: sellerId }),
-      PricingPlan.findOne({ storeId: sellerId, status: { $in: ['active', 'trial'] } }),
-      SubscriptionHistory.find({ storeId: sellerId }).sort({ createdAt: -1 }).limit(10)
+      PricingPlan.findOne(
+        { storeId: sellerId, status: { $in: ['active', 'trial'] } }
+      ).sort({ createdAt: -1 }),
+      SubscriptionHistory.find({ storeId: sellerId }).sort({ createdAt: -1 }).limit(10),
+      Produit.countDocuments({
+      createdBy: sellerId,
+      isDeleted: false
+  })
     ]);
 
     if (!queue) {
@@ -984,19 +1268,19 @@ const getSellerCompleteStatus = async (sellerId) => {
 
     const now = new Date();
     let statusInfo = {};
-
+    
     switch (queue.accountStatus) {
       case 'trial':
         const daysLeftInTrial = Math.ceil((activeSubscription?.endDate - now) / (1000 * 60 * 60 * 24));
         statusInfo = {
           status: 'trial',
           title: 'Période d\'Essai Active',
-          message: daysLeftInTrial <= 30 
+          message: daysLeftInTrial <= 10
             ? `${daysLeftInTrial} jours restants - Vous pouvez maintenant choisir votre abonnement`
             : `${daysLeftInTrial} jours restants dans votre essai gratuit`,
-          color: daysLeftInTrial <= 30 ? 'orange' : 'blue',
-          canCreateRequest: daysLeftInTrial <= 30,
-          actions: daysLeftInTrial <= 30 
+          color: daysLeftInTrial <= 10 ? 'orange' : 'blue',
+          canCreateRequest: daysLeftInTrial <= 10,
+          actions: daysLeftInTrial <= 10
             ? ['view_features', 'upgrade_plan', 'choose_subscription']
             : ['view_features', 'upgrade_plan']
         };
@@ -1009,7 +1293,7 @@ const getSellerCompleteStatus = async (sellerId) => {
           title: 'Abonnement Actif',
           message: `Plan ${activeSubscription?.planType} - ${daysLeftInPlan} jours restants`,
           color: daysLeftInPlan <= 7 ? 'orange' : 'green',
-          canCreateRequest: true,
+          canCreateRequest: daysLeftInPlan < 10 ? true : false,
           actions: ['renew_plan', 'upgrade_plan', 'view_usage']
         };
         break;
@@ -1047,12 +1331,12 @@ const getSellerCompleteStatus = async (sellerId) => {
         queue.queuedSubscriptions.map(async (q) => {
           const [sub, paymentRequest] = await Promise.all([
             PricingPlan.findById(q.subscriptionId),
-            SubscriptionRequest.findOne({ 
+            SubscriptionRequest.findOne({
               storeId: sellerId,
               status: { $in: ['pending_payment', 'payment_submitted', 'rejected', 'payment_verified', 'cancelled'] }
             }).sort({ createdAt: -1 }) // Plus récent en premier
           ]);
-          
+
           console.log('🔍 DEBUG - Recherche SubscriptionRequest:', {
             sellerId,
             queueSubscriptionId: q.subscriptionId,
@@ -1076,7 +1360,7 @@ const getSellerCompleteStatus = async (sellerId) => {
               }))
             });
           }
-          
+
           const result = {
             planType: sub?.planType,
             estimatedStartDate: q.estimatedStartDate,
@@ -1097,7 +1381,7 @@ const getSellerCompleteStatus = async (sellerId) => {
               amount: paymentRequest.paymentDetails?.amount,
               method: paymentRequest.paymentDetails?.method
             });
-            
+
             result.paymentRequestId = paymentRequest._id;
             result.paymentDetails = {
               method: paymentRequest.paymentDetails?.method,
@@ -1112,7 +1396,7 @@ const getSellerCompleteStatus = async (sellerId) => {
               verificationStatus: paymentRequest.status, // Le statut global
               verifiedAt: paymentRequest.adminVerification?.verifiedAt || null
             };
-            
+
             console.log('📋 DEBUG - PaymentDetails construits:', result.paymentDetails);
           } else {
             console.log('❌ DEBUG - Aucun SubscriptionRequest trouvé');
@@ -1134,7 +1418,8 @@ const getSellerCompleteStatus = async (sellerId) => {
       statusInfo,
       activeSubscription,
       queueInfo,
-      history
+      history,
+      productCount,
     };
 
   } catch (error) {
@@ -1146,6 +1431,40 @@ const getSellerCompleteStatus = async (sellerId) => {
 /**
  * Configuration des tâches automatisées
  */
+// const setupUniversalCronJobs = () => {
+//   // Vérifier les expirations et démarrer les périodes de grâce - tous les jours à 00:30
+//   cron.schedule('30 0 * * *', () => {
+//     console.log('Démarrage des périodes de grâce...');
+//     startGracePeriod();
+//   });
+
+//   // Suspendre les comptes après période de grâce - tous les jours à 01:00
+//   cron.schedule('0 1 * * *', () => {
+//     console.log('Suspension des comptes expirés...');
+//     suspendExpiredAccounts();
+//   });
+
+//   // Vérifier les activations automatiques - toutes les heures
+//   cron.schedule('0 * * * *', async () => {
+//     console.log('Vérification des activations automatiques...');
+//     try {
+//       const activeQueues = await SubscriptionQueue.find({
+//         accountStatus: { $in: ['grace_period', 'active'] }
+//       });
+
+//       for (const queue of activeQueues) {
+//         await checkAndActivateNextSubscription(queue.storeId);
+//       }
+//     } catch (error) {
+//       console.error('Erreur vérification activations:', error);
+//     }
+//   });
+
+//   console.log('Système de tâches automatisées universel configuré');
+// };
+
+// Fonction helper pour obtenir le numéro de paiement
+
 const setupUniversalCronJobs = () => {
   // Vérifier les expirations et démarrer les périodes de grâce - tous les jours à 00:30
   cron.schedule('30 0 * * *', () => {
@@ -1163,10 +1482,10 @@ const setupUniversalCronJobs = () => {
   cron.schedule('0 * * * *', async () => {
     console.log('Vérification des activations automatiques...');
     try {
-      const activeQueues = await SubscriptionQueue.find({ 
+      const activeQueues = await SubscriptionQueue.find({
         accountStatus: { $in: ['grace_period', 'active'] }
       });
-      
+
       for (const queue of activeQueues) {
         await checkAndActivateNextSubscription(queue.storeId);
       }
@@ -1176,13 +1495,32 @@ const setupUniversalCronJobs = () => {
   });
 
   console.log('Système de tâches automatisées universel configuré');
+
+  // ⚡ Lancer immédiatement au démarrage
+  (async () => {
+    console.log('Exécution immédiate au démarrage...');
+    await startGracePeriod();
+    await suspendExpiredAccounts();
+
+    // Vérification activations immédiate aussi
+    try {
+      const activeQueues = await SubscriptionQueue.find({
+        accountStatus: { $in: ['grace_period', 'active'] }
+      });
+      for (const queue of activeQueues) {
+        await checkAndActivateNextSubscription(queue.storeId);
+      }
+    } catch (error) {
+      console.error('Erreur vérification activations immédiates:', error);
+    }
+  })();
 };
 
-// Fonction helper pour obtenir le numéro de paiement
+
 const getPaymentPhone = (method) => {
   const phones = {
     mynita: "+22790123456",
-    aman: "+22798765432", 
+    aman: "+22798765432",
     airtel_money: "+22787654321",
     orange_money: "+22776543210"
   };

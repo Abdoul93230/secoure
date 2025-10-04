@@ -55,15 +55,66 @@ const getProductByIdAdmin = handleAsyncError(async (req, res) => {
   res.json({ message: "Produit trouvé", data: product });
 });
 
+// const createProduct = handleAsyncError(async (req, res) => {
+//   try {
+//     // Validation des données (si tu as un validateur)
+//     const validationError = validateProduct && validateProduct(req.body);
+//     if (validationError) {
+//       return res.status(400).json({ errors: validationError });
+//     }
+
+//     // Préparer les données du produit avec gestion des images
+//     const productData = await productService.prepareProductData(req.body, req.files);
+    
+//     // Créer le produit
+//     const newProduct = await productService.createProduct(productData);
+
+//     // Déterminer le message selon le rôle
+//     const sellerOrAdmin = req.body.sellerOrAdmin;
+//     const message = `Le produit ${req.body.name} a été ${
+//       sellerOrAdmin === "admin"
+//         ? "créé et publié"
+//         : "créé et en attente de validation"
+//     } avec succès`;
+
+//     res.status(201).json({ 
+//       message, 
+//       data: newProduct 
+//     });
+    
+//   } catch (error) {
+//     console.log(error);
+    
+//     // Gestion des erreurs spécifiques
+//     if (error.message === "Aucune image du produit n'a été envoyée.") {
+//       return res.status(400).json({ message: error.message });
+//     }
+    
+//     if (error.message === "La première image du produit est obligatoire") {
+//       return res.status(400).json({ 
+//         message: error.message,
+//         error: error.message 
+//       });
+//     }
+
+//     return res.status(500).json({
+//       message: "Une erreur s'est produite lors de la création du produit",
+//       error: error.message,
+//     });
+//   }
+// });
+
 const createProduct = handleAsyncError(async (req, res) => {
   try {
-    // Validation des données (si tu as un validateur)
+    // Validation des données
+    console.log({data : req.body});
+    
     const validationError = validateProduct && validateProduct(req.body);
     if (validationError) {
       return res.status(400).json({ errors: validationError });
     }
 
-    // Préparer les données du produit avec gestion des images
+    // Préparer les données du produit avec vérifications d'abonnement
     const productData = await productService.prepareProductData(req.body, req.files);
     
     // Créer le produit
@@ -77,27 +128,84 @@ const createProduct = handleAsyncError(async (req, res) => {
         : "créé et en attente de validation"
     } avec succès`;
 
+    // Si c'est un vendeur, ajouter les infos d'abonnement dans la réponse
+    let subscriptionInfo = null;
+    if (sellerOrAdmin === "seller" && req.body.Clefournisseur) {
+      try {
+        subscriptionInfo = await productService.getSellerSubscriptionInfo(req.body.Clefournisseur);
+      } catch (error) {
+        console.error("Erreur lors de la récupération des infos d'abonnement:", error);
+      }
+    }
+
     res.status(201).json({ 
+      success: true,
       message, 
-      data: newProduct 
+      data: newProduct,
+      subscriptionInfo: subscriptionInfo ? {
+        currentProducts: subscriptionInfo.products.current,
+        productLimit: subscriptionInfo.products.limit,
+        remainingSlots: subscriptionInfo.products.remaining,
+        planType: subscriptionInfo.subscription?.planType
+      } : null
     });
     
   } catch (error) {
-    console.log(error);
+    console.error("Erreur lors de la création du produit:", error);
     
-    // Gestion des erreurs spécifiques
+    // Gestion des erreurs liées à l'abonnement
+    if (error.message.includes("Vendeur non trouvé")) {
+      return res.status(404).json({ 
+        success: false,
+        message: "Vendeur introuvable",
+        error: error.message 
+      });
+    }
+
+    if (error.message.includes("compte vendeur n'est pas encore validé")) {
+      return res.status(403).json({ 
+        success: false,
+        message: "Compte non validé",
+        error: error.message 
+      });
+    }
+
+    if (error.message.includes("abonnement")) {
+      return res.status(403).json({ 
+        success: false,
+        message: "Problème d'abonnement",
+        error: error.message 
+      });
+    }
+
+    if (error.message.includes("Limite de produits atteinte")) {
+      return res.status(403).json({ 
+        success: false,
+        message: "Limite de produits atteinte",
+        error: error.message,
+        upgradeRequired: true
+      });
+    }
+
+    // Gestion des erreurs d'images
     if (error.message === "Aucune image du produit n'a été envoyée.") {
-      return res.status(400).json({ message: error.message });
+      return res.status(400).json({ 
+        success: false,
+        message: error.message 
+      });
     }
     
     if (error.message === "La première image du produit est obligatoire") {
       return res.status(400).json({ 
+        success: false,
         message: error.message,
         error: error.message 
       });
     }
 
+    // Erreur générique
     return res.status(500).json({
+      success: false,
       message: "Une erreur s'est produite lors de la création du produit",
       error: error.message,
     });
@@ -151,9 +259,14 @@ const updateProduct2 = handleAsyncError(async (req, res) => {
     }
     
     // Préparer les données de mise à jour avancée
-    const { updateData } = await productService.prepareAdvancedUpdateData(
-      productId, 
-      req.body, 
+    // const { updateData } = await productService.prepareAdvancedUpdateData(
+    //   productId, 
+    //   req.body, 
+    //   req.files
+    // );
+        const { updateData, product } = await productService.prepareAdvancedUpdateData(
+      productId,
+      req.body,
       req.files
     );
     
@@ -164,13 +277,116 @@ const updateProduct2 = handleAsyncError(async (req, res) => {
       return res.status(404).json({ message: "Produit non trouvé" });
     }
 
-    res.json({ 
-      message: "Produit mis à jour avec succès", 
-      data: updatedProduct 
+    // res.json({ 
+    //   message: "Produit mis à jour avec succès", 
+    //   data: updatedProduct 
+    // });
+
+
+    // Déterminer le message selon le rôle
+    const sellerOrAdmin = req.body.sellerOrAdmin;
+    let message = "";
+
+    if (sellerOrAdmin === "admin") {
+      message = `Le produit ${updatedProduct.name} a été modifié avec succès`;
+    } else {
+      // Si le produit était publié et est maintenant en attente
+      if (product.isPublished === "Published" && updateData.isPublished === "Attente") {
+        message = `Le produit ${updatedProduct.name} a été modifié et est en attente de validation`;
+      } else {
+        message = `Le produit ${updatedProduct.name} a été modifié avec succès`;
+      }
+    }
+
+    // Ajouter les infos d'abonnement si c'est un vendeur
+    let subscriptionInfo = null;
+    if (sellerOrAdmin === "seller" && req.body.Clefournisseur) {
+      try {
+        subscriptionInfo = await productService.getSellerSubscriptionInfo(req.body.Clefournisseur);
+      } catch (error) {
+        console.error("Erreur lors de la récupération des infos d'abonnement:", error);
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message,
+      data: updatedProduct,
+      statusChange: product.isPublished !== updateData.isPublished ? {
+        from: product.isPublished,
+        to: updateData.isPublished
+      } : null,
+      subscriptionInfo: subscriptionInfo ? {
+        currentProducts: subscriptionInfo.products.current,
+        productLimit: subscriptionInfo.products.limit,
+        remainingSlots: subscriptionInfo.products.remaining,
+        planType: subscriptionInfo.subscription?.planType
+      } : null
     });
+
     
   } catch (error) {
     console.error("Erreur lors de la mise à jour du produit:", error);
+
+    // Gestion des erreurs d'autorisation
+    if (error.message.includes("Vous n'êtes pas autorisé")) {
+      return res.status(403).json({
+        success: false,
+        message: "Accès refusé",
+        error: error.message
+      });
+    }
+
+    // Gestion des erreurs de produit supprimé
+    if (error.message.includes("produit supprimé")) {
+      return res.status(403).json({
+        success: false,
+        message: "Produit supprimé",
+        error: error.message
+      });
+    }
+
+    // Gestion des erreurs d'abonnement
+    if (error.message.includes("Vendeur non trouvé")) {
+      return res.status(404).json({
+        success: false,
+        message: "Vendeur introuvable",
+        error: error.message
+      });
+    }
+
+    if (error.message.includes("compte vendeur")) {
+      return res.status(403).json({
+        success: false,
+        message: "Compte vendeur inactif",
+        error: error.message
+      });
+    }
+
+    if (error.message.includes("abonnement")) {
+      return res.status(403).json({
+        success: false,
+        message: "Problème d'abonnement",
+        error: error.message
+      });
+    }
+
+    // Gestion des erreurs de format
+    if (error.message.includes("Format") || error.message.includes("invalide")) {
+      return res.status(400).json({
+        success: false,
+        message: "Données invalides",
+        error: error.message
+      });
+    }
+
+    // Erreur générique
+    return res.status(500).json({
+      success: false,
+      message: "Une erreur s'est produite lors de la mise à jour du produit",
+      error: error.message
+    });
+  
     
     // Gestion des erreurs spécifiques
     if (error.message === "Produit introuvable") {

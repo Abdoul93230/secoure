@@ -364,7 +364,7 @@ const {
 const { SellerRequest,PricingPlan } = require('../Models');
 const SubscriptionQueue = require('../models/Abonnements/SubscriptionQueue');
 const SubscriptionRequest = require('../models/Abonnements/SubscriptionRequest');
-const { getPendingRequests } = require('../controllers/enhancedSubscriptionController');
+const { getPendingRequests, createManualRenewal } = require('../controllers/enhancedSubscriptionController');
 
 // Middleware admin
 const requireAdmin = (req, res, next) => {
@@ -558,6 +558,9 @@ router.put('/verify-payment/:requestId', requireAdmin, async (req, res) => {
     const { requestId } = req.params;
     const { isApproved, verificationNotes } = req.body;
     const adminId = req.user.id;
+
+    console.log({requestId, adminId, isApproved, verificationNotes});
+    
 
     const result = await validatePaymentAndPrepareActivation(requestId, adminId, isApproved, verificationNotes);
 
@@ -851,6 +854,8 @@ router.post('/create-manual-renewal', requireAdmin, async (req, res) => {
     });
 
   } catch (error) {
+    console.log({error});
+    
     res.status(500).json({
       status: 'error',
       message: 'Erreur lors de la création du renouvellement',

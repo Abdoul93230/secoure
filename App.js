@@ -69,6 +69,7 @@ const io = socketIo(server, {
       "https://ihambaobadmin.onrender.com",
       "https://ihambaobabv.onrender.com",
       "https://www.ihambaobab.com",
+      "https://iham-admin.onrender.com",
     ],
     credentials: true,
   },
@@ -93,6 +94,7 @@ app
         "https://ihambaobadmin.onrender.com",
         "https://ihambaobabv.onrender.com",
         "https://www.ihambaobab.com",
+        "https://iham-admin.onrender.com",
       ],
       credentials: true,
     })

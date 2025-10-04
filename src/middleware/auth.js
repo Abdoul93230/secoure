@@ -3,9 +3,31 @@ const { SellerRequest } = require('../Models');
 const ADMIN_PRIVATe_KEY = require("../auth/clefAdmin");
 const SELLER_PRIVATe_KEY = require("../auth/clefSeller");
 
+
+const VALIDATION_EXEMPT_ROUTES = [
+  '/api/seller/subscription/available-plans',
+  '/api/seller/subscription/complete-status',
+];
+
+const isRouteExempt = (req) => {
+  const exemptPaths = [
+    'available-plans',
+    'complete-status',
+    'create-future-request',
+    'activate-with-code',
+    '/submit-payment',
+  ];
+
+  // Vérifier si le path contient l'un des chemins exempts
+  return exemptPaths.some(exemptPath =>
+    req.path.includes(exemptPath) ||
+    req.originalUrl.includes(exemptPath)
+  );
+};
+
 // Configuration des secrets JWT
 const JWT_SECRETS = {
-  seller:SELLER_PRIVATe_KEY,
+  seller: SELLER_PRIVATe_KEY,
   admin: ADMIN_PRIVATe_KEY,
   default: process.env.JWT_SECRET || 'default_secret'
 };
@@ -13,7 +35,7 @@ const JWT_SECRETS = {
 // Middleware de base pour extraire et vérifier le token
 const extractToken = async (req, res, next) => {
   const authHeader = req.headers.authorization;
-  
+
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({
       success: false,
@@ -23,27 +45,27 @@ const extractToken = async (req, res, next) => {
 
   const token = authHeader.substring(7);
   // console.log({token});
-  
-  
-  
+
+
+
   try {
     let decoded;
     let user;
-    
+
     // Essayer de décoder avec différents secrets selon le rôle
     try {
       // D'abord essayer avec le secret seller
       // console.log({token});
       decoded = jwt.verify(token, JWT_SECRETS.seller);
       // console.log({decoded});
-      
+
       if (decoded.role === 'seller') {
         user = await SellerRequest.findById(decoded.userId).select('-password');
       }
     } catch (err) {
       // Si ça échoue, essayer avec le secret admin
       // console.log({err});
-      
+
       try {
         decoded = jwt.verify(token, JWT_SECRETS.admin);
         if (decoded.role === 'admin') {
@@ -54,12 +76,12 @@ const extractToken = async (req, res, next) => {
       } catch (adminErr) {
         // Dernière tentative avec le secret par défaut
         // console.log({adminErr});
-        
+
         decoded = jwt.verify(token, JWT_SECRETS.default);
         user = await SellerRequest.findById(decoded.userId).select('-password');
       }
     }
-    
+
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -67,8 +89,28 @@ const extractToken = async (req, res, next) => {
       });
     }
 
+    // Vérifier si la route actuelle est exemptée
+    const isExempt = isRouteExempt(req);
+
+    // console.log({
+    //   path: req.path,
+    //   originalUrl: req.originalUrl,
+    //   isExempt
+    // });
+
     // Vérifier si le compte seller est valide (si c'est un seller)
-    if (user.role === 'seller' || decoded.role === 'seller') {
+    // if (user.role === 'seller' || decoded.role === 'seller') {
+    //   if (!user.isvalid) {
+    //     return res.status(403).json({
+    //       success: false,
+    //       message: 'Compte en attente de validation ou suspendu',
+    //       suspensionReason: user.suspensionReason || 'Compte en attente de validation'
+    //     });
+    //   }
+    // }
+
+
+    if ((user.role === 'seller' || decoded.role === 'seller') && !isExempt) {
       if (!user.isvalid) {
         return res.status(403).json({
           success: false,
@@ -88,11 +130,11 @@ const extractToken = async (req, res, next) => {
       isvalid: user.isvalid,
       suspensionReason: user.suspensionReason
     };
-    
+
     next();
   } catch (error) {
     // console.log({error});
-    
+
     return res.status(401).json({
       success: false,
       message: 'Token invalide ou expiré'
@@ -130,7 +172,7 @@ const requireValidSeller = [extractToken, (req, res, next) => {
       message: 'Accès réservé aux vendeurs'
     });
   }
-  
+
   if (!req.user.isvalid) {
     return res.status(403).json({
       success: false,
@@ -138,7 +180,7 @@ const requireValidSeller = [extractToken, (req, res, next) => {
       suspensionReason: req.user.suspensionReason
     });
   }
-  
+
   next();
 }];
 
@@ -156,13 +198,13 @@ const requireAdminOrSeller = [extractToken, (req, res, next) => {
 // Middleware optionnel (pour les routes publiques qui peuvent bénéficier de l'auth)
 const optionalAuth = async (req, res, next) => {
   const authHeader = req.headers.authorization;
-  
+
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.substring(7);
     try {
       let decoded;
       let user;
-      
+
       // Même logique que extractToken mais sans retourner d'erreur
       try {
         decoded = jwt.verify(token, JWT_SECRETS.seller);
@@ -180,7 +222,7 @@ const optionalAuth = async (req, res, next) => {
           user = await SellerRequest.findById(decoded.userId).select('-password');
         }
       }
-      
+
       if (user) {
         req.user = {
           id: user._id || user.id,
@@ -196,19 +238,19 @@ const optionalAuth = async (req, res, next) => {
       // Ignore les erreurs pour l'auth optionnelle
     }
   }
-  
+
   next();
 };
 
 // Middleware pour vérifier que l'utilisateur accède à ses propres données
 const requireOwnership = [extractToken, (req, res, next) => {
   const resourceUserId = req.params.userId || req.params.id || req.body.userId;
-  
+
   // Les admins peuvent accéder à tout
   if (req.user.role === 'admin') {
     return next();
   }
-  
+
   // Les utilisateurs ne peuvent accéder qu'à leurs propres données
   if (req.user.id !== resourceUserId) {
     return res.status(403).json({
@@ -216,7 +258,7 @@ const requireOwnership = [extractToken, (req, res, next) => {
       message: 'Accès non autorisé à cette ressource'
     });
   }
-  
+
   next();
 }];
 

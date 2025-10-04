@@ -143,7 +143,7 @@ const subscriptionHistorySchema = new mongoose.Schema({
     type: String,
     // enum: ['monthly', 'annual'],
     enum: ['trial', 'paid_monthly', 'paid_annual'],
-    default: 'monthly'
+    default: 'paid_monthly'
   }
 }, {
   timestamps: true

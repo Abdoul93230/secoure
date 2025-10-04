@@ -1,0 +1,4 @@
+{"timestamp":"2025-09-27T12:30:00.477Z","level":"SUCCESS","operation":"CONFIRMATION_AUTOMATIQUE","data":{"confirmees":0,"total":0}}
+{"timestamp":"2025-09-27T12:30:02.760Z","level":"SUCCESS","operation":"DEBLOCAGE_AUTOMATIQUE","data":{"ok":1,"$clusterTime":{"clusterTime":{"$timestamp":"7554745262032289800"},"signature":{"hash":"5s8Ag0Cc5ZLMSHlShkhxnPt4fuA=","keyId":{"low":7,"high":1744141991,"unsigned":false}}},"operationTime":{"$timestamp":"7554745262032289800"}}}
+{"timestamp":"2025-09-27T13:00:00.518Z","level":"SUCCESS","operation":"CONFIRMATION_AUTOMATIQUE","data":{"confirmees":0,"total":0}}
+{"timestamp":"2025-09-27T13:00:00.977Z","level":"SUCCESS","operation":"DEBLOCAGE_AUTOMATIQUE","data":{"ok":1,"$clusterTime":{"clusterTime":{"$timestamp":"7554752984383488022"},"signature":{"hash":"nN5ON9bkbXNRVJGHVGMXPK3xFeI=","keyId":{"low":7,"high":1744141991,"unsigned":false}}},"operationTime":{"$timestamp":"7554752984383488022"}}}

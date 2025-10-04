@@ -1,6 +1,7 @@
 const { SellerRequest, PricingPlan } = require("../Models");
 const SubscriptionHistory = require("../models/Abonnements/SubscriptionHistory");
 const SubscriptionRequest = require("../models/Abonnements/SubscriptionRequest");
+const SubscriptionQueue = require("../models/Abonnements/SubscriptionQueue");
 const nodemailer = require('nodemailer');
 const cron = require('node-cron');
 const crypto = require('crypto');
@@ -230,10 +231,11 @@ const createManualRenewal = async (storeId, planType, billingCycle = 'monthly', 
       storeId,
       planType,
       ...planDefaults,
-      status: 'pending',
+      status: 'active',
       startDate: new Date(),
       endDate: newEndDate,
       billingCycle,
+      subscriptionType: billingCycle === "monthly" ? "paid_monthly" : "paid_annual",
       invoiceNumber: `INV-${Date.now()}-${storeId.toString().slice(-6)}`,
       reactivationCode: {
         code: reactivationCode,
@@ -268,7 +270,7 @@ const createManualRenewal = async (storeId, planType, billingCycle = 'monthly', 
       periodStart: new Date(),
       periodEnd: newEndDate,
       invoiceNumber: newSubscription.invoiceNumber,
-      billingCycle
+      billingCycle:billingCycle==="monthly"?"paid_monthly":"paid_annual"
     });
 
     await historyEntry.save();
@@ -329,6 +331,17 @@ const activateWithCode = async (storeId, reactivationCode) => {
       reactivatedAt: new Date()
     });
 
+    // 5. Mettre à jour SubscriptionQueue
+    await SubscriptionQueue.findOneAndUpdate(
+      { storeId },
+      {
+        activeSubscriptionId: subscription._id,
+        accountStatus: 'active',
+        lastUpdated: new Date()
+      },
+      { new: true, upsert: true } // si pas trouvé, on crée
+    );
+
     // Ajouter une nouvelle entrée d'historique
     const reactivationHistory = new SubscriptionHistory({
       storeId,
@@ -343,6 +356,10 @@ const activateWithCode = async (storeId, reactivationCode) => {
     });
 
     await reactivationHistory.save();
+
+    
+
+
 
     return {
       success: true,
@@ -496,7 +513,7 @@ const submitPaymentProof = async (requestId, transferCode, receiptFile = null, s
     }
 
     // Permettre la modification pour les demandes en attente de paiement ou rejetées
-    if (!['pending_payment', 'rejected'].includes(request.status)) {
+    if (!['pending_payment', 'rejected','payment_submitted'].includes(request.status)) {
       throw new Error('Cette demande ne peut plus être modifiée');
     }
 

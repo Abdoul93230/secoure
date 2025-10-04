@@ -88,6 +88,11 @@ const subscriptionRequestSchema = new mongoose.Schema({
   },
   
   processedAt: Date,
+  linkedSubscriptionId: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "Subscription" // ou le modèle que tu veux
+}
+,
   
   // Notifications
   notificationsSent: [{
@@ -100,7 +105,8 @@ const subscriptionRequestSchema = new mongoose.Schema({
   }]
 
 }, {
-  timestamps: true
+  timestamps: true,
+   strict: false
 });
 
 subscriptionRequestSchema.index({ storeId: 1, status: 1 });
