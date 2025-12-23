@@ -1857,11 +1857,32 @@ const updateEtatTraitement = async (req, res) => {
 
     const ancienEtat = currentOrder.etatTraitement;
 
+    // Préparer les champs de mise à jour
+    const updateFields = { etatTraitement: nouvelEtat };
+
+    // Si la commande est annulée, restaurer le stock
+    if (nouvelEtat === "annulé") {
+      console.log('🔄 Annulation de commande - Restauration du stock...');
+      
+      try {
+        const StockService = require('./services/stockService');
+        const stockResult = await StockService.incrementStock(currentOrder.nbrProduits);
+        console.log('✅ Stock restauré avec succès:', stockResult.operations);
+        
+        updateFields.stockRestored = true;
+        updateFields.stockRestorationDate = new Date();
+      } catch (stockError) {
+        console.error('❌ Erreur lors de la restauration du stock:', stockError);
+        // On continue même si la restauration échoue
+        updateFields.stockRestored = false;
+        updateFields.stockRestorationError = stockError.message;
+      }
+    }
 
     // Mettre à jour l'état de la commande
     const updatedOrder = await Commande.findByIdAndUpdate(
       commandeId,
-      { etatTraitement: nouvelEtat },
+      updateFields,
       { new: true, runValidators: true }
     );
 
@@ -1947,9 +1968,20 @@ const updateStatusLivraison = async (req, res) => {
       });
     }
 
+    // Gérer les transitions financières selon le nouveau statut
     if (nouveauStatus === "Annulée" || nouveauStatus === "annulé") {
-      // Gérer les transitions financières
+      // Annulation: remboursement + restauration stock
       await handleFinancialTransitions(commandeId, ancienEtat, nouveauStatus, isDelete = true);
+    } else if (nouveauStatus === "livré") {
+      // Livraison réussie: confirmer les transactions financières
+      const { gererChangementEtatCommande } = require('./controllers/financeController');
+      try {
+        await gererChangementEtatCommande(commandeId, ancienEtat, nouveauStatus, commande);
+        console.log('✅ Transactions confirmées pour livraison réussie');
+      } catch (financialError) {
+        console.error('❌ Erreur financière lors de la livraison:', financialError);
+        // Ne pas faire échouer la mise à jour pour une erreur financière
+      }
     }
 
     res.status(200).json({

@@ -913,6 +913,8 @@ const commandeSchema = new mongoose.Schema(
         "reçu par le livreur",
         "en cours de livraison",
         "livraison reçu",
+        "livré",
+        "annulé",
         "Traité",
       ],
       default: "traitement",

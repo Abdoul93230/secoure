@@ -611,18 +611,18 @@ const loginWithSubscriptionCheck = async (req, res) => {
       });
       }
       
-      // return res.status(403).json({ 
-      //   message,
-      //   accountStatus,
-      //   suspensionReason: user.suspensionReason,
-      //   nextSteps: [
-      //     "Votre dossier est en cours de vérification par nos équipes",
-      //     "Vous recevrez un email de confirmation une fois validé",
-      //     "Délai moyen de validation: 24-48h ouvrées",
-      //     "Contactez le support si urgent: support@ihambaobab.com"
-      //   ],
-      //   completeStatus
-      // });
+      return res.status(403).json({ 
+        message,
+        accountStatus,
+        suspensionReason: user.suspensionReason,
+        nextSteps: [
+          "Votre dossier est en cours de vérification par nos équipes",
+          "Vous recevrez un email de confirmation une fois validé",
+          "Délai moyen de validation: 24-48h ouvrées",
+          "Contactez le support si urgent: support@ihambaobab.com"
+        ],
+        completeStatus
+      });
     }
 
 

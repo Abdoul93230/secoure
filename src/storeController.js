@@ -2049,6 +2049,84 @@ const toggle_product_validation = async (req, res) => {
   }
 };
 
+// 🎯 NOUVEAU: Récupérer les informations du seller avec son abonnement
+const getSellerInfo = async (req, res) => {
+  try {
+    const { sellerId } = req.params;
+    
+    if (!sellerId || !mongoose.Types.ObjectId.isValid(sellerId)) {
+      return res.status(400).json({
+        success: false,
+        message: "ID seller invalide"
+      });
+    }
+
+    // Récupérer le seller avec son abonnement
+    const seller = await SellerRequest.findById(sellerId)
+      .populate({
+        path: 'subscriptionId',
+        model: 'PricingPlan'
+      })
+      .lean();
+
+    if (!seller) {
+      return res.status(404).json({
+        success: false,
+        message: "Seller non trouvé"
+      });
+    }
+
+    res.json({
+      success: true,
+      data: seller
+    });
+
+  } catch (error) {
+    console.error('Erreur lors de la récupération des infos seller:', error);
+    res.status(500).json({
+      success: false,
+      message: "Erreur serveur lors de la récupération des informations",
+      error: error.message
+    });
+  }
+};
+
+// 🎯 NOUVEAU: Récupérer un plan d'abonnement par son ID
+const getPricingPlanById = async (req, res) => {
+  try {
+    const { planId } = req.params;
+    
+    if (!planId || !mongoose.Types.ObjectId.isValid(planId)) {
+      return res.status(400).json({
+        success: false,
+        message: "ID plan invalide"
+      });
+    }
+
+    const plan = await PricingPlan.findById(planId).lean();
+
+    if (!plan) {
+      return res.status(404).json({
+        success: false,
+        message: "Plan d'abonnement non trouvé"
+      });
+    }
+
+    res.json({
+      success: true,
+      data: plan
+    });
+
+  } catch (error) {
+    console.error('Erreur lors de la récupération du plan:', error);
+    res.status(500).json({
+      success: false,
+      message: "Erreur serveur lors de la récupération du plan",
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   createSeller,
   deleteSeller,
@@ -2072,5 +2150,8 @@ module.exports = {
   toggle_product_validation,
   getSellerByName,
   getSellerClients,
-  getSellerByNameClients
+  getSellerByNameClients,
+  // 🎯 NOUVEAU: Méthodes pour le système de commission
+  getSellerInfo,
+  getPricingPlanById
 };

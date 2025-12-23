@@ -215,6 +215,9 @@ const authAdmin = (req, res, next) => {
         return res.status(400).json({ message });
       }
 
+      console.log({refreshToken});
+      
+
       try {
         const decodedRefreshToken = jwt.verify(refreshToken, ADMIN_PRIVATe_KEY);
         const userId = decodedRefreshToken.userId;

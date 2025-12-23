@@ -7,13 +7,13 @@ const SUBSCRIPTION_CONFIG = {
   PLANS: {
     Starter: {
       name: "Starter",
-      description: "Parfait pour débuter votre activité en ligne",
+      description: "Inclut 3 mois gratuits pour toute nouvelle création de compte. Idéal pour les entrepreneurs débutants, petits artisans et testeurs de marché.",
       pricing: {
-        monthly: 2500,
-        annual: 27000,  // 2500 * 12 - 10% discount
+        monthly: 1000,
+        annual: 10800,  // 1000 * 12 - 10% discount
         trialPeriod: 3  // mois gratuits
       },
-      commission: 6.0,
+      commission: 4.0,
       productLimit: 10,
       features: {
         productManagement: {
@@ -43,13 +43,13 @@ const SUBSCRIPTION_CONFIG = {
     },
     Pro: {
       name: "Pro",
-      description: "La solution idéale pour les boutiques en croissance",
+      description: "Pour les vendeurs réguliers souhaitant un meilleur taux de commission.",
       pricing: {
-        monthly: 4500,
-        annual: 48600,  // 4500 * 12 - 10% discount
+        monthly: 2500,
+        annual: 27000,  // 2500 * 12 - 10% discount
         trialPeriod: 0
       },
-      commission: 3.5,
+      commission: 3.0,
       productLimit: -1, // illimité
       features: {
         productManagement: {
@@ -79,10 +79,10 @@ const SUBSCRIPTION_CONFIG = {
     },
     Business: {
       name: "Business",
-      description: "Pour les entreprises qui veulent se démarquer",
+      description: "Pour les vendeurs établis avec un volume de vente élevé.",
       pricing: {
-        monthly: 9000,
-        annual: 97200,  // 9000 * 12 - 10% discount
+        monthly: 5000,
+        annual: 54000,  // 5000 * 12 - 10% discount
         trialPeriod: 0
       },
       commission: 2.5,
@@ -176,7 +176,10 @@ const SUBSCRIPTION_CONFIG = {
   getPlanFeatures: (planName) => {
     const plan = SUBSCRIPTION_CONFIG.PLANS[planName];
     return plan ? plan.features : null;
-  }
+  },
+
+  // 🎯 NOUVEAU: Configuration par défaut
+  DEFAULT_COMMISSION: 4.0  // Plan Starter par défaut
 };
 
 module.exports = SUBSCRIPTION_CONFIG;

@@ -55,4 +55,8 @@ router.put('/pricing-plans/:planId', sellerController.updatePricingPlan);
 router.delete('/pricing-plans/:planId', sellerController.deletePricingPlan);
 router.get('/pricing-plans', sellerController.listPricingPlans);
 
+// 🎯 NOUVEAU: Routes pour le système de commission
+router.get('/seller-info/:sellerId', sellerController.getSellerInfo);
+router.get('/pricing-plan/:planId', sellerController.getPricingPlanById);
+
 module.exports = router;

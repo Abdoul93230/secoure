@@ -18,8 +18,55 @@ class FinancialService {
     }
   }
 
+  // Obtenir le taux de commission selon le plan d'abonnement du seller via PricingPlan
+  static async obtenirTauxCommission(sellerId) {
+    try {
+      const { SellerRequest, PricingPlan } = require('../Models');
+      const SUBSCRIPTION_CONFIG = require('../config/subscriptionConfig');
+      
+      // Récupérer les informations du seller
+      const seller = await SellerRequest.findById(sellerId).lean();
+      
+      if (!seller) {
+        console.log(`⚠️ Seller ${sellerId} non trouvé, commission par défaut`);
+        return SUBSCRIPTION_CONFIG.DEFAULT_COMMISSION; // 4.0%
+      }
+
+      // Si le seller a un subscriptionId, récupérer le plan actuel depuis PricingPlan
+      if (seller.subscriptionId) {
+        const activePlan = await PricingPlan.findOne({
+          _id: seller.subscriptionId,
+          status: { $in: ['active', 'trial'] }
+        }).lean();
+
+        if (activePlan) {
+          console.log(`✅ Plan actif trouvé pour seller ${sellerId}: ${activePlan.planType} (${activePlan.commission}%)`);
+          return activePlan.commission;
+        } else {
+          console.log(`⚠️ Plan inactif ou non trouvé pour seller ${sellerId}, recherche alternative...`);
+        }
+      }
+
+      // Fallback: utiliser le champ subscription du seller
+      const subscription = seller.subscription || 'Starter';
+      const plan = SUBSCRIPTION_CONFIG.PLANS[subscription];
+      
+      if (!plan) {
+        console.log(`⚠️ Plan non trouvé: ${subscription}, utilisation du taux par défaut`);
+        return SUBSCRIPTION_CONFIG.DEFAULT_COMMISSION;
+      }
+
+      console.log(`💰 Commission (fallback) seller ${sellerId} (${subscription}): ${plan.commission}%`);
+      return plan.commission;
+      
+    } catch (error) {
+      console.error(`❌ Erreur obtention commission seller ${sellerId}:`, error);
+      return SUBSCRIPTION_CONFIG.DEFAULT_COMMISSION; // Fallback sécurisé
+    }
+  }
+
   // Calculer le montant net après commission
-  static calculerMontantNet(montantBrut, tauxCommission = 5) {
+  static calculerMontantNet(montantBrut, tauxCommission = 4.0) {
     const commission = Math.round((montantBrut * tauxCommission) / 100);
     return {
       montantNet: montantBrut - commission,
@@ -76,7 +123,9 @@ class FinancialService {
 
         // Créer une transaction pour chaque seller
         for (const [sellerId, vente] of Object.entries(ventesParlSeller)) {
-          const { montantNet, commission, tauxCommission } = this.calculerMontantNet(vente.montantBrut);
+          // 🎯 NOUVEAU: Obtenir le taux de commission selon le pack du seller
+          const tauxCommissionSeller = await this.obtenirTauxCommission(sellerId);
+          const { montantNet, commission, tauxCommission } = this.calculerMontantNet(vente.montantBrut, tauxCommissionSeller);
 
           const transaction = new Transaction({
             sellerId,
@@ -151,9 +200,13 @@ class FinancialService {
         continue;
       }
 
-      const sellerId = produit.Clefournisseur;
+      // Extraire l'ID du seller (Clefournisseur peut être un objet ou une string)
+      const sellerId = typeof produit.Clefournisseur === 'object' && produit.Clefournisseur._id 
+        ? produit.Clefournisseur._id.toString()
+        : produit.Clefournisseur?.toString();
+        
       if (!sellerId) {
-        console.warn(`⚠️ Seller manquant pour produit ${produit.name}`);
+        console.warn(`⚠️ Seller manquant pour produit ${produit.name}`, produit.Clefournisseur);
         continue;
       }
 
@@ -429,8 +482,10 @@ class FinancialService {
   }
 
   static estLivraisonReussie(ancienEtat, nouvelEtat) {
-    const etatsAvantLivraison = ["reçu par le livreur", "en cours de livraison"];
-    const etatsLivraison = ["livraison reçu", "Traité", "terminé"];
+    // États avant livraison (commande en cours)
+    const etatsAvantLivraison = ["reçu par le livreur", "en cours de livraison", "en cours", "en route"];
+    // États de livraison réussie
+    const etatsLivraison = ["livraison reçu", "Traité", "terminé", "livré"];
     
     return etatsAvantLivraison.includes(ancienEtat) && etatsLivraison.includes(nouvelEtat);
   }
@@ -886,7 +941,7 @@ class FinancialService {
       const dateDebut = new Date();
       dateDebut.setDate(dateDebut.getDate() - periode);
 
-      const [portefeuille, transactions, retraits] = await Promise.all([
+      const [portefeuilleData, transactions, retraits] = await Promise.all([
         Portefeuille.findOne({ sellerId }),
         Transaction.find({
           sellerId,
@@ -897,6 +952,17 @@ class FinancialService {
           datedemande: { $gte: dateDebut }
         }).sort({ datedemande: -1 })
       ]);
+
+      // Vérification et récupération du portefeuille
+      const allTransactions = await Transaction.find({ sellerId }).sort({ dateTransaction: -1 }).limit(5);
+      
+      // Créer le portefeuille s'il n'existe pas
+      let portefeuille = portefeuilleData;
+      if (!portefeuille) {
+        console.log('⚠️ Portefeuille non trouvé, création automatique...');
+        portefeuille = await this.mettreAJourPortefeuille(sellerId, {}, null);
+        console.log('✅ Portefeuille créé:', portefeuille);
+      }
 
       // Vérifier la cohérence
       const verification = await this.verifierCoherencePortefeuille(sellerId);

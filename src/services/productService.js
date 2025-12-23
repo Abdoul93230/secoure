@@ -1223,10 +1223,17 @@ async checkProductCreationEligibility(sellerId) {
     // Attendre que toutes les opérations d'images soient terminées
     await Promise.all(imagePromises);
   }
-
+  // console.log({sellerOrAdmin});
+  
   // ========== GESTION DU STATUT DE PUBLICATION ==========
   // Si un vendeur modifie un produit publié, le remettre en attente de validation
   if (sellerOrAdmin === "seller" && product.isPublished === "Published") {
+    updateData.isPublished = "Attente";
+    updateData.isValidated = false;
+    updateData.comments = "En attente de validation après modification";
+  }
+
+  if (sellerOrAdmin === "seller" && product.isPublished === "Refuser") {
     updateData.isPublished = "Attente";
     updateData.isValidated = false;
     updateData.comments = "En attente de validation après modification";
@@ -1308,6 +1315,81 @@ async checkProductCreationEligibility(sellerId) {
     const matches = url.match(/\/images\/([^.]+)/);
     return matches ? `images/${matches[1]}` : null;
   }
+
+/**
+ * Récupère les informations d'abonnement d'un vendeur
+ * @param {string} sellerId - ID du vendeur
+ * @returns {Object} Informations sur l'abonnement et l'utilisation des produits
+ */
+async getSellerSubscriptionInfo(sellerId) {
+  try {
+    // Vérifier si le vendeur existe
+    const seller = await SellerRequest.findById(sellerId);
+    
+    if (!seller) {
+      throw new Error("Vendeur non trouvé");
+    }
+
+    // Récupérer l'abonnement actif
+    const activeSubscription = await PricingPlan.findOne({
+      storeId: sellerId,
+      status: { $in: ['active', 'trial'] },
+      endDate: { $gte: new Date() }
+    }).sort({ createdAt: -1 });
+
+    // Compter les produits actuels du vendeur
+    const productCount = await Produit.countDocuments({
+      createdBy: sellerId,
+      isDeleted: false
+    });
+
+    // Si aucun abonnement actif
+    if (!activeSubscription) {
+      return {
+        hasActiveSubscription: false,
+        subscription: null,
+        products: {
+          current: productCount,
+          limit: 0,
+          remaining: 0
+        },
+        isValid: seller.isvalid
+      };
+    }
+
+    // Calculer les informations sur les produits
+    const productLimit = activeSubscription.productLimit;
+    const remainingSlots = productLimit === -1 
+      ? 'Illimité' 
+      : Math.max(0, productLimit - productCount);
+
+    return {
+      hasActiveSubscription: true,
+      subscription: {
+        planType: activeSubscription.planType,
+        status: activeSubscription.status,
+        startDate: activeSubscription.startDate,
+        endDate: activeSubscription.endDate,
+        isExpired: new Date() > new Date(activeSubscription.endDate)
+      },
+      products: {
+        current: productCount,
+        limit: productLimit,
+        remaining: remainingSlots,
+        percentageUsed: productLimit === -1 
+          ? 0 
+          : Math.round((productCount / productLimit) * 100)
+      },
+      isValid: seller.isvalid
+    };
+
+  } catch (error) {
+    console.error("Erreur lors de la récupération des infos d'abonnement:", error);
+    throw error;
+  }
+}
+
+
 }
 
 module.exports = new ProductService();
