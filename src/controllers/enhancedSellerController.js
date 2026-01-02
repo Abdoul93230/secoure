@@ -3,15 +3,10 @@ const { createSubscriptionForSeller, createInitialSubscription, getSellerComplet
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const privateKeSeller = require("../auth/clefSeller");
-const cloudinary = require("cloudinary").v2;
 const fs = require("fs");
 
 // Configuration Cloudinary (déjà présente dans votre code)
-cloudinary.config({
-  cloud_name: "dkfddtykk",
-  api_key: "577594384978177",
-  api_secret: "kGQ99p3O0iFASZZHEmFelHPVt0I",
-});
+const cloudinary = require('../cloudinary');
 
 /**
  * Créer un vendeur avec abonnement automatique

@@ -1,17 +1,12 @@
 const { SellerRequest, Commande, Produit } = require("./Models");
 const { PricingPlan } = require("./Models");
-const cloudinary = require("cloudinary").v2;
 const jwt = require("jsonwebtoken");
 const privateKeSeller = require("./auth/clefSeller");
 const bcrypt = require("bcrypt");
 const fs = require("fs");
 const { default: mongoose } = require("mongoose");
 
-cloudinary.config({
-  cloud_name: "dkfddtykk",
-  api_key: "577594384978177",
-  api_secret: "kGQ99p3O0iFASZZHEmFelHPVt0I",
-});
+const cloudinary = require('./cloudinary');
 
 // Constantes pour les plans prédéfinis
 const PLAN_DEFAULTS = {

@@ -5,13 +5,15 @@ const FinancialService = require('./services/FinancialService');
 const { confirmerTransactionsLivrees, tacheDeblocage, tacheNettoyage } = require("./controllers/financeController");
 const financialLogger = require('./utils/financialLogger');
 const { setupUniversalCronJobs } = require("./controllers/subscriptionController");
+
+const MONGODB_URI= process.env.MONGODB_URI
 // PromoCode
 // 'mongodb://127.0.0.1:27017/dbschagona'
 
 
 mongoose
   .connect(
-    "mongodb+srv://abdoulrazak9323:qrru0xfJGmJG0TSc@cluster0.mvrgous.mongodb.net/?retryWrites=true&w=majority",
+    MONGODB_URI || "mongodb+srv://abdoulrazak9323:qrru0xfJGmJG0TSc@cluster0.mvrgous.mongodb.net/?retryWrites=true&w=majority",
     // "mongodb://127.0.0.1:27017/dbschagona",
     // "mongodb://127.0.0.1:27017/iham",
 

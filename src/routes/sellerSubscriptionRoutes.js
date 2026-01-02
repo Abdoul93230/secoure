@@ -1,12 +1,8 @@
-
-
-
 const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
 const SELLER_PRIVATE_KEY = require("../auth/clefSeller");
 const multer = require('multer');
-const cloudinary = require('cloudinary').v2;
 const {
   createFutureSubscriptionRequest,
   validatePaymentAndPrepareActivation,
@@ -19,11 +15,7 @@ const SubscriptionQueue = require('../models/Abonnements/SubscriptionQueue');
 const { activateWithCode, submitPaymentProof, cancelSubscriptionRequest } = require('../controllers/enhancedSubscriptionController');
 const SubscriptionRequest = require('../models/Abonnements/SubscriptionRequest');
 
-cloudinary.config({
-  cloud_name: "dkfddtykk",
-  api_key: "577594384978177",
-  api_secret: "kGQ99p3O0iFASZZHEmFelHPVt0I",
-});
+const cloudinary = require('../cloudinary');
 
 // Configuration upload pour les reçus
 const upload = multer({

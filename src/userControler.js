@@ -14,16 +14,11 @@ const { Expo } = require("expo-server-sdk");
 const mongoose = require("mongoose");
 const axios = require("axios");
 const fs = require("fs");
-const cloudinary = require("cloudinary").v2;
 const nodemailer = require("nodemailer");
 const { gererValidationFinanciere, handleFinancialTransitions } = require("./productControler");
 const { gererRelanceCommande } = require("./controllers/financeController");
 
-cloudinary.config({
-  cloud_name: "dkfddtykk",
-  api_key: "577594384978177",
-  api_secret: "kGQ99p3O0iFASZZHEmFelHPVt0I",
-});
+const cloudinary = require('./cloudinary');
 
 // Créez une nouvelle instance d'Expo
 const expo = new Expo();

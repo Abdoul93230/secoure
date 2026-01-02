@@ -1,12 +1,6 @@
 const { Fournisseur, Produit } = require("./Models");
 const nodemailer = require("nodemailer");
-const cloudinary = require("cloudinary").v2;
-
-cloudinary.config({
-  cloud_name: "dkfddtykk",
-  api_key: "577594384978177",
-  api_secret: "kGQ99p3O0iFASZZHEmFelHPVt0I",
-});
+const cloudinary = require('./cloudinary');
 
 const createFournisseur = async (req, res) => {
   try {
