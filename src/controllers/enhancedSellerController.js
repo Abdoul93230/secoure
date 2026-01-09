@@ -621,7 +621,7 @@ const loginWithSubscriptionCheck = async (req, res) => {
     }
 
 
-    console.log({completeStatus});
+    // console.log({completeStatus});
     
 
     if(completeStatus?.status === "no_subscription"){
