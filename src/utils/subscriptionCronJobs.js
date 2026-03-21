@@ -4,6 +4,7 @@ const SubscriptionQueue = require('../models/Abonnements/SubscriptionQueue');
 const SubscriptionHistory = require('../models/Abonnements/SubscriptionHistory');
 const SubscriptionRequest = require('../models/Abonnements/SubscriptionRequest');
 const nodemailer = require('nodemailer');
+const { suspendSellerProducts, restoreSellerProductsIfEligible } = require('./sellerProductSync');
 
 // Configuration du transporteur email
 const transporter = nodemailer.createTransport({
@@ -153,9 +154,12 @@ class SubscriptionCronJobs {
       // Mettre à jour le statut du vendeur
       await SellerRequest.findByIdAndUpdate(queue.storeId, {
         subscriptionStatus: 'suspended',
+        isvalid: false,
         suspendedAt: new Date(),
         suspensionReason: 'Abonnement expiré'
       });
+
+      await suspendSellerProducts(queue.storeId, 'subscription_suspended');
 
       // Mettre à jour la queue
       queue.accountStatus = 'suspended';
@@ -218,20 +222,53 @@ class SubscriptionCronJobs {
    * Activer un abonnement spécifique
    */
   static async activateSubscription(request) {
-    const { createFutureSubscriptionRequest } = require('../controllers/subscriptionController');
-    
-    // Utiliser la fonction existante
-    await createFutureSubscriptionRequest(
-      request.storeId._id,
-      request.requestedPlan.planType,
-      request.requestedPlan.billingCycle || 'monthly'
+    const now = new Date();
+
+    if (!request.linkedSubscriptionId) {
+      console.warn(`⚠️ Demande ${request._id} sans linkedSubscriptionId, activation ignorée`);
+      return;
+    }
+
+    // Activer le plan déjà créé lors de la demande (évite la création en boucle)
+    await PricingPlan.findByIdAndUpdate(request.linkedSubscriptionId, {
+      status: 'active',
+      startDate: now,
+      activatedAt: now,
+      subscriptionType: request.requestedPlan.billingCycle === 'annual' ? 'paid_annual' : 'paid_monthly',
+      billingCycle: request.requestedPlan.billingCycle || 'monthly'
+    });
+
+    // Mettre à jour la queue
+    await SubscriptionQueue.findOneAndUpdate(
+      {
+        storeId: request.storeId._id,
+        'queuedSubscriptions.subscriptionId': request.linkedSubscriptionId
+      },
+      {
+        $set: {
+          'queuedSubscriptions.$.status': 'activated',
+          activeSubscriptionId: request.linkedSubscriptionId,
+          accountStatus: 'active',
+          lastUpdated: now
+        }
+      }
     );
 
     // Marquer la demande comme activée
     await SubscriptionRequest.findByIdAndUpdate(request._id, {
       status: 'activated',
-      processedAt: new Date()
+      processedAt: now
     });
+
+    await SellerRequest.findByIdAndUpdate(request.storeId._id, {
+      subscriptionStatus: 'active',
+      isvalid: true,
+      suspensionReason: null,
+      suspensionDate: null,
+      reactivatedAt: now
+    });
+
+    await restoreSellerProductsIfEligible(request.storeId._id);
 
     console.log(`✅ Abonnement ${request.requestedPlan.planType} activé pour ${request.storeId.storeName}`);
   }

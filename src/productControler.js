@@ -587,6 +587,11 @@ const getLikesByUser = handleAsyncError(async (req, res) => {
   const likes = await likeService.getLikesByUser(userId);
   res.json({ message: "Likes de l'utilisateur", data: likes });
 });
+const getLikesByUserClient = handleAsyncError(async (req, res) => {
+  const { userId } = req.params;
+  const likes = await likeService.getLikesByUserClient(userId);
+  res.json({ message: "Likes de l'utilisateur", data: likes });
+});
 
 const deleteLikeByUser = handleAsyncError(async (req, res) => {
   const { userId, produitId } = req.params;
@@ -1276,6 +1281,7 @@ module.exports = {
   // Like operations
   createLike,
   getLikesByUser,
+  getLikesByUserClient,
   deleteLikeByUser,
   verifyLikByUser,
   

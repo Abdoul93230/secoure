@@ -5,6 +5,7 @@ const SubscriptionQueue = require("../models/Abonnements/SubscriptionQueue");
 const nodemailer = require('nodemailer');
 const cron = require('node-cron');
 const crypto = require('crypto');
+const { suspendSellerProducts, restoreSellerProductsIfEligible } = require('../utils/sellerProductSync');
 
 // Configuration des numéros de paiement pour le Niger
 const PAYMENT_CONFIG = {
@@ -127,6 +128,48 @@ const generateReactivationCode = () => {
 };
 
 /**
+ * Nettoyer le PricingPlan lié à une demande non finalisée
+ */
+const cleanupLinkedQueuedSubscription = async (request) => {
+  try {
+    if (!request?.linkedSubscriptionId) return;
+
+    const linkedPlan = await PricingPlan.findById(request.linkedSubscriptionId).lean();
+    if (linkedPlan && ['queued', 'pending_activation'].includes(linkedPlan.status)) {
+      await SubscriptionRequest.findByIdAndUpdate(request._id, {
+        archivedPlan: {
+          planId: linkedPlan._id,
+          planType: linkedPlan.planType,
+          status: linkedPlan.status,
+          startDate: linkedPlan.startDate,
+          endDate: linkedPlan.endDate,
+          billingCycle: linkedPlan.billingCycle,
+          subscriptionType: linkedPlan.subscriptionType,
+          queuePosition: linkedPlan.queuePosition,
+          invoiceNumber: linkedPlan.invoiceNumber,
+          price: linkedPlan.price,
+          commission: linkedPlan.commission,
+          archivedAt: new Date(),
+          archivedReason: 'linked_pricing_plan_cleanup'
+        }
+      });
+
+      await PricingPlan.findByIdAndDelete(request.linkedSubscriptionId);
+    }
+
+    await SubscriptionQueue.findOneAndUpdate(
+      { storeId: request.storeId },
+      {
+        $pull: { queuedSubscriptions: { subscriptionId: request.linkedSubscriptionId } },
+        lastUpdated: new Date()
+      }
+    );
+  } catch (error) {
+    console.error('Erreur nettoyage abonnement lié:', error);
+  }
+};
+
+/**
  * Créer un abonnement avec historique complet
  */
 const createSubscriptionWithHistory = async (sellerId, planType = 'Starter', performedBy = 'system', adminId = null, notes = '') => {
@@ -191,8 +234,12 @@ const createSubscriptionWithHistory = async (sellerId, planType = 'Starter', per
     await SellerRequest.findByIdAndUpdate(sellerId, {
       subscriptionId: subscription._id,
       subscriptionStatus: 'active',
-      isvalid: true
+      isvalid: true,
+      suspensionReason: null,
+      suspensionDate: null
     });
+
+    await restoreSellerProductsIfEligible(sellerId);
 
     return { subscription, history: historyEntry };
 
@@ -328,8 +375,12 @@ const activateWithCode = async (storeId, reactivationCode) => {
       subscriptionId: subscription._id,
       subscriptionStatus: 'active',
       isvalid: true,
+      suspensionReason: null,
+      suspensionDate: null,
       reactivatedAt: new Date()
     });
+
+    await restoreSellerProductsIfEligible(storeId);
 
     // 5. Mettre à jour SubscriptionQueue
     await SubscriptionQueue.findOneAndUpdate(
@@ -470,6 +521,8 @@ const cancelSubscriptionRequest = async (requestId, storeId) => {
       throw new Error('Cette demande ne peut pas être annulée');
     }
 
+    await cleanupLinkedQueuedSubscription(request);
+
     // Si il y a un fichier reçu, le supprimer de Cloudinary
     if (request.paymentDetails?.receiptFile) {
       try {
@@ -519,6 +572,7 @@ const submitPaymentProof = async (requestId, transferCode, receiptFile = null, s
 
     // Vérifier la date limite
     if (new Date() > request.paymentDetails.paymentDeadline) {
+      await cleanupLinkedQueuedSubscription(request);
       await SubscriptionRequest.findByIdAndUpdate(requestId, { status: 'cancelled' });
       throw new Error('La date limite de paiement est dépassée');
     }
@@ -574,6 +628,20 @@ const verifyPayment = async (requestId, adminId, isApproved, verificationNotes =
       throw new Error('Demande non trouvée');
     }
 
+    // Sécurité métier: ne jamais valider/rejeter une demande après sa date limite
+    const now = new Date();
+    if (request?.paymentDetails?.paymentDeadline && now > new Date(request.paymentDetails.paymentDeadline)) {
+      await cleanupLinkedQueuedSubscription(request);
+      await SubscriptionRequest.findByIdAndUpdate(requestId, {
+        status: 'cancelled',
+        cancelledAt: now,
+        processedAt: now,
+        'adminVerification.verificationNotes':
+          verificationNotes || 'Demande expirée automatiquement avant traitement admin'
+      });
+      throw new Error('Demande expirée: validation impossible');
+    }
+
     if (request.status !== 'payment_submitted') {
       throw new Error('Cette demande n\'est pas en attente de vérification');
     }
@@ -615,6 +683,7 @@ const verifyPayment = async (requestId, adminId, isApproved, verificationNotes =
 
     } else {
       // Paiement rejeté
+      await cleanupLinkedQueuedSubscription(request);
       await SubscriptionRequest.findByIdAndUpdate(requestId, {
         status: 'rejected',
         processedAt: new Date(),
@@ -664,6 +733,8 @@ const blockExpiredAccounts = async () => {
         suspensionReason: 'Abonnement expiré depuis plus de 48 heures',
         suspensionDate: now
       });
+
+      await suspendSellerProducts(subscription.storeId, 'subscription_expired');
 
       // Ajouter à l'historique
       const historyEntry = new SubscriptionHistory({
@@ -752,11 +823,13 @@ const getPendingRequests = async () => {
  * Configuration des tâches automatisées
  */
 const setupEnhancedCronJobs = () => {
-  // Bloquer les comptes expirés tous les jours à 02:00
-  cron.schedule('0 2 * * *', () => {
+  const timezone = 'Africa/Niamey';
+
+  // Bloquer les comptes expirés toutes les heures
+  cron.schedule('0 * * * *', () => {
     console.log('Blocage automatique des comptes expirés...');
     blockExpiredAccounts();
-  });
+  }, { timezone });
 
   // Nettoyer les codes de réactivation expirés tous les jours à 03:00
   cron.schedule('0 3 * * *', async () => {
@@ -770,24 +843,37 @@ const setupEnhancedCronJobs = () => {
     } catch (error) {
       console.error('Erreur nettoyage codes:', error);
     }
-  });
+  }, { timezone });
 
-  // Nettoyer les demandes expirées tous les jours à 04:00
-  cron.schedule('0 4 * * *', async () => {
+  // Nettoyer les demandes expirées toutes les 30 minutes
+  cron.schedule('*/30 * * * *', async () => {
     console.log('Nettoyage des demandes expirées...');
     try {
       const now = new Date();
+
+      const expiredRequests = await SubscriptionRequest.find({
+        'paymentDetails.paymentDeadline': { $lt: now },
+        status: 'pending_payment'
+      });
+
+      for (const request of expiredRequests) {
+        await cleanupLinkedQueuedSubscription(request);
+      }
+
       await SubscriptionRequest.updateMany(
-        { 
-          'paymentDetails.paymentDeadline': { $lt: now }, 
-          status: 'pending_payment'
+        {
+          _id: { $in: expiredRequests.map((req) => req._id) }
         },
-        { status: 'cancelled' }
+        {
+          status: 'cancelled',
+          cancelledAt: now,
+          processedAt: now
+        }
       );
     } catch (error) {
       console.error('Erreur nettoyage demandes:', error);
     }
-  });
+  }, { timezone });
 
   console.log('Tâches automatisées améliorées configurées');
 };
@@ -804,6 +890,7 @@ module.exports = {
   getSellerSubscriptionHistory,
   getPendingRequests,
   setupEnhancedCronJobs,
+  cleanupLinkedQueuedSubscription,
   generateReactivationCode,
   PLAN_DEFAULTS,
   PAYMENT_CONFIG

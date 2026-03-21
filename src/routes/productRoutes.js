@@ -53,6 +53,7 @@ router.get('/getCouleurClusters', productControler.getCouleurClusters);
 // Likes
 router.post('/likes', productControler.createLike);
 router.get('/likes/user/:userId', productControler.getLikesByUser);
+router.get('/likesClient/user/:userId', productControler.getLikesByUserClient);
 router.delete('/likes/:userId/:produitId', productControler.deleteLikeByUser);
 router.get('/likes/check/:userId/:produitId', productControler.verifyLikByUser);
 

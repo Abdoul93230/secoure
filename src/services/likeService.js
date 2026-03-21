@@ -30,6 +30,9 @@ class LikeService {
   async getLikesByUser(userId) {
     return await Like.find({ user: userId }).populate('produit');
   }
+  async getLikesByUserClient(userId) {
+    return await Like.find({ user: userId }).populate('produit');
+  }
 
   async getLikesByProduct(produitId) {
     return await Like.find({ produit: produitId }).populate('user');

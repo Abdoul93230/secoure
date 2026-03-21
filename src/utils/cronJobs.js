@@ -2,6 +2,7 @@ const cron = require('node-cron');
 const FinancialService = require('../services/FinancialService');
 const { confirmerTransactionsLivrees } = require('../controllers/financeController');
 const SubscriptionCronJobs = require('./subscriptionCronJobs');
+const { setupEnhancedCronJobs } = require('../controllers/enhancedSubscriptionController');
 
 class CronJobs {
   static init() {
@@ -54,6 +55,9 @@ class CronJobs {
 
     // Initialiser les cron jobs d'abonnement
     SubscriptionCronJobs.init();
+
+    // Initialiser les cron jobs d'abonnement améliorés
+    setupEnhancedCronJobs();
 
     console.log('✅ Tâches programmées initialisées avec succès');
   }

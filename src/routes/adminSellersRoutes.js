@@ -8,6 +8,7 @@ const {
   PLAN_DEFAULTS
 } = require('../controllers/subscriptionController');
 const { PricingPlan, SellerRequest } = require('../Models');
+const { suspendSellerProducts, restoreSellerProductsIfEligible } = require('../utils/sellerProductSync');
 const { features } = require('process');
 
 // Middleware d'authentification admin (à adapter selon votre système)
@@ -172,10 +173,13 @@ router.post('/suspend-seller/:sellerId', requireAdmin, async (req, res) => {
     // Suspendre le compte
     await SellerRequest.findByIdAndUpdate(sellerId, {
       isvalid: false,
+      subscriptionStatus: 'suspended',
       suspensionReason: reason,
       suspensionDate: new Date(),
       suspendedBy: req.user?.id
     });
+
+    await suspendSellerProducts(sellerId, 'admin_suspension');
 
     // Envoyer notification si demandé
     if (sendNotification) {
@@ -225,15 +229,24 @@ router.post('/reactivate-seller/:sellerId', requireAdmin, async (req, res) => {
       });
     }
 
+    const activePlan = await PricingPlan.findOne({
+      storeId: sellerId,
+      status: { $in: ['active', 'trial'] },
+      endDate: { $gte: new Date() }
+    }).sort({ createdAt: -1 });
+
     // Réactiver le compte
     await SellerRequest.findByIdAndUpdate(sellerId, {
       isvalid: true,
+      subscriptionStatus: activePlan?.status || 'active',
       suspensionReason: null,
       suspensionDate: null,
       reactivatedAt: new Date(),
       reactivatedBy: req.user?.id,
       reactivationNotes
     });
+
+    await restoreSellerProductsIfEligible(sellerId);
 
     res.json({
       status: 'success',
@@ -399,8 +412,17 @@ router.put('/subscriptions/:id/status', requireAdmin, async (req, res) => {
 
     // Mettre à jour le statut du vendeur correspondant
     await SellerRequest.findByIdAndUpdate(subscription.storeId, {
-      subscriptionStatus: status
+      subscriptionStatus: status,
+      isvalid: status === 'active',
+      suspensionReason: status === 'active' ? null : 'Suspension definie par administration',
+      suspensionDate: status === 'active' ? null : new Date()
     });
+
+    if (status === 'active') {
+      await restoreSellerProductsIfEligible(subscription.storeId);
+    } else {
+      await suspendSellerProducts(subscription.storeId, `admin_subscription_${status}`);
+    }
 
     res.json({
       status: 'success',

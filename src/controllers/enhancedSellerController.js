@@ -534,6 +534,7 @@ const loginWithSubscriptionCheck = async (req, res) => {
 
         // Obtenir le statut complet avec la nouvelle logique
     const completeStatus = await getSellerCompleteStatus(user._id);
+      user = completeStatus?.seller || user;
     // console.log({completeStatus});
     
 

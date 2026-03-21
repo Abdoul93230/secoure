@@ -462,6 +462,7 @@ const SubscriptionRequest = require("../models/Abonnements/SubscriptionRequest")
 const nodemailer = require('nodemailer');
 const cron = require('node-cron');
 const crypto = require('crypto');
+const { restoreSellerProductsIfEligible, suspendSellerProducts } = require('../utils/sellerProductSync');
 
 // Configuration des plans (votre configuration existante)
 const PLAN_DEFAULTS = {
@@ -964,8 +965,12 @@ const checkAndActivateNextSubscription = async (sellerId) => {
             subscriptionId: nextSubscription._id,
             subscriptionStatus: 'active',
             isvalid: true,
+            suspensionReason: null,
+            suspensionDate: null,
             reactivatedAt: now
           });
+
+          await restoreSellerProductsIfEligible(sellerId);
 
           // Ajouter à l'historique
           const historyEntry = new SubscriptionHistory({
@@ -1084,6 +1089,8 @@ const suspendExpiredAccounts = async () => {
           suspensionDate: now
         });
 
+        await suspendSellerProducts(queue.storeId, 'subscription_suspended');
+
         // Ajouter à l'historique
         const historyEntry = new SubscriptionHistory({
           storeId: queue.storeId,
@@ -1148,6 +1155,8 @@ const suspendExpiredAccounts = async () => {
         suspensionReason: reason,
         suspensionDate: now
       });
+
+      await suspendSellerProducts(seller._id, 'seller_without_queue_suspended');
 
       // Ajouter à l'historique SEULEMENT si subscriptionId existe
       if (seller.subscriptionId) {
@@ -1249,6 +1258,10 @@ const startGracePeriod = async () => {
  */
 const getSellerCompleteStatus = async (sellerId) => {
   try {
+    // Filet de sécurité: activer immédiatement l'abonnement suivant si déjà éligible
+    // (utile quand le cron n'est pas encore passé au moment d'une connexion/action).
+    await checkAndActivateNextSubscription(sellerId);
+
     const [seller, queue, activeSubscription, history,productCount] = await Promise.all([
       SellerRequest.findById(sellerId),
       SubscriptionQueue.findOne({ storeId: sellerId }),
@@ -1267,11 +1280,47 @@ const getSellerCompleteStatus = async (sellerId) => {
     }
 
     const now = new Date();
+    let normalizedAccountStatus = queue.accountStatus;
+
+    if (seller?.subscriptionStatus === 'suspended' || (!seller?.isvalid && seller?.suspensionReason)) {
+      normalizedAccountStatus = 'suspended';
+    } else if (activeSubscription?.status === 'trial') {
+      normalizedAccountStatus = 'trial';
+    } else if (activeSubscription?.status === 'active') {
+      normalizedAccountStatus = 'active';
+    } else if (['trial', 'active'].includes(queue.accountStatus) && !activeSubscription) {
+      normalizedAccountStatus = queue.queuedSubscriptions?.length ? 'grace_period' : 'suspended';
+    }
+
+    if (normalizedAccountStatus !== queue.accountStatus) {
+      await SubscriptionQueue.findByIdAndUpdate(queue._id, {
+        accountStatus: normalizedAccountStatus,
+        lastUpdated: now
+      });
+      queue.accountStatus = normalizedAccountStatus;
+    }
+
     let statusInfo = {};
     
-    switch (queue.accountStatus) {
+    switch (normalizedAccountStatus) {
       case 'trial':
-        const daysLeftInTrial = Math.ceil((activeSubscription?.endDate - now) / (1000 * 60 * 60 * 24));
+        if (!activeSubscription) {
+          statusInfo = {
+            status: 'suspended',
+            title: 'Compte Suspendu',
+            message: 'Aucun abonnement d\'essai actif trouvé',
+            color: 'red',
+            canCreateRequest: true,
+            actions: ['reactivate_account'],
+            blocked: true
+          };
+          break;
+        }
+
+        const daysLeftInTrial = Math.max(
+          0,
+          Math.ceil((new Date(activeSubscription.endDate) - now) / (1000 * 60 * 60 * 24))
+        );
         statusInfo = {
           status: 'trial',
           title: 'Période d\'Essai Active',
@@ -1287,7 +1336,23 @@ const getSellerCompleteStatus = async (sellerId) => {
         break;
 
       case 'active':
-        const daysLeftInPlan = Math.ceil((activeSubscription?.endDate - now) / (1000 * 60 * 60 * 24));
+        if (!activeSubscription) {
+          statusInfo = {
+            status: 'suspended',
+            title: 'Compte Suspendu',
+            message: 'Aucun abonnement actif valide trouvé',
+            color: 'red',
+            canCreateRequest: true,
+            actions: ['reactivate_account'],
+            blocked: true
+          };
+          break;
+        }
+
+        const daysLeftInPlan = Math.max(
+          0,
+          Math.ceil((new Date(activeSubscription.endDate) - now) / (1000 * 60 * 60 * 24))
+        );
         statusInfo = {
           status: 'active',
           title: 'Abonnement Actif',
@@ -1315,7 +1380,19 @@ const getSellerCompleteStatus = async (sellerId) => {
         statusInfo = {
           status: 'suspended',
           title: 'Compte Suspendu',
-          message: 'Abonnement expiré - Renouvelez pour réactiver',
+          message: seller?.suspensionReason || 'Abonnement expiré - Renouvelez pour réactiver',
+          color: 'red',
+          canCreateRequest: true,
+          actions: ['reactivate_account'],
+          blocked: true
+        };
+        break;
+
+      default:
+        statusInfo = {
+          status: 'suspended',
+          title: 'Compte Suspendu',
+          message: seller?.suspensionReason || 'Statut abonnement incohérent détecté',
           color: 'red',
           canCreateRequest: true,
           actions: ['reactivate_account'],
@@ -1333,55 +1410,25 @@ const getSellerCompleteStatus = async (sellerId) => {
             PricingPlan.findById(q.subscriptionId),
             SubscriptionRequest.findOne({
               storeId: sellerId,
+              linkedSubscriptionId: q.subscriptionId,
               status: { $in: ['pending_payment', 'payment_submitted', 'rejected', 'payment_verified', 'cancelled'] }
-            }).sort({ createdAt: -1 }) // Plus récent en premier
+            }).sort({ createdAt: -1 })
           ]);
-
-          console.log('🔍 DEBUG - Recherche SubscriptionRequest:', {
-            sellerId,
-            queueSubscriptionId: q.subscriptionId,
-            statusFilter: ['pending_payment', 'payment_submitted', 'rejected'],
-            foundRequest: !!paymentRequest,
-            requestId: paymentRequest?._id,
-            requestStatus: paymentRequest?.status
-          });
-
-          // Debug : voir toutes les SubscriptionRequest du vendeur
-          if (!paymentRequest) {
-            const allRequests = await SubscriptionRequest.find({ storeId: sellerId }).lean();
-            console.log('🔍 DEBUG - Toutes les SubscriptionRequest du vendeur:', {
-              count: allRequests.length,
-              requests: allRequests.map(req => ({
-                id: req._id,
-                status: req.status,
-                planType: req.requestedPlan?.planType,
-                amount: req.paymentDetails?.amount,
-                createdAt: req.createdAt
-              }))
-            });
-          }
 
           const result = {
             planType: sub?.planType,
             estimatedStartDate: q.estimatedStartDate,
-            status: paymentRequest?.status || q.status, // Utiliser le statut réel de la demande si trouvée
+            status: paymentRequest?.status || q.status,
             queuePosition: q.queuePosition,
             subscriptionId: q.subscriptionId,
             createdAt: paymentRequest?.createdAt,
             updatedAt: paymentRequest?.updatedAt,
-            requestDate: paymentRequest?.requestDate
+            requestDate: paymentRequest?.requestDate,
+            cancelledAt: paymentRequest?.cancelledAt || null,
+            archivedPlan: paymentRequest?.archivedPlan || null
           };
 
-          // Ajouter les détails de paiement s'ils existent
           if (paymentRequest) {
-            console.log('✅ DEBUG - SubscriptionRequest trouvé:', {
-              id: paymentRequest._id,
-              status: paymentRequest.status,
-              planType: paymentRequest.requestedPlan?.planType,
-              amount: paymentRequest.paymentDetails?.amount,
-              method: paymentRequest.paymentDetails?.method
-            });
-
             result.paymentRequestId = paymentRequest._id;
             result.paymentDetails = {
               method: paymentRequest.paymentDetails?.method,
@@ -1391,22 +1438,11 @@ const getSellerCompleteStatus = async (sellerId) => {
               transferCode: paymentRequest.paymentDetails?.transferCode,
               senderPhone: paymentRequest.paymentDetails?.senderPhone,
               receiptUrl: paymentRequest.paymentDetails?.receiptFile,
-              // Informations de rejet depuis adminVerification
               rejectionReason: paymentRequest.adminVerification?.rejectionReason || null,
-              verificationStatus: paymentRequest.status, // Le statut global
+              verificationStatus: paymentRequest.status,
               verifiedAt: paymentRequest.adminVerification?.verifiedAt || null
             };
-
-            console.log('📋 DEBUG - PaymentDetails construits:', result.paymentDetails);
-          } else {
-            console.log('❌ DEBUG - Aucun SubscriptionRequest trouvé');
           }
-
-          console.log('🎯 DEBUG - Résultat final:', {
-            status: result.status,
-            queueStatus: q.status,
-            paymentRequestStatus: paymentRequest?.status
-          });
 
           return result;
         })

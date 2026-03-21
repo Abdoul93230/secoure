@@ -3,6 +3,7 @@ const { PricingPlan } = require("./Models");
 const jwt = require("jsonwebtoken");
 const privateKeSeller = require("./auth/clefSeller");
 const bcrypt = require("bcrypt");
+const { suspendSellerProducts, restoreSellerProductsIfEligible } = require('./utils/sellerProductSync');
 const fs = require("fs");
 const { default: mongoose } = require("mongoose");
 
@@ -755,6 +756,21 @@ const updateSeller = async (req, res) => {
 
     // Gestion des fichiers
     if (req.files) {
+      // La piece d'identite n'est modifiable que si le compte n'est pas valide
+      // (en attente de validation ou suspendu pour non-conformite).
+      if (req.files.ownerIdentity && existingSeller.isvalid) {
+        if (req.files.ownerIdentity[0]?.path) {
+          fs.unlinkSync(req.files.ownerIdentity[0].path);
+        }
+
+        return res.status(403).json({
+          status: "error",
+          code: "DOCUMENT_UPDATE_NOT_ALLOWED",
+          message:
+            "La piece d'identite ne peut etre modifiee que lorsque le compte est en attente ou suspendu.",
+        });
+      }
+
       // Validation du type de fichier pour ownerIdentity
       if (req.files.ownerIdentity) {
         const allowedMimeTypes = ["image/jpeg", "image/png", "application/pdf"];
@@ -788,17 +804,16 @@ const updateSeller = async (req, res) => {
         try {
           const ownerIdentityResult = await cloudinary.uploader.upload(
             req.files.ownerIdentity[0].path,
-            { folder: "seller-documents" }
+            { folder: "seller-documents", resource_type: "auto" }
           );
           updateData.ownerIdentity = ownerIdentityResult.secure_url;
+          updateData.profileNeedsReview = true;
+          updateData.profileNeedsReviewAt = new Date();
+          updateData.profileNeedsReviewReason = "owner_identity_updated";
 
           // Supprimer l'ancien fichier de Cloudinary si besoin
           if (existingSeller.ownerIdentity) {
-            const publicId = existingSeller.ownerIdentity
-              .split("/")
-              .pop()
-              .split(".")[0];
-            await cloudinary.uploader.destroy(`seller-documents/${publicId}`);
+            await deleteCloudinaryImage(existingSeller.ownerIdentity, "seller-documents");
           }
         } catch (uploadError) {
           return res.status(500).json({
@@ -1009,18 +1024,25 @@ async function validerDemandeVendeur(req, res) {
       }
       
       demande.isvalid = false;
+      demande.subscriptionStatus = 'suspended';
       demande.suspensionReason = suspensionMessage;
       demande.suspensionDate = new Date();
       message = "Compte de vendeur suspendu avec succès.";
+      await demande.save();
+      await suspendSellerProducts(demande._id, 'admin_suspension');
     } else {
-      // Validation du compte
+      // Validation / réactivation du compte
       demande.isvalid = true;
-      demande.suspensionReason = null; // Effacer la raison de suspension
-      demande.suspensionDate = null;   // Effacer la date de suspension
+      demande.suspensionReason = null;
+      demande.suspensionDate = null;
+      demande.profileNeedsReview = false;
+      demande.profileNeedsReviewAt = null;
+      demande.profileNeedsReviewReason = null;
       message = "Demande de vendeur validée avec succès. Compte créé";
+      await demande.save();
+      await restoreSellerProductsIfEligible(demande._id);
     }
 
-    await demande.save();
     return res.status(200).json({ message: message });
   } catch (error) {
     return res.status(500).json({
@@ -1148,27 +1170,55 @@ const getSellerByName = (req, res) => {
       return res.status(500).json({ message: message, error: error });
     });
 };
-const getSellerByNameClients = (req, res) => {
-  const name = req.params.name;
-  SellerRequest.findOne({ storeName: name, isvalid: true })
-    .then((response) => {
-      // console.log({response});
-      
-      const message = `vous avez demander le Sellers :${response.name}`;
-      if (!response) {
-        return res.status(400).json(`le Seller demander n'existe pas!`);
-      } else {
-        return res.json({ message: message, data: response });
-      }
-    })
-    .catch((error) => {
-      console.log({error});
-      
-      const message =
-        "une erreur s'est produit lors de la recuperation du Seller veuillez ressayer !";
-      return res.status(500).json({ message: message, error: error });
+const getSellerByNameClients = async (req, res) => {
+  try {
+    const name = req.params.name;
+    console.log("Fetching seller by name for clients:", name);
+
+    const seller = await SellerRequest.findOne({ storeName: name });
+
+    // 1️⃣ Boutique inexistante
+    if (!seller) {
+      return res.status(404).json({
+        status: "NOT_FOUND",
+        message: "Cette boutique n'existe pas."
+      });
+    }
+
+    // 2️⃣ Boutique suspendue
+    if (seller.subscriptionStatus === "suspended") {
+      return res.status(403).json({
+        status: "SUSPENDED",
+        message: "Cette boutique est suspendue.",
+        reason: seller.suspensionReason,
+        suspensionDate: seller.suspensionDate
+      });
+    }
+
+    // 3️⃣ Boutique non validée
+    if (!seller.isvalid) {
+      return res.status(403).json({
+        status: "NOT_VALIDATED",
+        message: "Cette boutique n’est pas encore validée."
+      });
+    }
+
+    // 4️⃣ Boutique active ✅
+    return res.status(200).json({
+      status: "ACTIVE",
+      message: `Vous avez demandé la boutique ${seller.storeName}`,
+      data: seller
     });
+
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({
+      message: "Erreur lors de la récupération de la boutique",
+      error
+    });
+  }
 };
+
 
 const getSellers = (req, res) => {
   // const Id = req.params.Id;
@@ -1190,13 +1240,26 @@ const getSellers = (req, res) => {
 };
 
 const verifyToken = async (req, res) => {
-  const data = req.headers;
   const id = req.params.id;
-  const message = "reusit!";
-  user = await SellerRequest.findById(id);
+  const user = await SellerRequest.findById(id);
 
-  res.json({ data, message, isvalid: user.isvalid });
-  // console.log(data.authorization);
+  if (!user) {
+    return res.status(404).json({ message: 'Vendeur non trouvé' });
+  }
+
+  // Si le compte est suspendu, forcer la déconnexion côté client
+  if (!user.isvalid && user.subscriptionStatus === 'suspended') {
+    return res.status(403).json({
+      message: user.suspensionReason
+        ? `Compte suspendu: ${user.suspensionReason}`
+        : 'Votre compte a été suspendu. Contactez le support.',
+      code: 'ACCOUNT_SUSPENDED',
+      accountStatus: 'suspended',
+      suspensionReason: user.suspensionReason || null
+    });
+  }
+
+  return res.json({ message: 'reusit!', isvalid: user.isvalid, subscriptionStatus: user.subscriptionStatus });
 };
 
 /**

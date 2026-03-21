@@ -6,13 +6,13 @@ const multer = require('multer');
 const {
   createFutureSubscriptionRequest,
   validatePaymentAndPrepareActivation,
+  checkAndActivateNextSubscription,
   getSellerCompleteStatus,
   getAdvancedSubscriptionStats,
   PLAN_DEFAULTS
 } = require('../controllers/subscriptionController');
 const { SellerRequest,PricingPlan } = require('../Models');
-const SubscriptionQueue = require('../models/Abonnements/SubscriptionQueue');
-const { activateWithCode, submitPaymentProof, cancelSubscriptionRequest } = require('../controllers/enhancedSubscriptionController');
+const { activateWithCode, submitPaymentProof, cancelSubscriptionRequest, cleanupLinkedQueuedSubscription } = require('../controllers/enhancedSubscriptionController');
 const SubscriptionRequest = require('../models/Abonnements/SubscriptionRequest');
 
 const cloudinary = require('../cloudinary');
@@ -73,7 +73,26 @@ const requireSeller = async (req, res, next) => {
       return res.status(401).json({ message: 'Vendeur non trouvé' });
     }
 
+    // Bloquer seulement les suspensions administratives sur les routes abonnement.
+    // Les suspensions liées à l'abonnement doivent pouvoir accéder à cette page pour se réactiver.
+    const suspensionReason = seller.suspensionReason || '';
+    const isSubscriptionSuspension = /(abonnement|subscription|grace|expire|expiration|paiement|reactivation)/i.test(suspensionReason);
+    if (!seller.isvalid && seller.subscriptionStatus === 'suspended' && !isSubscriptionSuspension) {
+      return res.status(403).json({
+        message: seller.suspensionReason
+          ? `Compte suspendu: ${seller.suspensionReason}`
+          : 'Votre compte a été suspendu. Contactez le support.',
+        code: 'ACCOUNT_SUSPENDED',
+        accountStatus: 'suspended',
+        suspensionReason: seller.suspensionReason || null
+      });
+    }
+
     req.seller = seller;
+
+    // Filet de sécurité: activer le prochain abonnement éligible sans attendre le cron.
+    await checkAndActivateNextSubscription(seller._id);
+
     next();
   } catch (error) {
     return res.status(401).json({ message: 'Token invalide' });
@@ -542,6 +561,28 @@ router.put('/submit-payment/:requestId', requireSeller, upload.single('receipt')
       return res.status(400).json({
         status: 'error',
         message: `Impossible de soumettre une preuve pour une demande au statut: ${request.status}`
+      });
+    }
+
+    // Refuser et annuler immédiatement les demandes expirées
+    const now = new Date();
+    if (request?.paymentDetails?.paymentDeadline && now > new Date(request.paymentDetails.paymentDeadline)) {
+      await cleanupLinkedQueuedSubscription(request);
+
+      await SubscriptionRequest.findByIdAndUpdate(requestId, {
+        status: 'cancelled',
+        cancelledAt: now,
+        updatedAt: now
+      });
+
+      return res.status(400).json({
+        status: 'error',
+        code: 'REQUEST_EXPIRED_CANCELLED',
+        message: 'La date limite de paiement est dépassée. Cette demande a été annulée.',
+        data: {
+          requestId,
+          requestStatus: 'cancelled'
+        }
       });
     }
 

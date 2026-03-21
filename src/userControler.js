@@ -404,7 +404,14 @@ const getCommandeByReference = async (req, res) => {
   const reference = req.params.reference;
 
   try {
-     const commande = await Commande.findOne({ "paymentDetails.reference": reference });
+    const commande = await Commande.findOne({
+      $or: [
+        { reference },
+        { "paymentDetails.reference": reference },
+        { "paymentDetails.externalReference": reference },
+        { "paymentDetails.publicReference": reference },
+      ],
+    });
 
     if (!commande) {
       return res.status(404).json({ message: "Aucune commande trouvée pour cette référence." });
@@ -1610,6 +1617,7 @@ const payment_callback = async (req, res) => {
             msisdn,
             reference, // Référence iPay
             publicReference, // Référence publique iPay
+            externalReference, // Référence commande interne
             paymentDate,
             amount,
           },
@@ -1633,6 +1641,7 @@ const payment_callback = async (req, res) => {
             msisdn,
             reference,
             publicReference,
+            externalReference,
             paymentDate,
             amount,
             failureDetails: req.body,

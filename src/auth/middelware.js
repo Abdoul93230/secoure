@@ -1,5 +1,6 @@
 const jwt = require("jsonwebtoken");
 const { CloudinaryStorage } = require("multer-storage-cloudinary");
+const path = require("path");
 const privateKey = require("./clef");
 const privateKeSeller = require("./clefSeller");
 const ADMIN_PRIVATe_KEY = require("./clefAdmin");
@@ -31,14 +32,14 @@ const uploadsecond = multer({
   storage: multer.diskStorage({
     filename: (req, file, cb) => {
       const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-      cb(null, `${file.fieldname}-${uniqueSuffix}`);
+      cb(null, `${file.fieldname}-${uniqueSuffix}${path.extname(file.originalname)}`);
     },
   }),
   fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith("image/")) {
+    if (file.mimetype.startsWith("image/") || file.mimetype === "application/pdf") {
       cb(null, true);
     } else {
-      cb(new Error("Type de fichier non supporté"), false);
+      cb(new Error("Type de fichier non supporté. Utilisez une image ou un PDF"), false);
     }
   },
   // limits: {
