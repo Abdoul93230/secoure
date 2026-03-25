@@ -32,6 +32,7 @@ const publicShippingRoutes = require('./src/routes/publicShipping');
 const adminSellersRoutes = require('./src/routes/adminSellersRoutes');
 const enhancedAdminRoutes = require('./src/routes/enhancedAdminRoutes');
 const sellerSubscriptionRoutes = require('./src/routes/sellerSubscriptionRoutes');
+const promoCodeRoutes = require('./src/routes/promoCodeRoutes');
 
 // Import middleware
 const { errorHandler } = require('./src/middleware/errorHandler');
@@ -164,6 +165,7 @@ app.use('/api/shipping2', publicShippingRoutes);
 app.use('/api/adminSeller', authMiddleware.requireAdmin, adminSellersRoutes);
 app.use('/api/adminSeller', authMiddleware.requireAdmin, enhancedAdminRoutes);
 app.use('/api/seller/subscription', authMiddleware.requireSeller, sellerSubscriptionRoutes);
+app.use('/api/promocodes', promoCodeRoutes);
 
 
 // Start server

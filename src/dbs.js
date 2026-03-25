@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const cron = require("cron");
 const models = require("./Models");
+const PromoCodeV2 = require('./models/PromoCode');
 const FinancialService = require('./services/FinancialService');
 const { confirmerTransactionsLivrees, tacheDeblocage, tacheNettoyage } = require("./controllers/financeController");
 const financialLogger = require('./utils/financialLogger');
@@ -29,8 +30,10 @@ mongoose
     // Tâche principale: mise à jour des codes promo et gestion financière
     const job = new cron.CronJob("*/30 * * * *", async () => {
       try {
-        // Mise à jour des codes promo
+        // Mise à jour des codes promo (legacy)
         await models.PromoCode.updateIsValideAsync();
+        // Désactivation des codes promo V2 expirés
+        await PromoCodeV2.deactivateExpiredCodes();
         
         // Confirmation automatique des transactions
         const result = await confirmerTransactionsLivrees();

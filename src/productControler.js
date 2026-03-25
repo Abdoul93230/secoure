@@ -1143,6 +1143,13 @@ const updateEtatTraitementCommande = handleAsyncError(async (req, res) => {
   // Gérer les transitions financières avec le nouveau système
   try {
     await gererChangementEtatCommande(id, ancienEtat, nouvelEtat, currentOrder);
+    
+    // Restaurer le code promo si la commande est annulée
+    if ((nouvelEtat === "Annulée" || nouvelEtat === "annulé") && currentOrder.idCodePro) {
+      console.log('🎫 Annulation via état - Restauration du code promo...');
+      const promoCodeController = require('./controllers/promoCodeController');
+      await promoCodeController.restorePromoUsage(currentOrder.idCodePro, id);
+    }
   } catch (financialError) {
     console.error('❌ Erreur financière lors du changement d\'état:', financialError);
     // Ne pas faire échouer la mise à jour de la commande pour une erreur financière

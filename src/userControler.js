@@ -17,6 +17,7 @@ const fs = require("fs");
 const nodemailer = require("nodemailer");
 const { gererValidationFinanciere, handleFinancialTransitions } = require("./productControler");
 const { gererRelanceCommande } = require("./controllers/financeController");
+const promoCodeController = require("./controllers/promoCodeController");
 
 const cloudinary = require('./cloudinary');
 
@@ -323,6 +324,7 @@ const getUserProfile = (req, res) => {
 const createCommande = async (req, res) => {
   const data = req.body;
   const StockService = require('./services/stockService');
+  const promoCodeController = require('./controllers/promoCodeController');
   const mongoose = require('mongoose');
 
   // Démarrer une transaction pour assurer la cohérence
@@ -339,13 +341,54 @@ const createCommande = async (req, res) => {
         throw new Error(`Stock insuffisant: ${errors}`);
       }
 
-      // 2. Créer la commande
+      // 2. Traiter le code promo via le nouveau système centralisé
+      let subtotal = data.prixTotal || data.prix; // Le montant de base pour la promo (produits seulement)
+      let shipping = data.fraisLivraison || 0;
+      let finalPrice = subtotal + shipping;
+      let finalReduction = data.reduction || 0;
+      
+      let promoResult = null;
+      if (data.idCodePro) {
+        console.log('🎫 Validation du code promo:', data.idCodePro);
+        try {
+          const userId = data.clefUser || null;
+          
+          // Utiliser applyPromoToOrder sans orderId pour valider et calculer la réduction uniquement
+          promoResult = await promoCodeController.applyPromoToOrder(
+            data.idCodePro,
+            subtotal,
+            userId,
+            { session, orderId: null } // On enregistre pas l'usage ici car on n'a pas encore l'orderId
+          );
+          
+          if (promoResult.success && promoResult.promoCode) {
+            finalReduction = promoResult.discount;
+            finalPrice = subtotal - finalReduction + shipping;
+            console.log('✅ Code promo validé. Réduction calculée:', finalReduction);
+          } else {
+            console.warn('⚠️ Code promo rejeté:', promoResult.message);
+            finalPrice = subtotal - finalReduction + shipping;
+          }
+        } catch (error) {
+          console.error('Erreur lors de la validation du code promo:', error);
+          finalPrice = subtotal - finalReduction + shipping;
+        }
+      } else {
+        // Pas de code promo, mais on applique quand même la réduction envoyée par le frontend si elle existe
+        finalPrice = subtotal - finalReduction + shipping;
+      }
+
+      // 3. Créer la commande
       const commande = new Commande({
         clefUser: data.clefUser,
         nbrProduits: data.nbrProduits,
-        prix: data.prix,
-        codePro: data.codePro,
+        prix: finalPrice, // Total final à payer
+        prixTotal: subtotal, // Sous-total des produits
+        fraisLivraison: shipping,
+        reduction: finalReduction,
+        codePro: data.idCodePro ? true : Boolean(data.codePro),
         idCodePro: data.idCodePro,
+        codePromo: (data.idCodePro && promoResult && promoResult.promoCode) ? promoResult.promoCode.code : null,
         reference: data.reference,
         livraisonDetails: data.livraisonDetails,
         prod: data.prod,
@@ -353,6 +396,19 @@ const createCommande = async (req, res) => {
       });
 
       await commande.save({ session });
+
+      // 3. ENREGISTRER L'USAGE DU CODE PROMO
+      if (data.idCodePro && finalReduction > 0) {
+        console.log('🎫 Enregistrement final de l\'usage du code promo...');
+        await promoCodeController.recordPromoUsage(
+          data.idCodePro,
+          subtotal,
+          data.clefUser,
+          commande._id,
+          finalReduction,
+          { session }
+        );
+      }
 
       // 3. Décrémenter le stock
       console.log('📦 Décrémentation du stock...');
@@ -473,6 +529,18 @@ const deleteCommandeById = async (req, res) => {
         commandeToDelete.nbrProduits, 
         { session }
       );
+
+      // Restaurer l'utilisation du code promo si la commande en avait un
+      if (commandeToDelete.idCodePro) {
+        console.log('🎫 Restauration de l\'utilisation du code promo...');
+        const promoCodeController = require('./controllers/promoCodeController');
+        try {
+          // Utiliser l'ID de la commande réelle, pas l'ID utilisateur
+          await promoCodeController.restorePromoUsage(commandeToDelete.idCodePro, commandeToDelete._id, { session });
+        } catch (error) {
+          console.error('Erreur lors de la restauration du code promo:', error);
+        }
+      }
 
       // Supprimer la commande
       const deletedCommande = await Commande.findByIdAndDelete(commandeId).session(session);
@@ -1690,6 +1758,53 @@ const updateCommanderef = async (req, res) => {
       // Sauvegarder l'ancien état des produits pour la gestion du stock
       const oldNbrProduits = commande.nbrProduits;
 
+      // Vérifier que c'est bien le même utilisateur (sécurité)
+      if (data.clefUser && commande.clefUser && String(data.clefUser) !== String(commande.clefUser)) {
+        console.warn(`⚠️ Tentative de mise à jour de commande par un autre utilisateur. Order: ${oldReference}, ReqUser: ${data.clefUser}, OrderUser: ${commande.clefUser}`);
+        throw new Error("Vous n'êtes pas autorisé à modifier cette commande");
+      }
+
+      // 2. Traiter le code promo pour la mise à jour
+      let subtotal = data.prixTotal || data.prix;
+      let shipping = data.fraisLivraison || 0;
+      let finalPrice = subtotal + shipping;
+      let finalReduction = data.reduction || 0;
+
+      // Restaurer l'usage de l'ancien code s'il existait
+      if (commande.idCodePro) {
+        console.log('♻️ Restauration de l\'ancien usage du code promo:', commande.idCodePro);
+        await promoCodeController.restorePromoUsage(commande.idCodePro, commande._id, { session });
+      }
+
+      let promoResult = null;
+      if (data.idCodePro) {
+        console.log('🎫 Re-validation du code promo pour mise à jour:', data.idCodePro);
+        try {
+          const userId = data.clefUser || null;
+          
+          promoResult = await promoCodeController.applyPromoToOrder(
+            data.idCodePro,
+            subtotal,
+            userId,
+            { session, orderId: null }
+          );
+          
+          if (promoResult.success && promoResult.promoCode) {
+            finalReduction = promoResult.discount;
+            finalPrice = subtotal - finalReduction + shipping;
+            console.log('✅ Code promo migré/mis à jour. Réduction:', finalReduction);
+          } else {
+            console.warn('⚠️ Code promo rejeté lors de la mise à jour:', promoResult.message);
+            finalPrice = subtotal - finalReduction + shipping;
+          }
+        } catch (error) {
+          console.error('Erreur promo mise à jour:', error);
+          finalPrice = subtotal - finalReduction + shipping;
+        }
+      } else {
+        finalPrice = subtotal - finalReduction + shipping;
+      }
+
       // Valider la disponibilité du stock pour les nouveaux produits
       console.log('🔍 Validation du stock pour la mise à jour de commande...');
       const stockValidation = await StockService.validateStockAvailability(data.nbrProduits);
@@ -1699,13 +1814,17 @@ const updateCommanderef = async (req, res) => {
         throw new Error(`Stock insuffisant: ${errors}`);
       }
 
-      // Mettre à jour la référence de la commande
+      // Mettre à jour la commande
       const dataUpdate = {
         clefUser: data.clefUser,
         nbrProduits: data.nbrProduits,
-        prix: data.prix,
-        codePro: data.codePro,
+        prix: finalPrice, // Total final
+        prixTotal: subtotal, // Sous-total
+        fraisLivraison: shipping,
+        reduction: finalReduction,
+        codePro: data.idCodePro ? true : Boolean(data.codePro),
         idCodePro: data.idCodePro,
+        codePromo: (data.idCodePro && promoResult && promoResult.promoCode) ? promoResult.promoCode.code : (commande.codePromo || null),
         reference: newReference,
         livraisonDetails: livraisonDetails,
         prod: prod,
@@ -1719,7 +1838,19 @@ const updateCommanderef = async (req, res) => {
 
       await Commande.findOneAndUpdate({ reference: oldReference }, dataUpdate, { session });
 
-      // Mettre à jour le stock (restaurer ancien + décrémenter nouveau)
+      // Enregistrer le nouvel usage
+      if (data.idCodePro && finalReduction > 0) {
+        await promoCodeController.recordPromoUsage(
+          data.idCodePro,
+          subtotal,
+          data.clefUser,
+          commande._id,
+          finalReduction,
+          { session }
+        );
+      }
+
+      // 3. Mettre à jour le stock (restaurer ancien + décrémenter nouveau)
       console.log('📦 Mise à jour du stock...');
       const stockResult = await StockService.decrementStock(
         data.nbrProduits, 
@@ -1941,21 +2072,26 @@ const updateStatusLivraison = async (req, res) => {
       updateFields.statusPayment = "en cours";
     }
 
-    // Si la commande est annulée, restaurer le stock
+    // Si la commande est annulée, restaurer le stock et le code promo
     if (nouveauStatus === "Annulée" || nouveauStatus === "annulé") {
-      console.log('🔄 Annulation de commande - Restauration du stock...');
+      console.log('🔄 Annulation de commande - Restauration du stock et promo...');
       
       try {
+        // Restauration du stock
         const stockResult = await StockService.incrementStock(currentOrder.nbrProduits);
         console.log('✅ Stock restauré avec succès:', stockResult.operations);
-        
         updateFields.stockRestored = true;
         updateFields.stockRestorationDate = new Date();
-      } catch (stockError) {
-        console.error('❌ Erreur lors de la restauration du stock:', stockError);
-        // On continue même si la restauration échoue
+
+        // Restauration du code promo
+        if (currentOrder.idCodePro) {
+          const promoCodeController = require('./controllers/promoCodeController');
+          await promoCodeController.restorePromoUsage(currentOrder.idCodePro, currentOrder._id);
+        }
+      } catch (error) {
+        console.error('❌ Erreur lors de la restauration (stock/promo):', error);
         updateFields.stockRestored = false;
-        updateFields.stockRestorationError = stockError.message;
+        updateFields.stockRestorationError = error.message;
       }
     }
 

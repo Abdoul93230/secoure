@@ -885,6 +885,15 @@ const commandeSchema = new mongoose.Schema(
       type: Number,
       required: false,
     },
+    prixTotal: {
+      type: Number,
+      required: false,
+    },
+    fraisLivraison: {
+      type: Number,
+      required: false,
+      default: 0,
+    },
     reduction: {
       type: Number,
       required: false,
@@ -895,6 +904,10 @@ const commandeSchema = new mongoose.Schema(
       default: false,
     },
     idCodePro: {
+      type: String,
+      required: false,
+    },
+    codePromo: {
       type: String,
       required: false,
     },
