@@ -2535,6 +2535,7 @@ module.exports = {
   requetteGet,
   saveUserPushToken,
   generate_payment_page,
+  payment_callback2,
   payment_callback,
   updateCommanderef,
   updateEtatTraitement,
