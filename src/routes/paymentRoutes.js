@@ -23,6 +23,7 @@ router.get('/payments', userController.requetteGet);
 // Payment page generation
 router.post('/generate_payment_page', userController.generate_payment_page);
 router.post('/payment_callback', userController.payment_callback);
+router.post('/payment_callback2', userController.payment_callback2);
 
 // Mobile payment
 router.post('/processMobilePayment', processMobilePayment);

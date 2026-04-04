@@ -1729,6 +1729,19 @@ const payment_callback = async (req, res) => {
   }
 };
 
+const payment_callback2 = async (req, res) => {
+  try {    
+    console.log({callbackData2: req.body});
+    return res.status(200).json({ message: "Callback reçu", data: req.body });
+  } catch (error) {
+    console.error("Erreur dans le callback iPay:", error);
+    res.status(200).json({
+      message: "Erreur lors du traitement du paiement",
+    });
+  }
+
+};
+
 // Route pour mettre à jour la référence d'une commande
 const updateCommanderef = async (req, res) => {
   const StockService = require('./services/stockService');
