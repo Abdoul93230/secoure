@@ -1974,13 +1974,11 @@ const updateCommanderef = async (req, res) => {
         reference: newReference,
         livraisonDetails: livraisonDetails,
         prod: prod,
+        // IMPORTANT: Réinitialiser le statusPayment lors d'une mise à jour (relance de paiement)
+        statusPayment: statusPayment || "en_attente",
       };
       
-      if (statusPayment && statusPayment === "payé à la livraison") {
-        dataUpdate.statusPayment = statusPayment;
-      }
-      
-      console.log(statusPayment);
+      console.log('📝 Mise à jour du statusPayment:', dataUpdate.statusPayment);
 
       await Commande.findOneAndUpdate({ reference: oldReference }, dataUpdate, { session });
 
