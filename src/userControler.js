@@ -460,14 +460,21 @@ const getCommandeByReference = async (req, res) => {
   const reference = req.params.reference;
 
   try {
-    const commande = await Commande.findOne({
+    const commandes = await Commande.find({
       $or: [
         { reference },
         { "paymentDetails.reference": reference },
         { "paymentDetails.externalReference": reference },
         { "paymentDetails.publicReference": reference },
       ],
-    });
+    }).sort({ date: -1, _id: -1 });
+
+    const commande =
+      commandes.find((item) => item.reference === reference) ||
+      commandes.find((item) => item?.paymentDetails?.externalReference === reference) ||
+      commandes.find((item) => item?.paymentDetails?.reference === reference) ||
+      commandes.find((item) => item?.paymentDetails?.publicReference === reference) ||
+      commandes[0];
 
     if (!commande) {
       return res.status(404).json({ message: "Aucune commande trouvée pour cette référence." });
@@ -1696,15 +1703,25 @@ const payment_callback = async (req, res) => {
         .trim()
         .toLowerCase();
 
-      // Vérifier que la commande existe avec notre référence
-      const commande = await Commande.findOne({
+      // Vérifier que la commande existe avec notre référence (recherche déterministe)
+      const commandes = await Commande.find({
         $or: [
+          { reference: externalReference },
+          { "paymentDetails.externalReference": externalReference },
           { reference: searchReference },
           { "paymentDetails.externalReference": searchReference },
           { "paymentDetails.reference": reference },
           { "paymentDetails.publicReference": publicReference },
         ],
-      });
+      }).sort({ date: -1, _id: -1 });
+
+      const commande =
+        commandes.find((item) => item.reference === externalReference) ||
+        commandes.find((item) => item?.paymentDetails?.externalReference === externalReference) ||
+        commandes.find((item) => ["en_attente", "en cours", "en attente"].includes(String(item.statusPayment || "").toLowerCase())) ||
+        commandes.find((item) => item.reference === searchReference) ||
+        commandes[0];
+
       if (!commande) {
         console.error(
           "Commande non trouvée pour la transaction:",
@@ -1763,6 +1780,7 @@ const payment_callback = async (req, res) => {
         console.log("Paiement réussi pour la transaction", {
           externalReference,
           commandeId: commande._id,
+          commandeReference: commande.reference,
           previousStatusPayment: commande.statusPayment,
           persistedStatusPayment: updatedCommande?.statusPayment,
         });
