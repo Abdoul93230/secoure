@@ -1684,11 +1684,17 @@ const payment_callback = async (req, res) => {
         externalReference, // Notre référence de transaction
         amount, // Montant payé
         paymentDate, // Date du paiement
+        failureReason,
+        paymentMethod,
+        webhookPayload,
       } = req.body;
 
       console.log("Callback PAYMENT reçu:", req.body);
 
       const searchReference = externalReference || reference || publicReference;
+      const normalizedStatus = String(status || "")
+        .trim()
+        .toLowerCase();
 
       // Vérifier que la commande existe avec notre référence
       const commande = await Commande.findOne({
@@ -1710,22 +1716,33 @@ const payment_callback = async (req, res) => {
       }
 
       // Mettre à jour le statut de la commande
-      if (status === "succeeded") {
-        await Commande.findByIdAndUpdate(commande._id, {
-          statusPayment: "payé",
-          paymentDetails: {
-            customerName,
-            msisdn,
-            reference, // Référence iPay
-            publicReference, // Référence publique iPay
-            externalReference, // Référence commande interne
-            paymentDate,
-            amount,
+      const isSuccessfulPayment = ["succeeded", "success", "paid", "completed"].includes(normalizedStatus);
+
+      if (isSuccessfulPayment) {
+        const updatedCommande = await Commande.findOneAndUpdate(
+          { _id: commande._id },
+          {
+            $set: {
+              statusPayment: "payé",
+              paymentDetails: {
+                customerName,
+                msisdn,
+                reference, // Référence iPay
+                publicReference, // Référence publique iPay
+                externalReference, // Référence commande interne
+                paymentDate,
+                amount,
+                paymentMethod,
+                failureReason: null,
+                webhookPayload,
+              },
+            },
           },
-        });
+          { new: true }
+        );
 
         emitPaymentStatusUpdate(req, commande, {
-          status,
+          status: "succeeded",
           statusPayment: "payé",
           customerName,
           msisdn,
@@ -1738,31 +1755,45 @@ const payment_callback = async (req, res) => {
 
         // Si un code promo a été utilisé
         if (commande.codePro && commande.idCodePro) {
-          await CodePromo.findByIdAndUpdate(commande.idCodePro, {
+          await PromoCode.findByIdAndUpdate(commande.idCodePro, {
             isValide: false,
           });
         }
 
-        console.log("Paiement réussi pour la transaction", externalReference);
+        console.log("Paiement réussi pour la transaction", {
+          externalReference,
+          commandeId: commande._id,
+          previousStatusPayment: commande.statusPayment,
+          persistedStatusPayment: updatedCommande?.statusPayment,
+        });
         res.status(200).json({ message: "Paiement traité avec succès" });
       } else {
         // En cas d'échec
-        await Commande.findByIdAndUpdate(commande._id, {
-          statusPayment: "échec",
-          paymentDetails: {
-            customerName,
-            msisdn,
-            reference,
-            publicReference,
-            externalReference,
-            paymentDate,
-            amount,
-            failureDetails: req.body,
+        const updatedCommande = await Commande.findOneAndUpdate(
+          { _id: commande._id },
+          {
+            $set: {
+              statusPayment: "échec",
+              paymentDetails: {
+                customerName,
+                msisdn,
+                reference,
+                publicReference,
+                externalReference,
+                paymentDate,
+                amount,
+                paymentMethod,
+                failureReason: failureReason || null,
+                failureDetails: req.body,
+                webhookPayload,
+              },
+            },
           },
-        });
+          { new: true }
+        );
 
         emitPaymentStatusUpdate(req, commande, {
-          status,
+          status: "failed",
           statusPayment: "échec",
           customerName,
           msisdn,
@@ -1774,7 +1805,12 @@ const payment_callback = async (req, res) => {
           failureDetails: req.body,
         });
 
-        console.log("Paiement échoué pour la transaction", externalReference);
+        console.log("Paiement échoué pour la transaction", {
+          externalReference,
+          commandeId: commande._id,
+          previousStatusPayment: commande.statusPayment,
+          persistedStatusPayment: updatedCommande?.statusPayment,
+        });
         res.status(200).json({ message: "Échec du paiement enregistré" });
       }
     } catch (error) {

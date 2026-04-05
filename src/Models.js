@@ -869,8 +869,12 @@ const commandeSchema = new mongoose.Schema(
       msisdn: String,
       reference: String, // Référence iPay
       publicReference: String, // Référence publique iPay
+      externalReference: String, // Référence interne de la commande
       paymentDate: Date,
       amount: Number,
+      paymentMethod: String,
+      failureReason: String,
+      webhookPayload: Object,
       failureDetails: Object, // Détails complets en cas d'échec
     },
     livraisonDetails: {
