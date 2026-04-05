@@ -487,6 +487,52 @@ const getCommandeByReference = async (req, res) => {
   }
 };
 
+// Endpoint optimisé pour le polling - retourne seulement le statut du paiement
+// Payload réduit: ~200 bytes vs 4.9KB de getCommandeByReference
+const getOrderPaymentStatus = async (req, res) => {
+  const reference = req.params.reference;
+
+  try {
+    const commandes = await Commande.find({
+      $or: [
+        { reference },
+        { "paymentDetails.reference": reference },
+        { "paymentDetails.externalReference": reference },
+        { "paymentDetails.publicReference": reference },
+      ],
+    }).sort({ date: -1, _id: -1 }).select('reference statusPayment date updatedAt -_id');
+
+    const commande =
+      commandes.find((item) => item.reference === reference) ||
+      commandes.find((item) => item?.paymentDetails?.externalReference === reference) ||
+      commandes.find((item) => item?.paymentDetails?.reference === reference) ||
+      commandes.find((item) => item?.paymentDetails?.publicReference === reference) ||
+      commandes[0];
+
+    if (!commande) {
+      return res.status(404).json({ 
+        status: 'notfound',
+        message: "Commande introuvable"
+      });
+    }
+
+    // Réponse optimisée: ~200 bytes au lieu de 4.9KB
+    return res.json({ 
+      reference: commande.reference,
+      status: commande.statusPayment,
+      lastUpdate: commande.updatedAt || commande.date,
+      isCompleted: ['payé', 'échec', 'payé à la livraison', 'payé par téléphone'].includes(commande.statusPayment)
+    });
+  } catch (error) {
+    console.error('Erreur getOrderPaymentStatus:', error);
+    return res.status(500).json({ 
+      status: 'error',
+      message: "Erreur serveur",
+      error: error.message 
+    });
+  }
+};
+
 const emitPaymentStatusUpdate = (req, commande, payload) => {
   const io = req?.app?.get?.("io");
 
@@ -2672,7 +2718,8 @@ module.exports = {
   updateEtatTraitement,
   updateStatusLivraison,
   getCommandesByClefUser2,
-  getCommandeByReference
+  getCommandeByReference,
+  getOrderPaymentStatus
   // getUsers,
   // getUserByEmail
 };
