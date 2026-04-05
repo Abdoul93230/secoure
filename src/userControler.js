@@ -480,6 +480,30 @@ const getCommandeByReference = async (req, res) => {
   }
 };
 
+const emitPaymentStatusUpdate = (req, commande, payload) => {
+  const io = req?.app?.get?.("io");
+
+  if (!io || !commande?.reference) {
+    return;
+  }
+
+  io.to(`payment:${commande.reference}`).emit("payment:status", {
+    commandeId: commande._id,
+    reference: commande.reference,
+    statusPayment: payload.statusPayment,
+    status: payload.status,
+    externalReference: payload.externalReference,
+    referenceIpay: payload.reference,
+    publicReference: payload.publicReference,
+    amount: payload.amount,
+    paymentDate: payload.paymentDate,
+    customerName: payload.customerName,
+    msisdn: payload.msisdn,
+    failureDetails: payload.failureDetails || null,
+    emittedAt: new Date().toISOString(),
+  });
+};
+
 
 const getCommandesByClefUser = async (req, res) => {
   const clefUser = req.params.clefUser;
@@ -1664,12 +1688,21 @@ const payment_callback = async (req, res) => {
 
       console.log("Callback PAYMENT reçu:", req.body);
 
+      const searchReference = externalReference || reference || publicReference;
+
       // Vérifier que la commande existe avec notre référence
-      const commande = await Commande.findOne({ reference: externalReference });
+      const commande = await Commande.findOne({
+        $or: [
+          { reference: searchReference },
+          { "paymentDetails.externalReference": searchReference },
+          { "paymentDetails.reference": reference },
+          { "paymentDetails.publicReference": publicReference },
+        ],
+      });
       if (!commande) {
         console.error(
           "Commande non trouvée pour la transaction:",
-          externalReference
+          searchReference
         );
         return res.status(200).json({
           message: "Commande non trouvée",
@@ -1689,6 +1722,18 @@ const payment_callback = async (req, res) => {
             paymentDate,
             amount,
           },
+        });
+
+        emitPaymentStatusUpdate(req, commande, {
+          status,
+          statusPayment: "payé",
+          customerName,
+          msisdn,
+          reference,
+          publicReference,
+          externalReference,
+          paymentDate,
+          amount,
         });
 
         // Si un code promo a été utilisé
@@ -1716,6 +1761,19 @@ const payment_callback = async (req, res) => {
           },
         });
 
+        emitPaymentStatusUpdate(req, commande, {
+          status,
+          statusPayment: "échec",
+          customerName,
+          msisdn,
+          reference,
+          publicReference,
+          externalReference,
+          paymentDate,
+          amount,
+          failureDetails: req.body,
+        });
+
         console.log("Paiement échoué pour la transaction", externalReference);
         res.status(200).json({ message: "Échec du paiement enregistré" });
       }
@@ -1732,7 +1790,28 @@ const payment_callback = async (req, res) => {
 const payment_callback2 = async (req, res) => {
   try {    
     console.log({callbackData2: req.body});
-    return res.status(200).json({ message: "Callback reçu", data: req.body });
+
+    const webhookData = req.body?.data || req.body || {};
+
+    return payment_callback(
+      {
+        body: {
+          status: webhookData.status,
+          customerName: webhookData.customer_name,
+          msisdn: webhookData.msisdn,
+          reference: webhookData.reference,
+          publicReference: webhookData.public_reference,
+          externalReference: webhookData.external_reference,
+          amount: webhookData.amount,
+          paymentDate: webhookData.validated_at,
+          failureReason: webhookData.failure_reason,
+          paymentMethod: webhookData.payment_method,
+          webhookPayload: webhookData,
+        },
+        app: req.app,
+      },
+      res
+    );
   } catch (error) {
     console.error("Erreur dans le callback iPay:", error);
     res.status(200).json({

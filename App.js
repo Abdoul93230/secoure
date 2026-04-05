@@ -78,6 +78,8 @@ const io = socketIo(server, {
   },
 });
 
+app.set("io", io);
+
 // Middleware configuration
 app
   .use(
@@ -111,6 +113,18 @@ app
 
 // WebSocket management
 io.on("connection", (socket) => {
+  socket.on("payment:join", ({ reference }) => {
+    if (reference) {
+      socket.join(`payment:${reference}`);
+    }
+  });
+
+  socket.on("payment:leave", ({ reference }) => {
+    if (reference) {
+      socket.leave(`payment:${reference}`);
+    }
+  });
+
   socket.on("delete_message", (data) => {
     io.emit("delete_message", data);
   });
