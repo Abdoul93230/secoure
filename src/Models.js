@@ -78,6 +78,7 @@ const userSchema = new mongoose.Schema(
     },
     quickAuthOtp: {
       code: { type: String },
+      purpose: { type: String, default: null },
       expiresAt: { type: Date },
       verified: { type: Boolean, default: false },
       verifiedAt: { type: Date },

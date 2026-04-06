@@ -493,7 +493,9 @@ const resetPasswordWithPhoneOtp = async (req, res) => {
     const otpData = user.quickAuthOtp;
     const now = new Date();
 
-    if (otpData.purpose !== "password-reset") {
+    const otpPurpose = otpData.purpose || null;
+
+    if (otpPurpose !== "password-reset") {
       return res.status(400).json({
         success: false,
         message: "Ce code OTP n'est pas valide pour une reinitialisation de mot de passe",
