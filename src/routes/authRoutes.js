@@ -17,6 +17,8 @@ router.post('/auth/send-otp', quickAuthController.sendOtp);
 router.post('/auth/resend-otp', quickAuthController.resendOtp);
 router.post('/auth/verify-otp', quickAuthController.verifyOtp);
 router.post('/auth/quick-register', quickAuthController.quickRegister);
+router.post('/auth/request-password-reset-otp', quickAuthController.requestPasswordResetOtp);
+router.post('/auth/reset-password-phone', quickAuthController.resetPasswordWithPhoneOtp);
 
 // Token verification
 router.get('/verify', middelware.auth, userController.verifyToken);
