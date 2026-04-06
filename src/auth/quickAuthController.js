@@ -12,7 +12,8 @@ const OTP_MAX_VERIFY_ATTEMPTS = 5;
 const phoneRegex = /^\+[1-9]\d{7,14}$/;
 
 const normalizePhone = (value = "") => value.replace(/\s+/g, "").trim();
-const isDev = process.env.NODE_ENV !== "production";
+const shouldExposeDevOtp =
+  process.env.SHOW_DEV_OTP === "true" || process.env.NODE_ENV !== "production";
 
 const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString();
 
@@ -169,7 +170,7 @@ const sendOtp = async (req, res) => {
       },
     };
 
-    if (isDev) {
+    if (shouldExposeDevOtp) {
       response.data.devOTP = otpPayload.code;
     }
 
@@ -439,7 +440,7 @@ const requestPasswordResetOtp = async (req, res) => {
       },
     };
 
-    if (isDev) {
+    if (shouldExposeDevOtp) {
       response.data.devOTP = otpPayload.code;
     }
 
