@@ -1,0 +1,296 @@
+{
+  "info": {
+    "name": "Ihambaobab QuickAuth",
+    "description": "Collection de tests QuickAuth: check-phone, send-otp, verify-otp, quick-register, login, verify.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. Check Phone",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"phone\": \"{{phone}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/auth/check-phone",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "auth",
+            "check-phone"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "2. Send OTP",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "let jsonData = {};",
+              "try { jsonData = pm.response.json(); } catch (e) {}",
+              "if (jsonData?.data?.devOTP) {",
+              "  pm.collectionVariables.set('otpCode', jsonData.data.devOTP);",
+              "}",
+              "if (jsonData?.data?.attemptsRemaining !== undefined) {",
+              "  pm.collectionVariables.set('attemptsRemaining', String(jsonData.data.attemptsRemaining));",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"phone\": \"{{phone}}\",\n  \"email\": \"{{email}}\",\n  \"name\": \"{{name}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/auth/send-otp",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "auth",
+            "send-otp"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "3. Verify OTP",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"phone\": \"{{phone}}\",\n  \"email\": \"{{email}}\",\n  \"code\": \"{{otpCode}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/auth/verify-otp",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "auth",
+            "verify-otp"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "4. Quick Register",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "let jsonData = {};",
+              "try { jsonData = pm.response.json(); } catch (e) {}",
+              "if (jsonData?.token) {",
+              "  pm.collectionVariables.set('userToken', jsonData.token);",
+              "}",
+              "if (jsonData?.user?.id) {",
+              "  pm.collectionVariables.set('userId', jsonData.user.id);",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"phone\": \"{{phone}}\",\n  \"email\": \"{{email}}\",\n  \"name\": \"{{name}}\",\n  \"password\": \"{{password}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/auth/quick-register",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "auth",
+            "quick-register"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "5. Login With Phone",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "let jsonData = {};",
+              "try { jsonData = pm.response.json(); } catch (e) {}",
+              "if (jsonData?.token) {",
+              "  pm.collectionVariables.set('userToken', jsonData.token);",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"identifier\": \"{{phone}}\",\n  \"phoneNumber\": \"{{phone}}\",\n  \"password\": \"{{password}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/login",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "login"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "6. Verify Access Token",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{userToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/verify",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "verify"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "7. Resend OTP",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "let jsonData = {};",
+              "try { jsonData = pm.response.json(); } catch (e) {}",
+              "if (jsonData?.data?.devOTP) {",
+              "  pm.collectionVariables.set('otpCode', jsonData.data.devOTP);",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"phone\": \"{{phone}}\",\n  \"email\": \"{{email}}\",\n  \"name\": \"{{name}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/auth/resend-otp",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "auth",
+            "resend-otp"
+          ]
+        }
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://ihambackend.onrender.com"
+    },
+    {
+      "key": "phone",
+      "value": "+22790123456"
+    },
+    {
+      "key": "email",
+      "value": "quickauth.test+001@example.com"
+    },
+    {
+      "key": "name",
+      "value": "Quick Auth Test"
+    },
+    {
+      "key": "password",
+      "value": "QuickAuth#2026"
+    },
+    {
+      "key": "otpCode",
+      "value": ""
+    },
+    {
+      "key": "userToken",
+      "value": ""
+    },
+    {
+      "key": "userId",
+      "value": ""
+    },
+    {
+      "key": "attemptsRemaining",
+      "value": ""
+    }
+  ]
+}

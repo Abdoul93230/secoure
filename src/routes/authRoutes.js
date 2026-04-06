@@ -5,10 +5,18 @@ const middelware = require('../auth/middelware');
 const userController = require('../userControler');
 const AdminController = require('../auth/AdminController');
 const forgotPassword = require('../auth/forgotPassword');
+const quickAuthController = require('../auth/quickAuthController');
 
 // Authentication
 router.post('/login', authentification.login);
 router.post('/AdminLogin', authentification.AdminLogin);
+
+// QuickAuth (phone/email first flow)
+router.post('/auth/check-phone', quickAuthController.checkPhone);
+router.post('/auth/send-otp', quickAuthController.sendOtp);
+router.post('/auth/resend-otp', quickAuthController.resendOtp);
+router.post('/auth/verify-otp', quickAuthController.verifyOtp);
+router.post('/auth/quick-register', quickAuthController.quickRegister);
 
 // Token verification
 router.get('/verify', middelware.auth, userController.verifyToken);

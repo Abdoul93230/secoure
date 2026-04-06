@@ -136,13 +136,44 @@ const createUser = async (req, res) => {
 
 /////////////////////////////// verification de l'autorisation /////////////////////////////
 const verifyToken = async (req, res) => {
-  const data = req.headers;
-  const refreshToken = req.cookies;
-  const message = "reusit!";
-  // console.log(refreshToken);
+  try {
+    if (!req.userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Token invalide: utilisateur non identifié.",
+      });
+    }
 
-  res.json({ data, message, ref: refreshToken });
-  // console.log(data.authorization);
+    const user = await User.findById(req.userId).select("_id name email phoneNumber whatsapp isMinimalAccount needsPasswordChange isActive");
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "Utilisateur introuvable.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Token valide",
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email || null,
+        phoneNumber: user.phoneNumber || null,
+        whatsapp: !!user.whatsapp,
+        isMinimalAccount: !!user.isMinimalAccount,
+        needsPasswordChange: !!user.needsPasswordChange,
+        isActive: user.isActive !== false,
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Erreur lors de la vérification du token.",
+      data: error,
+    });
+  }
 };
 /////////////////////////////// fin verification de l'autorisation /////////////////////////////
 

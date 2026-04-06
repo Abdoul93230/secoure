@@ -60,6 +60,32 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    quickAuthPending: {
+      type: Boolean,
+      default: false,
+    },
+    isMinimalAccount: {
+      type: Boolean,
+      default: false,
+    },
+    needsPasswordChange: {
+      type: Boolean,
+      default: false,
+    },
+    isActive: {
+      type: Boolean,
+      default: true,
+    },
+    quickAuthOtp: {
+      code: { type: String },
+      expiresAt: { type: Date },
+      verified: { type: Boolean, default: false },
+      verifiedAt: { type: Date },
+      sendCount: { type: Number, default: 0 },
+      verifyAttempts: { type: Number, default: 0 },
+      lastSentAt: { type: Date },
+      windowStartedAt: { type: Date },
+    },
   },
   { strict: false }
 );
