@@ -98,6 +98,22 @@ const createUser = async (req, res) => {
 
     await user.save();
 
+    const existingProfileByUser = await Profile.findOne({ clefUser: String(user._id) });
+    if (!existingProfileByUser) {
+      const profileData = {
+        clefUser: String(user._id),
+      };
+
+      if (user.phoneNumber) {
+        const existingProfileByNumber = await Profile.findOne({ numero: user.phoneNumber });
+        if (!existingProfileByNumber || String(existingProfileByNumber.clefUser) === String(user._id)) {
+          profileData.numero = user.phoneNumber;
+        }
+      }
+
+      await Profile.create(profileData);
+    }
+
     const newCodePromo = new PromoCode({
       // code: generateCodeFromClefUser(user?._id),
       code: "BIENVENUE20",

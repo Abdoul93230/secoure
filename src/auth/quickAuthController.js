@@ -1,6 +1,6 @@
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
-const { User } = require("../Models");
+const { User, Profile } = require("../Models");
 const privateKey = require("./clef");
 
 const OTP_EXPIRY_MINUTES = 10;
@@ -16,6 +16,32 @@ const shouldExposeDevOtp =
   process.env.SHOW_DEV_OTP === "true" || process.env.NODE_ENV !== "production";
 
 const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString();
+
+const ensureMinimalProfile = async (userId, phoneNumber) => {
+  if (!userId) return;
+
+  const existingByUser = await Profile.findOne({ clefUser: String(userId) });
+  if (existingByUser) {
+    if (phoneNumber && !existingByUser.numero) {
+      existingByUser.numero = phoneNumber;
+      await existingByUser.save();
+    }
+    return;
+  }
+
+  const payload = {
+    clefUser: String(userId),
+  };
+
+  if (phoneNumber) {
+    const existingByNumber = await Profile.findOne({ numero: phoneNumber });
+    if (!existingByNumber || String(existingByNumber.clefUser) === String(userId)) {
+      payload.numero = phoneNumber;
+    }
+  }
+
+  await Profile.create(payload);
+};
 
 const getContactSelector = ({ phone }) => {
   if (phone) return { phoneNumber: normalizePhone(phone) };
@@ -333,6 +359,8 @@ const quickRegister = async (req, res) => {
     }
 
     await user.save();
+
+    await ensureMinimalProfile(user._id, user.phoneNumber || null);
 
     const token = jwt.sign({ userId: user._id, role: "user" }, privateKey, {
       expiresIn: "7d",
