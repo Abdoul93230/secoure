@@ -11,6 +11,14 @@ const { PricingPlan, SellerRequest } = require('../Models');
 const { suspendSellerProducts, restoreSellerProductsIfEligible } = require('../utils/sellerProductSync');
 const { features } = require('process');
 
+const findValidActivePlan = async (sellerId) => {
+  return PricingPlan.findOne({
+    storeId: sellerId,
+    status: { $in: ['active', 'trial'] },
+    endDate: { $gte: new Date() }
+  }).sort({ createdAt: -1 });
+};
+
 // Middleware d'authentification admin (à adapter selon votre système)
 const requireAdmin = (req, res, next) => {
   // Vérifier si l'utilisateur est admin
@@ -112,9 +120,18 @@ router.post('/validate-seller/:sellerId', requireAdmin, async (req, res) => {
       });
     }
 
+    const activePlan = await findValidActivePlan(sellerId);
+    if (!activePlan) {
+      return res.status(403).json({
+        status: 'error',
+        message: 'Activation impossible: aucun abonnement actif valide pour ce vendeur'
+      });
+    }
+
     // Valider le compte
     await SellerRequest.findByIdAndUpdate(sellerId, {
       isvalid: true,
+      subscriptionStatus: activePlan.status,
       validatedAt: new Date(),
       validatedBy: req.user?.id, // ID de l'admin qui valide
       validationNotes,
@@ -235,10 +252,17 @@ router.post('/reactivate-seller/:sellerId', requireAdmin, async (req, res) => {
       endDate: { $gte: new Date() }
     }).sort({ createdAt: -1 });
 
+    if (!activePlan) {
+      return res.status(403).json({
+        status: 'error',
+        message: 'Réactivation impossible: aucun abonnement actif valide pour ce vendeur'
+      });
+    }
+
     // Réactiver le compte
     await SellerRequest.findByIdAndUpdate(sellerId, {
       isvalid: true,
-      subscriptionStatus: activePlan?.status || 'active',
+      subscriptionStatus: activePlan.status,
       suspensionReason: null,
       suspensionDate: null,
       reactivatedAt: new Date(),
@@ -407,6 +431,13 @@ router.put('/subscriptions/:id/status', requireAdmin, async (req, res) => {
       return res.status(404).json({
         status: 'error',
         message: 'Abonnement non trouvé'
+      });
+    }
+
+    if (status === 'active' && new Date(subscription.endDate) < new Date()) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Impossible d\'activer un abonnement expiré'
       });
     }
 

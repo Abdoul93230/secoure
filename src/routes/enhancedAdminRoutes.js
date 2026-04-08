@@ -359,7 +359,8 @@ const router = express.Router();
 const {
   validatePaymentAndPrepareActivation,
   getAdvancedSubscriptionStats,
-  getSellerCompleteStatus
+  getSellerCompleteStatus,
+  checkAndActivateNextSubscription
 } = require('../controllers/subscriptionController');
 const { SellerRequest,PricingPlan } = require('../Models');
 const SubscriptionQueue = require('../models/Abonnements/SubscriptionQueue');
@@ -704,8 +705,38 @@ router.post('/force-activate/:sellerId', requireAdmin, async (req, res) => {
     const { sellerId } = req.params;
     const adminId = req.user.id;
 
-    const { checkAndActivateNextSubscription } = require('../controllers/UniversalSubscriptionController');
+    const queue = await SubscriptionQueue.findOne({ storeId: sellerId });
+    const hasVerifiedQueuedSubscription = Boolean(
+      queue?.queuedSubscriptions?.some((entry) => entry.status === 'payment_verified')
+    );
+
+    const hasValidActivePlanBefore = await PricingPlan.exists({
+      storeId: sellerId,
+      status: { $in: ['active', 'trial'] },
+      endDate: { $gte: new Date() }
+    });
+
+    if (!hasVerifiedQueuedSubscription && !hasValidActivePlanBefore) {
+      return res.status(403).json({
+        status: 'error',
+        message: 'Activation impossible: aucun abonnement actif valide ou paiement vérifié en attente'
+      });
+    }
+
     await checkAndActivateNextSubscription(sellerId);
+
+    const hasValidActivePlanAfter = await PricingPlan.exists({
+      storeId: sellerId,
+      status: { $in: ['active', 'trial'] },
+      endDate: { $gte: new Date() }
+    });
+
+    if (!hasValidActivePlanAfter) {
+      return res.status(409).json({
+        status: 'error',
+        message: 'Activation refusée: aucun abonnement valide n\'a pu être activé'
+      });
+    }
 
     // Ajouter une trace d'activation forcée
     const historyEntry = new (require('../models/Abonnements/SubscriptionHistory'))({

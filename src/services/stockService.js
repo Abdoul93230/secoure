@@ -1,10 +1,37 @@
-const { Produit, Commande } = require('../Models');
+const { Produit, SellerRequest, PricingPlan } = require('../Models');
 const mongoose = require('mongoose');
 
 /**
  * Service de gestion automatique des stocks
  */
 class StockService {
+  static isSellerEligibleForSales(seller) {
+    if (!seller) return false;
+    if (!seller.isvalid) return false;
+
+    return ['active', 'trial'].includes(seller.subscriptionStatus);
+  }
+
+  static async hasActiveSubscription(sellerId, subscriptionCache = new Map()) {
+    if (!sellerId) return false;
+
+    if (subscriptionCache.has(sellerId)) {
+      return subscriptionCache.get(sellerId);
+    }
+
+    const activeSubscription = await PricingPlan.findOne({
+      storeId: sellerId,
+      status: { $in: ['active', 'trial'] },
+      endDate: { $gte: new Date() }
+    })
+      .select('_id')
+      .lean();
+
+    const hasSubscription = Boolean(activeSubscription);
+    subscriptionCache.set(sellerId, hasSubscription);
+    return hasSubscription;
+  }
+
   
   /**
    * Décrémenter le stock lors de la création/mise à jour d'une commande
@@ -118,6 +145,8 @@ class StockService {
    */
   static async validateStockAvailability(nbrProduits) {
     const validationResults = [];
+    const sellerCache = new Map();
+    const subscriptionCache = new Map();
     
     try {
       for (const item of nbrProduits) {
@@ -129,6 +158,65 @@ class StockService {
             produitId,
             valid: false,
             error: 'Produit non trouvé',
+            requestedQuantity: quantite
+          });
+          continue;
+        }
+
+        if (product.isDeleted || product.isPublished !== 'Published') {
+          validationResults.push({
+            produitId,
+            valid: false,
+            error: 'Produit indisponible à la vente',
+            requestedQuantity: quantite
+          });
+          continue;
+        }
+
+        if (product.subscriptionControl && product.subscriptionControl.forcedHidden) {
+          validationResults.push({
+            produitId,
+            valid: false,
+            error: 'Produit temporairement suspendu',
+            requestedQuantity: quantite
+          });
+          continue;
+        }
+
+        const sellerId = product.Clefournisseur?.toString();
+        if (!sellerId) {
+          validationResults.push({
+            produitId,
+            valid: false,
+            error: 'Vendeur introuvable pour ce produit',
+            requestedQuantity: quantite
+          });
+          continue;
+        }
+
+        if (!sellerCache.has(sellerId)) {
+          const seller = await SellerRequest.findById(sellerId).lean();
+          sellerCache.set(sellerId, seller || null);
+        }
+
+        const seller = sellerCache.get(sellerId);
+        if (!this.isSellerEligibleForSales(seller)) {
+          validationResults.push({
+            produitId,
+            valid: false,
+            error: 'Vendeur inactif ou abonnement non valide',
+            requestedQuantity: quantite
+          });
+          continue;
+        }
+
+        // Cas couvert: vendeur marqué actif mais sans abonnement réel actif.
+        const hasActiveSubscription = await this.hasActiveSubscription(sellerId, subscriptionCache);
+        if (!hasActiveSubscription) {
+          validationResults.push({
+            produitId,
+            valid: false,
+            error: 'Vendeur actif sans abonnement valide',
             requestedQuantity: quantite
           });
           continue;

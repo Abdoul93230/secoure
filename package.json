@@ -9,7 +9,10 @@
     "cleanup:pricingplans:dry": "node cleanup_orphaned_pricingplans.js",
     "cleanup:pricingplans:apply": "node cleanup_orphaned_pricingplans.js --apply",
     "audit:seller-products:dry": "node verify_seller_product_sync.js",
-    "audit:seller-products:apply": "node verify_seller_product_sync.js --apply"
+    "audit:seller-products:apply": "node verify_seller_product_sync.js --apply",
+    "diagnose:seller-state": "node diagnose_seller_state_inconsistencies.js",
+    "repair:seller-state:dry": "node repair_seller_state_inconsistencies.js",
+    "repair:seller-state:apply": "node repair_seller_state_inconsistencies.js --apply"
   },
   "author": "Abdoul Razak",
   "license": "ISC",

@@ -18,6 +18,7 @@ router.get('/getSellerClients/:Id', sellerController.getSellerClients);
 router.get('/getSellerByName/:name', sellerController.getSellerByName);
 router.get('/getSellerByNameClients/:name', sellerController.getSellerByNameClients);
 router.get('/getSellers/', sellerController.getSellers);
+router.get('/getSellersClients/', sellerController.getSellersClients);
 router.put('/updateSeller/:id',
   middelware.uploadsecond.fields([
     { name: 'ownerIdentity', maxCount: 1 },

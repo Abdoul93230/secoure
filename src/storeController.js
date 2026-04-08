@@ -1032,12 +1032,26 @@ async function validerDemandeVendeur(req, res) {
       await suspendSellerProducts(demande._id, 'admin_suspension');
     } else {
       // Validation / réactivation du compte
+      const activePlan = await PricingPlan.findOne({
+        storeId: demande._id,
+        status: { $in: ['active', 'trial'] },
+        endDate: { $gte: new Date() }
+      }).sort({ createdAt: -1 });
+
+      if (!activePlan) {
+        return res.status(403).json({
+          message: "Activation impossible: aucun abonnement actif valide n'est lié à ce vendeur."
+        });
+      }
+
       demande.isvalid = true;
+      demande.subscriptionStatus = activePlan.status;
       demande.suspensionReason = null;
       demande.suspensionDate = null;
       demande.profileNeedsReview = false;
       demande.profileNeedsReviewAt = null;
       demande.profileNeedsReviewReason = null;
+      demande.reactivatedAt = new Date();
       message = "Demande de vendeur validée avec succès. Compte créé";
       await demande.save();
       await restoreSellerProductsIfEligible(demande._id);
@@ -1120,33 +1134,45 @@ const getSeller = (req, res) => {
       return res.status(500).json({ message: message, error: error });
     });
 };
-const getSellerClients = (req, res) => {
+const getSellerClients = async (req, res) => {
   const Id = req.params.Id;
 
-  SellerRequest.findById(Id)
-    .then((response) => {
-      if (!response) {
-        return res.status(404).json({
-          message: "Le vendeur demandé n'existe pas !"
-        });
-      }
+  try {
+    const response = await SellerRequest.findById(Id);
 
-      // Vérifier si le fournisseur est actif
-      if (!response.isvalid) {
-        return res.status(404).json({
-          message: "Le vendeur demandé existe mais il n'est pas actif pour le moment."
-        });
-      }
+    if (!response) {
+      return res.status(404).json({
+        message: "Le vendeur demandé n'existe pas !"
+      });
+    }
 
-      const message = `Vous avez demandé le vendeur : ${response.name}`;
-      return res.json({ message: message, data: response });
-    })
-    .catch((error) => {
-      console.error({ error });
-      const message =
-        "Une erreur s'est produite lors de la récupération du vendeur, veuillez réessayer !";
-      return res.status(500).json({ message: message, error: error });
-    });
+    if (!response.isvalid) {
+      return res.status(404).json({
+        message: "Le vendeur demandé existe mais il n'est pas actif pour le moment."
+      });
+    }
+
+    const now = new Date();
+    const activePlan = await PricingPlan.findOne({
+      storeId: response._id,
+      status: { $in: ["active", "trial"] },
+      endDate: { $gte: now },
+    }).select("_id status endDate");
+
+    if (!activePlan) {
+      return res.status(403).json({
+        message: "Le vendeur demandé n'a pas d'abonnement valide pour le moment.",
+      });
+    }
+
+    const message = `Vous avez demandé le vendeur : ${response.name}`;
+    return res.json({ message: message, data: response });
+  } catch (error) {
+    console.error({ error });
+    const message =
+      "Une erreur s'est produite lors de la récupération du vendeur, veuillez réessayer !";
+    return res.status(500).json({ message: message, error: error });
+  }
 };
 
 const getSellerByName = (req, res) => {
@@ -1203,6 +1229,20 @@ const getSellerByNameClients = async (req, res) => {
       });
     }
 
+    const now = new Date();
+    const activePlan = await PricingPlan.findOne({
+      storeId: seller._id,
+      status: { $in: ["active", "trial"] },
+      endDate: { $gte: now },
+    }).select("_id status endDate");
+
+    if (!activePlan) {
+      return res.status(403).json({
+        status: "NO_VALID_SUBSCRIPTION",
+        message: "Cette boutique n'a pas d'abonnement valide pour le moment."
+      });
+    }
+
     // 4️⃣ Boutique active ✅
     return res.status(200).json({
       status: "ACTIVE",
@@ -1237,6 +1277,34 @@ const getSellers = (req, res) => {
         "une erreur s'est produit lors de la recuperation du Seller veuillez ressayer !";
       return res.status(500).json({ message: message, error: error });
     });
+};
+
+const getSellersClients = async (req, res) => {
+  try {
+    const now = new Date();
+
+    const validPlans = await PricingPlan.find({
+      status: { $in: ['active', 'trial'] },
+      endDate: { $gte: now }
+    }).select('storeId').lean();
+
+    const validSellerIds = validPlans.map((plan) => plan.storeId);
+
+    const sellers = await SellerRequest.find({
+      _id: { $in: validSellerIds },
+      isvalid: true,
+      subscriptionStatus: { $in: ['active', 'trial'] }
+    });
+
+    return res.json({
+      message: 'vous avez demander tous les Sellers clients.',
+      data: sellers
+    });
+  } catch (error) {
+    const message =
+      "une erreur s'est produit lors de la recuperation du Seller veuillez ressayer !";
+    return res.status(500).json({ message: message, error: error });
+  }
 };
 
 const verifyToken = async (req, res) => {
@@ -2194,6 +2262,7 @@ module.exports = {
   getSeller,
   setImage,
   getSellers,
+  getSellersClients,
   findSellerByName,
   createPricingPlan,
   getPricingPlan,

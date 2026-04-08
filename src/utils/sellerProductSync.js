@@ -13,6 +13,7 @@ const suspendSellerProducts = async (sellerId, reason = 'account_suspension') =>
     },
     {
       $set: {
+        isValidated: false,
         isPublished: 'UnPublished',
         'subscriptionControl.forcedHidden': true,
         'subscriptionControl.reason': reason,
@@ -58,6 +59,7 @@ const restoreSellerProductsIfEligible = async (sellerId) => {
     },
     {
       $set: {
+        isValidated: true,
         isPublished: 'Published',
         'subscriptionControl.restoredAt': new Date()
       },

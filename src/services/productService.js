@@ -3,17 +3,72 @@ const cloudinary = require('../cloudinary');
 
 const fs = require("fs");
 class ProductService {
+  async hasActiveSubscription(sellerId) {
+    if (!sellerId) return false;
+
+    const activeSubscription = await PricingPlan.findOne({
+      storeId: sellerId,
+      status: { $in: ['active', 'trial'] },
+      endDate: { $gte: new Date() }
+    })
+      .select('_id')
+      .lean();
+
+    return Boolean(activeSubscription);
+  }
+
+  async isSellerEligibleForClientSales(seller, subscriptionCache = new Map()) {
+    if (!seller) return false;
+    if (!seller.isvalid) return false;
+
+    if (!['active', 'trial'].includes(seller.subscriptionStatus)) {
+      return false;
+    }
+
+    const sellerId = seller._id?.toString();
+    if (!sellerId) return false;
+
+    // Cas couvert: vendeur marqué actif mais sans abonnement réel actif.
+    if (subscriptionCache.has(sellerId)) {
+      return subscriptionCache.get(sellerId);
+    }
+
+    const hasActiveSubscription = await this.hasActiveSubscription(sellerId);
+    subscriptionCache.set(sellerId, hasActiveSubscription);
+    return hasActiveSubscription;
+  }
+
+  async getClientVisibleProducts(baseFilter = {}) {
+    const subscriptionCache = new Map();
+    const products = await Produit.find({
+      ...baseFilter,
+      isDeleted: false,
+      isPublished: "Published"
+    }).populate('Clefournisseur');
+
+    const visibleProducts = [];
+    for (const product of products) {
+      if (!product.Clefournisseur) continue;
+      if (product.subscriptionControl && product.subscriptionControl.forcedHidden) continue;
+
+      const isEligible = await this.isSellerEligibleForClientSales(
+        product.Clefournisseur,
+        subscriptionCache
+      );
+
+      if (isEligible) {
+        visibleProducts.push(product);
+      }
+    }
+
+    return visibleProducts;
+  }
+
   async getAllProductsSeller() {
     return await Produit.find({ isDeleted: false }).populate('Clefournisseur');
   }
   async getAllProductsClients() {
-    const products = await Produit.find({ isDeleted: false, isPublished: "Published" }).populate({
-      path: 'Clefournisseur',
-      match: { isvalid: true } // On ne prend que les fournisseurs valides
-    });
-
-    const validProducts = products.filter(p => p.Clefournisseur);
-    return validProducts;
+    return await this.getClientVisibleProducts();
   }
   async getAllProductsAdmin() {
     return await Produit.find().populate('Clefournisseur');
@@ -96,11 +151,7 @@ class ProductService {
   }
 
   async searchByType(type) {
-    return await Produit.find({
-      ClefType: type,
-      isDeleted: false,
-      isPublished: "Published"
-    });
+    return await this.getClientVisibleProducts({ ClefType: type });
   }
 
   async searchByTypeAndSeller(type, seller) {
@@ -113,10 +164,8 @@ class ProductService {
   }
 
   async searchByName(name) {
-    return await Produit.find({
-      name: { $regex: name, $options: "i" },
-      isDeleted: false,
-      isPublished: "Published"
+    return await this.getClientVisibleProducts({
+      name: { $regex: name, $options: "i" }
     });
   }
 

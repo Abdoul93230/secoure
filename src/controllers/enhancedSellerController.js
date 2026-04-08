@@ -549,63 +549,33 @@ const loginWithSubscriptionCheck = async (req, res) => {
       }
       console.log({completeStatus});
       console.log({completeStatus2 : user.suspensionReason});
-      
-      if(completeStatus.statusInfo?.actions.includes("upgrade_plan") && user.suspensionReason === "Incohérence détectée - SubscriptionQueue manquante malgré subscriptionId"){
-         const resubscriptionToken = jwt.sign(
-        {
-          userId: user._id,
-          role: "seller",
-          purpose: "resubscription", // Indication que ce token est pour le réabonnement uniquement
-          subscriptionStatus: "suspended",
-          planType: completeStatus.activeSubscription?.planType,
-          accountValid: false,
-          restricted: true // Flag pour indiquer les limitations d'accès
-        },
-        privateKeSeller,
-        { expiresIn: "1d" } // Durée plus courte pour ce token spécial
-      );
-      return res.status(403).json({ 
-        message,
-        accountStatus,
-        suspensionReason: user.suspensionReason,
-        nextSteps: [
-          "Votre dossier est en cours de vérification par nos équipes",
-          "Vous recevrez un email de confirmation une fois validé",
-          "Délai moyen de validation: 24-48h ouvrées",
-          "Contactez le support si urgent: support@ihambaobab.com"
-        ],
-        completeStatus,
-        token: resubscriptionToken, // Token pour accéder à la page de réabonnement
-      });
-      }
-      if(completeStatus.statusInfo?.actions.includes("reactivate_account")){
-         const resubscriptionToken = jwt.sign(
-        {
-          userId: user._id,
-          role: "seller",
-          purpose: "resubscription", // Indication que ce token est pour le réabonnement uniquement
-          subscriptionStatus: "suspended",
-          planType: completeStatus.activeSubscription?.planType,
-          accountValid: false,
-          restricted: true // Flag pour indiquer les limitations d'accès
-        },
-        privateKeSeller,
-        { expiresIn: "1d" } // Durée plus courte pour ce token spécial
-      );
-      return res.status(403).json({ 
-        message,
-        accountStatus,
-        suspensionReason: user.suspensionReason,
-        nextSteps: [
-          "Votre dossier est en cours de vérification par nos équipes",
-          "Vous recevrez un email de confirmation une fois validé",
-          "Délai moyen de validation: 24-48h ouvrées",
-          "Contactez le support si urgent: support@ihambaobab.com"
-        ],
-        completeStatus,
-        token: resubscriptionToken, // Token pour accéder à la page de réabonnement
-      });
-      }
+      const statusActions = Array.isArray(completeStatus?.statusInfo?.actions)
+        ? completeStatus.statusInfo.actions
+        : [];
+      const suspensionReason = user.suspensionReason || "";
+      const shouldProvideResubscriptionToken =
+        accountStatus === 'suspended' && (
+          statusActions.includes("upgrade_plan") ||
+          statusActions.includes("reactivate_account") ||
+          completeStatus?.statusInfo?.canCreateRequest === true ||
+          /abonnement|subscription|reactivation|upgrade|expire|expiration|paiement|incoh[eé]rence|queue/i.test(suspensionReason)
+        );
+
+      const resubscriptionToken = shouldProvideResubscriptionToken
+        ? jwt.sign(
+            {
+              userId: user._id,
+              role: "seller",
+              purpose: "resubscription",
+              subscriptionStatus: "suspended",
+              planType: completeStatus.activeSubscription?.planType,
+              accountValid: false,
+              restricted: true,
+            },
+            privateKeSeller,
+            { expiresIn: "1d" }
+          )
+        : null;
       
       return res.status(403).json({ 
         message,
@@ -617,7 +587,8 @@ const loginWithSubscriptionCheck = async (req, res) => {
           "Délai moyen de validation: 24-48h ouvrées",
           "Contactez le support si urgent: support@ihambaobab.com"
         ],
-        completeStatus
+        completeStatus,
+        ...(resubscriptionToken ? { token: resubscriptionToken } : {})
       });
     }
 

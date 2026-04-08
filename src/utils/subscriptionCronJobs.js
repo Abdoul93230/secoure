@@ -17,6 +17,60 @@ const transporter = nodemailer.createTransport({
 
 class SubscriptionCronJobs {
   /**
+   * Audit de cohérence: détecter les vendeurs actifs sans abonnement valide.
+   */
+  static async enforceActiveSellerSubscriptionConsistency() {
+    try {
+      const now = new Date();
+      const sellers = await SellerRequest.find({
+        $or: [
+          { isvalid: true },
+          { subscriptionStatus: { $in: ['active', 'trial'] } }
+        ]
+      }).select('_id storeName isvalid subscriptionStatus').lean();
+
+      let suspendedCount = 0;
+
+      for (const seller of sellers) {
+        const hasValidPlan = await PricingPlan.exists({
+          storeId: seller._id,
+          status: { $in: ['active', 'trial'] },
+          endDate: { $gte: now }
+        });
+
+        if (hasValidPlan) {
+          continue;
+        }
+
+        await SellerRequest.findByIdAndUpdate(seller._id, {
+          isvalid: false,
+          subscriptionStatus: 'suspended',
+          suspensionReason: 'Aucun abonnement actif valide détecté',
+          suspensionDate: now
+        });
+
+        await SubscriptionQueue.findOneAndUpdate(
+          { storeId: seller._id },
+          {
+            accountStatus: 'suspended',
+            lastStatusChange: now,
+            suspendedAt: now
+          }
+        );
+
+        await suspendSellerProducts(seller._id, 'no_valid_subscription_detected');
+        suspendedCount++;
+      }
+
+      if (suspendedCount > 0) {
+        console.log(`🚫 Cohérence abonnement: ${suspendedCount} vendeur(s) actifs sans abonnement valide suspendu(s)`);
+      }
+    } catch (error) {
+      console.error('❌ Erreur audit cohérence abonnement:', error);
+    }
+  }
+
+  /**
    * Vérifier et traiter les abonnements expirants et expirés
    */
   static async processExpiringSubscriptions() {
@@ -511,10 +565,21 @@ class SubscriptionCronJobs {
       await this.activateVerifiedSubscriptions();
     });
 
+    // Audit de cohérence toutes les heures (minute 20)
+    cron.schedule('20 * * * *', async () => {
+      console.log('🧪 Audit cohérence vendeurs/abonnements...');
+      await this.enforceActiveSellerSubscriptionConsistency();
+    });
+
     // Nettoyage hebdomadaire le dimanche à 3h du matin
     cron.schedule('0 3 * * 0', async () => {
       console.log('🧹 Nettoyage hebdomadaire...');
       await this.cleanupOldData();
+
+    // Exécution immédiate au démarrage
+    this.enforceActiveSellerSubscriptionConsistency().catch((error) => {
+      console.error('❌ Erreur audit cohérence au démarrage:', error);
+    });
     });
 
     // Vérification d'urgence quotidienne à minuit

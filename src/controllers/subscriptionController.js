@@ -1180,7 +1180,50 @@ const suspendExpiredAccounts = async () => {
     }
 
     // ========================================
-    // 3. RÉSUMÉ FINAL
+    // 3. COHÉRENCE: SELLERS ACTIFS SANS ABONNEMENT VALIDE
+    // ========================================
+    const activeSellers = await SellerRequest.find({
+      $or: [
+        { isvalid: true },
+        { subscriptionStatus: { $in: ['active', 'trial'] } }
+      ]
+    }).select('_id storeName subscriptionId isvalid subscriptionStatus');
+
+    let inconsistentSuspendedCount = 0;
+
+    for (const seller of activeSellers) {
+      const hasValidActivePlan = await PricingPlan.exists({
+        storeId: seller._id,
+        status: { $in: ['active', 'trial'] },
+        endDate: { $gte: now }
+      });
+
+      if (hasValidActivePlan) {
+        continue;
+      }
+
+      await SellerRequest.findByIdAndUpdate(seller._id, {
+        subscriptionStatus: 'suspended',
+        isvalid: false,
+        suspensionReason: 'Aucun abonnement actif valide détecté',
+        suspensionDate: now
+      });
+
+      await SubscriptionQueue.findOneAndUpdate(
+        { storeId: seller._id },
+        {
+          accountStatus: 'suspended',
+          lastUpdated: now,
+          suspendedAt: now
+        }
+      );
+
+      await suspendSellerProducts(seller._id, 'no_valid_subscription_detected');
+      inconsistentSuspendedCount++;
+    }
+
+    // ========================================
+    // 4. RÉSUMÉ FINAL
     // ========================================
     console.log(`
 ╔════════════════════════════════════════════════════════════╗
@@ -1190,8 +1233,9 @@ const suspendExpiredAccounts = async () => {
 ║ Boutiques sans queue trouvées:   ${String(sellersWithoutQueue.length).padStart(4)} comptes      ║
 ║   - Déjà suspendues:              ${String(alreadySuspendedCount).padStart(4)} comptes      ║
 ║   - Nouvellement suspendues:      ${String(suspendedCount).padStart(4)} comptes      ║
+║ Incohérences actif/sans abo:      ${String(inconsistentSuspendedCount).padStart(4)} comptes      ║
 ║                                                            ║
-║ ✅ TOTAL TRAITÉ:                  ${String(expiredQueues.length + suspendedCount).padStart(4)} comptes      ║
+║ ✅ TOTAL TRAITÉ:                  ${String(expiredQueues.length + suspendedCount + inconsistentSuspendedCount).padStart(4)} comptes      ║
 ╚════════════════════════════════════════════════════════════╝
     `);
 
@@ -1201,7 +1245,8 @@ const suspendExpiredAccounts = async () => {
       sellersWithoutQueue: sellersWithoutQueue.length,
       alreadySuspended: alreadySuspendedCount,
       newlySuspended: suspendedCount,
-      totalProcessed: expiredQueues.length + suspendedCount
+      inconsistentSuspended: inconsistentSuspendedCount,
+      totalProcessed: expiredQueues.length + suspendedCount + inconsistentSuspendedCount
     };
 
   } catch (error) {
