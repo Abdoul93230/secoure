@@ -296,6 +296,7 @@ const quickRegister = async (req, res) => {
     const rawPhone = req.body?.phone;
     const name = (req.body?.name || "").trim();
     const password = req.body?.password || "";
+    const code = (req.body?.code || req.body?.otp || "").trim();
 
     const phone = rawPhone ? normalizePhone(rawPhone) : null;
 
@@ -337,11 +338,39 @@ const quickRegister = async (req, res) => {
       });
     }
 
-    if (!user.quickAuthOtp || user.quickAuthOtp.verified !== true) {
+    if (!user.quickAuthOtp) {
       return res.status(403).json({
         success: false,
         message: "Verification OTP requise avant finalisation du compte",
       });
+    }
+
+    const otpData = user.quickAuthOtp;
+    const now = new Date();
+    const isVerified = otpData.verified === true;
+
+    // Filet de securite: si le flag verified est absent, autoriser avec code valide au moment de finaliser.
+    if (!isVerified) {
+      if (!code) {
+        return res.status(403).json({
+          success: false,
+          message: "Verification OTP requise avant finalisation du compte",
+        });
+      }
+
+      if (!otpData.expiresAt || new Date(otpData.expiresAt).getTime() < now.getTime()) {
+        return res.status(410).json({
+          success: false,
+          message: "Le code OTP a expire",
+        });
+      }
+
+      if (otpData.code !== code) {
+        return res.status(401).json({
+          success: false,
+          message: "Code OTP incorrect",
+        });
+      }
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);

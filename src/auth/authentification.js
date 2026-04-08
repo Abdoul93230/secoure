@@ -4,6 +4,8 @@ const ADMIN_PRIVATe_KEY = require("./clefAdmin");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcrypt");
 
+const normalizePhone = (value = "") => String(value).replace(/\s+/g, "").trim();
+
 /////////////////////fonction  loginUser et creation du jeton JWT///////////////////////
 
 const login = async (req, res) => {
@@ -11,6 +13,8 @@ const login = async (req, res) => {
 
   try {
     let user = null;
+    const normalizedIdentifier = data.identifier ? normalizePhone(data.identifier) : null;
+    const normalizedPhone = data.phoneNumber ? normalizePhone(data.phoneNumber) : null;
     
     // Nouveau format : on reçoit un 'identifier' qui peut être email ou téléphone avec indicatif
     if (data.identifier) {
@@ -19,7 +23,7 @@ const login = async (req, res) => {
         user = await User.findOne({ email: data.identifier });
       } else {
         // C'est un numéro de téléphone avec indicatif (ex: +22787727501)
-        user = await User.findOne({ phoneNumber: data.identifier });
+        user = await User.findOne({ phoneNumber: normalizedIdentifier });
       }
     } else {
       // Format ancien : recherche par email ou phoneNumber séparés (rétrocompatibilité)
@@ -28,7 +32,7 @@ const login = async (req, res) => {
       }
       // Si l'utilisateur n'est pas trouvé par email, recherche par numéro de téléphone
       if (!user && data.phoneNumber) {
-        user = await User.findOne({ phoneNumber: data.phoneNumber });
+        user = await User.findOne({ phoneNumber: normalizedPhone });
       }
     }
 
