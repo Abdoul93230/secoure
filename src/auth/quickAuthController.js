@@ -2,6 +2,7 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const { User, Profile } = require("../Models");
 const privateKey = require("./clef");
+const lafricaMobileSmsService = require("../services/lafricaMobileSmsService");
 
 const OTP_EXPIRY_MINUTES = 10;
 const OTP_COOLDOWN_SECONDS = 60;
@@ -12,10 +13,42 @@ const OTP_MAX_VERIFY_ATTEMPTS = 5;
 const phoneRegex = /^\+[1-9]\d{7,14}$/;
 
 const normalizePhone = (value = "") => value.replace(/\s+/g, "").trim();
-const shouldExposeDevOtp =
-  process.env.SHOW_DEV_OTP === "true" || process.env.NODE_ENV !== "production";
 
 const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString();
+
+const buildOtpSmsText = ({ code, purpose }) => {
+  const base = `Votre code IhamBaobab est ${code}. Il expire dans ${OTP_EXPIRY_MINUTES} minutes.`;
+  if (purpose === "password-reset") {
+    return `${base} Utilisez-le pour reinitialiser votre mot de passe. Ne le partagez jamais.`;
+  }
+  return `${base} Utilisez-le pour valider votre connexion ou inscription. Ne le partagez jamais.`;
+};
+
+const getSmsErrorMessage = (error) => {
+  if (!error) return "Erreur SMS inconnue";
+
+  if (error.code === "SMS_DISABLED") {
+    return "Service SMS desactive. Activez LAFRICA_SMS_ENABLED=true";
+  }
+
+  if (error.code === "SMS_MISSING_CREDENTIALS") {
+    return "Configuration SMS incomplete. Verifiez accountid/password LAfricaMobile";
+  }
+
+  if (error.code === "SMS_INVALID_SENDER") {
+    return "Sender SMS invalide (11 caracteres max, sans debut numerique)";
+  }
+
+  if (error.code === "SMS_PROVIDER_ERROR") {
+    const providerBody =
+      typeof error.providerBody === "string"
+        ? error.providerBody
+        : JSON.stringify(error.providerBody || {});
+    return `Fournisseur SMS indisponible (${error.status || 500}) ${providerBody}`;
+  }
+
+  return error.message || "Erreur SMS";
+};
 
 const ensureMinimalProfile = async (userId, phoneNumber) => {
   if (!userId) return;
@@ -182,23 +215,34 @@ const sendOtp = async (req, res) => {
     }
 
     const otpPayload = buildOtpPayload(previousOtp);
+
+    try {
+      await lafricaMobileSmsService.sendSms({
+        to: phone,
+        text: buildOtpSmsText({ code: otpPayload.code, purpose: "quick-auth" }),
+        retId: `quickauth-${Date.now()}`,
+      });
+    } catch (smsError) {
+      return res.status(502).json({
+        success: false,
+        message: "Impossible d'envoyer le code OTP par SMS",
+        error: getSmsErrorMessage(smsError),
+      });
+    }
+
     user.quickAuthOtp = otpPayload;
     user.quickAuthPending = true;
     await user.save();
 
     const response = {
       success: true,
-      message: "Code OTP genere avec succes",
+      message: "Code OTP envoye avec succes",
       data: {
         attemptsRemaining: Math.max(0, OTP_MAX_SEND_ATTEMPTS - otpPayload.sendCount),
         cooldownSeconds: OTP_COOLDOWN_SECONDS,
         expiresInSeconds: OTP_EXPIRY_MINUTES * 60,
       },
     };
-
-    if (shouldExposeDevOtp) {
-      response.data.devOTP = otpPayload.code;
-    }
 
     return res.status(200).json(response);
   } catch (error) {
@@ -484,22 +528,33 @@ const requestPasswordResetOtp = async (req, res) => {
 
     const otpPayload = buildOtpPayload(previousOtp);
     otpPayload.purpose = "password-reset";
+
+    try {
+      await lafricaMobileSmsService.sendSms({
+        to: phone,
+        text: buildOtpSmsText({ code: otpPayload.code, purpose: "password-reset" }),
+        retId: `pwdreset-${Date.now()}`,
+      });
+    } catch (smsError) {
+      return res.status(502).json({
+        success: false,
+        message: "Impossible d'envoyer le code OTP de reinitialisation",
+        error: getSmsErrorMessage(smsError),
+      });
+    }
+
     user.quickAuthOtp = otpPayload;
     await user.save();
 
     const response = {
       success: true,
-      message: "Code OTP de reinitialisation genere avec succes",
+      message: "Code OTP de reinitialisation envoye avec succes",
       data: {
         attemptsRemaining: Math.max(0, OTP_MAX_SEND_ATTEMPTS - otpPayload.sendCount),
         cooldownSeconds: OTP_COOLDOWN_SECONDS,
         expiresInSeconds: OTP_EXPIRY_MINUTES * 60,
       },
     };
-
-    if (shouldExposeDevOtp) {
-      response.data.devOTP = otpPayload.code;
-    }
 
     return res.status(200).json(response);
   } catch (error) {
