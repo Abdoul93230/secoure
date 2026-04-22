@@ -44,7 +44,9 @@ class ProductService {
       ...baseFilter,
       isDeleted: false,
       isPublished: "Published"
-    }).populate('Clefournisseur');
+    })
+      .sort({ createdAt: -1, _id: -1 })
+      .populate('Clefournisseur');
 
     const visibleProducts = [];
     for (const product of products) {
@@ -64,18 +66,32 @@ class ProductService {
     return visibleProducts;
   }
 
-  async getAllProductsSeller() {
-    return await Produit.find({ isDeleted: false }).populate('Clefournisseur');
+  async getAllProductsSeller(sellerId) {
+    const filter = { isDeleted: false };
+    if (sellerId) {
+      filter.Clefournisseur = sellerId;
+    }
+
+    return await Produit.find(filter)
+      .sort({ createdAt: -1, _id: -1 })
+      .populate('Clefournisseur');
   }
   async getAllProductsClients() {
     return await this.getClientVisibleProducts();
   }
   async getAllProductsAdmin() {
-    return await Produit.find().populate('Clefournisseur');
+    return await Produit.find()
+      .sort({ createdAt: -1, _id: -1 })
+      .populate('Clefournisseur');
   }
 
-  async getProductById(productId) {
-    return await Produit.findOne({ _id: productId, isDeleted: false }).populate('Clefournisseur');
+  async getProductById(productId, sellerId = null) {
+    const filter = { _id: productId, isDeleted: false };
+    if (sellerId) {
+      filter.Clefournisseur = sellerId;
+    }
+
+    return await Produit.findOne(filter).populate('Clefournisseur');
   }
   async getProductByIdAdmin(productId) {
     return await Produit.findOne({ _id: productId }).populate('Clefournisseur');
@@ -88,41 +104,61 @@ class ProductService {
   }
 
   // Mettre à jour un produit
-  async updateProduct(productId, updateData) {
-    return await Produit.findByIdAndUpdate(
-      productId,
+  async updateProduct(productId, updateData, sellerId = null) {
+    const filter = { _id: productId };
+    if (sellerId) {
+      filter.Clefournisseur = sellerId;
+    }
+
+    return await Produit.findOneAndUpdate(
+      filter,
       updateData,
       { new: true }
     );
   }
 
   // Mettre à jour un produit (version avancée)
-  async updateProductAdvanced(productId, updateData) {
-    return await Produit.findByIdAndUpdate(
-      productId,
+  async updateProductAdvanced(productId, updateData, sellerId = null) {
+    const filter = { _id: productId };
+    if (sellerId) {
+      filter.Clefournisseur = sellerId;
+    }
+
+    return await Produit.findOneAndUpdate(
+      filter,
       updateData,
       { new: true, runValidators: true }
     );
   }
 
   // Mise à jour simple
-  async updateProductSimple(productId, updateData) {
-    return await Produit.findByIdAndUpdate(
-      productId,
+  async updateProductSimple(productId, updateData, sellerId = null) {
+    const filter = { _id: productId };
+    if (sellerId) {
+      filter.Clefournisseur = sellerId;
+    }
+
+    return await Produit.findOneAndUpdate(
+      filter,
       updateData,
       { new: true }
     );
   }
 
-  async deleteProduct(productId) {
-    const product = await Produit.findById(productId);
+  async deleteProduct(productId, sellerId = null) {
+    const filter = { _id: productId };
+    if (sellerId) {
+      filter.Clefournisseur = sellerId;
+    }
+
+    const product = await Produit.findOne(filter);
     if (!product) return false;
 
     // Supprimer les images de Cloudinary
     await this.deleteProductImages(product);
 
     // Supprimer le produit de la base de données
-    await Produit.findByIdAndDelete(productId);
+    await Produit.deleteOne(filter);
     return true;
   }
 
@@ -133,13 +169,12 @@ class ProductService {
     // Vérifier que l'utilisateur est autorisé à supprimer (admin ou le vendeur qui l'a créé)
     const isAuthorized =
       sellerOrAdmin === "admin" ||
-      (product.createdBy &&
-        product.createdBy.toString() === sellerOrAdmin_id.toString());
+      (sellerOrAdmin === "seller" &&
+        product.Clefournisseur &&
+        product.Clefournisseur.toString() === sellerOrAdmin_id.toString());
 
     if (!isAuthorized) {
-      return res
-        .status(403)
-        .json({ message: "Vous n'êtes pas autorisé à supprimer ce produit" });
+      throw new Error("Vous n'êtes pas autorisé à supprimer ce produit");
     }
 
     const updated = await Produit.findByIdAndUpdate(
@@ -160,7 +195,7 @@ class ProductService {
       Clefournisseur: seller,
       isDeleted: false,
       isPublished: "Published"
-    });
+    }).sort({ createdAt: -1, _id: -1 });
   }
 
   async searchByName(name) {
@@ -175,7 +210,7 @@ class ProductService {
       Clefournisseur: seller,
       isDeleted: false,
       isPublished: "Published"
-    });
+    }).sort({ createdAt: -1, _id: -1 });
   }
 
   async validateProduct(productId, validationData) {

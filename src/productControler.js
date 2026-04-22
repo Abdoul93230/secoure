@@ -16,7 +16,7 @@ const { gererChangementEtatCommande } = require('./controllers/financeController
 
 // Product CRUD Operations
 const getAllProductsSeller = handleAsyncError(async (req, res) => {
-  const products = await productService.getAllProductsSeller();
+  const products = await productService.getAllProductsSeller(req.userId);
   // console.log({ products });
 
   res.json({ message: "Tous les produits", data: products });
@@ -36,7 +36,7 @@ const getAllProductsAdmin = handleAsyncError(async (req, res) => {
 
 const getProductById = handleAsyncError(async (req, res) => {
   const { productId } = req.params;
-  const product = await productService.getProductById(productId);
+  const product = await productService.getProductById(productId, req.userId);
   
   if (!product) {
     return res.status(404).json({ message: "Produit non trouvé" });
@@ -224,7 +224,7 @@ const updateProduct = handleAsyncError(async (req, res) => {
     );
     
     // Mettre à jour le produit
-    const updatedProduct = await productService.updateProduct(productId, updateData);
+    const updatedProduct = await productService.updateProduct(productId, updateData, req.userId);
 
     if (!updatedProduct) {
       return res.status(404).json({ message: "Produit introuvable" });
@@ -271,7 +271,7 @@ const updateProduct2 = handleAsyncError(async (req, res) => {
     );
     
     // Mettre à jour le produit avec validation
-    const updatedProduct = await productService.updateProductAdvanced(productId, updateData);
+        const updatedProduct = await productService.updateProductAdvanced(productId, updateData, req.userId);
 
     if (!updatedProduct) {
       return res.status(404).json({ message: "Produit non trouvé" });
@@ -417,7 +417,7 @@ const updateProduct2 = handleAsyncError(async (req, res) => {
 
 const deleteProduct = handleAsyncError(async (req, res) => {
   const { productId } = req.params;
-  const deleted = await productService.deleteProduct(productId);
+  const deleted = await productService.deleteProduct(productId, req.userId);
   
   if (!deleted) {
     return res.status(404).json({ message: "Produit non trouvé" });

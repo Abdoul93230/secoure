@@ -4,15 +4,15 @@ const productControler = require('../productControler');
 const middelware = require('../auth/middelware');
 
 // Product CRUD
-router.get('/Products', productControler.getAllProductsSeller);
+router.get('/Products', middelware.authSeller, productControler.getAllProductsSeller);
 router.get('/ProductsClients', productControler.getAllProductsClients);
-router.get('/ProductsAdmin', productControler.getAllProductsAdmin);
-router.post('/product', middelware.handleUpload, productControler.createProduct);
-router.get('/Product/:productId', productControler.getProductById);
-router.get('/ProductAdmin/:productId', productControler.getProductByIdAdmin);
-router.put('/Product/:productId', middelware.handleUpload, productControler.updateProduct);
-router.put('/Product2/:productId', middelware.handleUpload, productControler.updateProduct2);
-router.delete('/Product/:productId', productControler.deleteProduct);
+router.get('/ProductsAdmin', middelware.authAdmin, productControler.getAllProductsAdmin);
+router.post('/product', middelware.authSeller, middelware.handleUpload, productControler.createProduct);
+router.get('/Product/:productId', middelware.authSeller, productControler.getProductById);
+router.get('/ProductAdmin/:productId', middelware.authAdmin, productControler.getProductByIdAdmin);
+router.put('/Product/:productId', middelware.authSeller, middelware.handleUpload, productControler.updateProduct);
+router.put('/Product2/:productId', middelware.authSeller, middelware.handleUpload, productControler.updateProduct2);
+router.delete('/Product/:productId', middelware.authSeller, productControler.deleteProduct);
 router.delete('/ProductSeller/:productId', productControler.deleteProductAttribut);
 
 // Product search
@@ -22,7 +22,7 @@ router.get('/searchProductByName/:name', productControler.searchProductByName);
 router.get('/searchProductByNameBySeller/:name/:seller', productControler.searchProductByNameBySeller);
 
 // Product validation
-router.put('/product/validateProduct/:productId', productControler.validateProductStatus);
+router.put('/product/validateProduct/:productId', middelware.authAdmin, productControler.validateProductStatus);
 
 // Product pub
 router.get('/productPubget', productControler.productPubget);

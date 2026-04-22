@@ -82,12 +82,21 @@ const getByid = (req, res) => {
 
 const searchProductBySupplier = async (req, res) => {
   const supplierId = req.params.supplierId;
+  const authenticatedSellerId = String(req.userId || "");
+
+  if (!authenticatedSellerId || authenticatedSellerId !== String(supplierId)) {
+    return res.status(403).json({
+      message: "Accès refusé: vous ne pouvez consulter que vos propres produits.",
+    });
+  }
 
   try {
     const products = await Produit.find({
       Clefournisseur: supplierId,
       isDeleted: false,
-    }).populate('Clefournisseur');
+    })
+      .sort({ createdAt: -1, _id: -1 })
+      .populate('Clefournisseur');
 
     if (!products || products.length == 0) {
       return res
@@ -113,6 +122,7 @@ const searchProductBySupplierClients = async (req, res) => {
       isDeleted: false,
       isPublished: "Published"
     })
+    .sort({ createdAt: -1, _id: -1 })
     .populate({
       path: 'Clefournisseur',
       match: { isvalid: true } // On ne prend que les fournisseurs valides
@@ -142,7 +152,7 @@ const searchProductBySupplierAdmin = async (req, res) => {
   try {
     const products = await Produit.find({
       Clefournisseur: supplierId,
-    });
+    }).sort({ createdAt: -1, _id: -1 });
 
     if (!products || products.length == 0) {
       return res
