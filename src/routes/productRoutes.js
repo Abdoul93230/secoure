@@ -13,6 +13,7 @@ router.get('/ProductAdmin/:productId', middelware.authAdmin, productControler.ge
 router.put('/Product/:productId', middelware.authSeller, middelware.handleUpload, productControler.updateProduct);
 router.put('/Product2/:productId', middelware.authSeller, middelware.handleUpload, productControler.updateProduct2);
 router.put('/Products/bulk-update', middelware.authSeller, productControler.bulkUpdate);
+router.post('/Products/bulk-create', middelware.authSeller, productControler.bulkCreate);
 router.delete('/Product/:productId', middelware.authSeller, productControler.deleteProduct);
 router.delete('/ProductSeller/:productId', productControler.deleteProductAttribut);
 

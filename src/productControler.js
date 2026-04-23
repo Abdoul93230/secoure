@@ -440,6 +440,130 @@ const bulkUpdate = handleAsyncError(async (req, res) => {
   }
 });
 
+const bulkCreate = handleAsyncError(async (req, res) => {
+  try {
+    const { products } = req.body;
+
+    if (!products || !Array.isArray(products) || products.length === 0) {
+      return res.status(400).json({ message: "Aucun produit fourni pour l'import" });
+    }
+
+    const sellerId = req.userId;
+
+    // ── Vérifier plan d'abonnement ───────────────────────────────────
+    const subInfo = await productService.getSellerSubscriptionInfo(sellerId);
+    const planType = subInfo?.subscription?.planType || 'Starter';
+    const PLAN_CSV = { Starter: true, Pro: true, Business: true };
+    if (!PLAN_CSV[planType]) {
+      return res.status(403).json({
+        success: false,
+        message: `L'import en masse est disponible à partir du plan Pro. Votre plan actuel est ${planType}.`
+      });
+    }
+
+    // ── Cap 50 produits par import ────────────────────────────────────
+    const MAX_IMPORT = 50;
+    const capped = products.slice(0, MAX_IMPORT);
+
+    // ── Vérifier quota restant ────────────────────────────────────────
+    const productLimit = subInfo?.products?.limit ?? -1;
+    const currentCount = subInfo?.products?.current ?? 0;
+    const effectiveProducts = productLimit === -1
+      ? capped
+      : capped.slice(0, Math.max(0, productLimit - currentCount));
+
+    if (effectiveProducts.length === 0) {
+      return res.status(403).json({
+        success: false,
+        message: `Quota de produits atteint. Vous avez ${currentCount}/${productLimit} produits.`
+      });
+    }
+
+
+    const autoDesc = (p) => {
+      const nom = p.nom || p.name || "Produit";
+      const marque = p.marque || p.brand || "";
+      const prix = Number(p.prix || p.price || 0);
+      const promo = Number(p.prixPromo || p.prix_promo || 0);
+      const stock = Number(p.stock || p.quantite || 1);
+
+      const lines = [];
+      if (marque) {
+        lines.push(`${nom} — par ${marque}`);
+        lines.push("");
+        lines.push(`Découvrez ${nom}, un article de qualité signé ${marque}. Sélectionné avec soin pour allier style, durabilité et rapport qualité-prix exceptionnel.`);
+      } else {
+        lines.push(`${nom}`);
+        lines.push("");
+        lines.push(`Découvrez ${nom}, un article soigneusement sélectionné pour vous offrir le meilleur rapport qualité-prix du marché.`);
+      }
+      lines.push("");
+      lines.push(`📦 Stock disponible : ${stock} unité(s)`);
+      if (prix > 0) {
+        lines.push("");
+        lines.push("💰 TARIFS");
+        lines.push(`• Prix de vente : ${prix.toLocaleString()} FCFA`);
+        if (promo > 0) {
+          const discount = Math.round((1 - promo / prix) * 100);
+          lines.push(`• 🔥 Prix promotionnel : ${promo.toLocaleString()} FCFA — Vous économisez ${discount}% !`);
+        }
+      }
+      lines.push("");
+      lines.push("✅ NOS ENGAGEMENTS");
+      lines.push("• Produit 100% authentique, soigneusement vérifié");
+      lines.push("• Livraison rapide dans toutes nos zones de livraison");
+      lines.push("• Service client disponible avant et après achat");
+      lines.push("• Paiement sécurisé — Satisfait ou remboursé");
+      return lines.join("\n");
+    };
+
+    const docs = effectiveProducts.map(p => {
+      const hasImage = !!(p.image_url || p.image1);
+      return {
+        name: p.nom || p.name || "Produit importé",
+        prix: Number(p.prix || p.price || 0),
+        prixPromo: Number(p.prixPromo || p.prix_promo || 0),
+        quantite: Number(p.stock || p.quantite || 1),
+        description: p.description && p.description.trim() ? p.description : autoDesc(p),
+        marque: p.marque || p.brand || "inconu",
+        image1: p.image_url || p.image1 || null,
+        image2: p.image2_url || p.image2 || null,
+        image3: p.image3_url || p.image3 || null,
+        Clefournisseur: sellerId,
+        ClefType: p.ClefType || p.type_id || null,
+        isPublished: hasImage ? "Attente" : "UnPublished",
+        sellerOrAdmin: "seller",
+        sellerOrAdmin_id: sellerId,
+        shipping: {
+          weight: Number(p.poids_kg || p.weight || 0.5),
+          origine: p.origine || "Niger",
+          dimensions: { length: 0, width: 0, height: 0 },
+          zones: []
+        }
+      };
+    });
+
+    const Produit = require('./models/Produit');
+    const result = await Produit.insertMany(docs, { ordered: false });
+
+    res.status(201).json({
+      success: true,
+      message: `${result.length} produit(s) importé(s) avec succès`,
+      created: result.length,
+      errors: products.length - result.length
+    });
+  } catch (error) {
+    const inserted = error.insertedDocs?.length || 0;
+    res.status(207).json({
+      success: false,
+      message: `Import partiel : ${inserted} produit(s) créé(s)`,
+      created: inserted,
+      errors: error.writeErrors?.length || 0,
+      details: error.writeErrors?.map(e => e.errmsg) || [error.message]
+    });
+  }
+});
+
 const deleteProduct = handleAsyncError(async (req, res) => {
   const { productId } = req.params;
   const deleted = await productService.deleteProduct(productId, req.userId);
@@ -1286,6 +1410,7 @@ module.exports = {
   updateProduct,
   updateProduct2,
   bulkUpdate,
+  bulkCreate,
   deleteProduct,
   deleteProductAttribut,
   searchProductByType,

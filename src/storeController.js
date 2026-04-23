@@ -17,13 +17,13 @@ const PLAN_DEFAULTS = {
       annual: 27000, // 2500 * 12 mois (moin 10% pour paiement annuel)
     },
     commission: 6,
-    productLimit: 10,
+    productLimit: 20,
     features: {
       productManagement: {
-        maxProducts: 10,
+        maxProducts: 20,
         maxVariants: 3,
         maxCategories: 5,
-        catalogImport: false,
+        catalogImport: true,
       },
       paymentOptions: {
         manualPayment: true,
