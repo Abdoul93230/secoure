@@ -415,6 +415,31 @@ const updateProduct2 = handleAsyncError(async (req, res) => {
   }
 });
 
+const bulkUpdate = handleAsyncError(async (req, res) => {
+  try {
+    const { updates } = req.body;
+    
+    if (!updates || !Array.isArray(updates)) {
+      return res.status(400).json({ message: "Format invalide pour la mise à jour en masse" });
+    }
+
+    const result = await productService.bulkUpdateProducts(updates, req.userId);
+
+    res.status(200).json({
+      success: true,
+      message: `${result.modifiedCount} produit(s) mis à jour avec succès`,
+      data: result
+    });
+  } catch (error) {
+    console.error("Erreur lors de la mise à jour en masse:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Une erreur s'est produite lors de la mise à jour en masse",
+      error: error.message
+    });
+  }
+});
+
 const deleteProduct = handleAsyncError(async (req, res) => {
   const { productId } = req.params;
   const deleted = await productService.deleteProduct(productId, req.userId);
@@ -1260,6 +1285,7 @@ module.exports = {
   createProduct,
   updateProduct,
   updateProduct2,
+  bulkUpdate,
   deleteProduct,
   deleteProductAttribut,
   searchProductByType,

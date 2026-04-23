@@ -145,6 +145,28 @@ class ProductService {
     );
   }
 
+  // Mise à jour simple en masse (Bulk Update)
+  async bulkUpdateProducts(updates, sellerId = null) {
+    if (!updates || !Array.isArray(updates) || updates.length === 0) {
+      return { modifiedCount: 0 };
+    }
+    
+    const bulkOps = updates.map(update => {
+      const filter = { _id: update.id };
+      if (sellerId) {
+        filter.Clefournisseur = sellerId;
+      }
+      return {
+        updateOne: {
+          filter,
+          update: { $set: update.changes }
+        }
+      };
+    });
+
+    return await Produit.bulkWrite(bulkOps);
+  }
+
   async deleteProduct(productId, sellerId = null) {
     const filter = { _id: productId };
     if (sellerId) {
