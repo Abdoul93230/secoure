@@ -66,7 +66,7 @@ class FinancialService {
   }
 
   // Calculer le montant net après commission
-  static calculerMontantNet(montantBrut, tauxCommission = 4.0) {
+  static calculerMontantNet(montantBrut, tauxCommission = 3.0) {
     const commission = Math.round((montantBrut * tauxCommission) / 100);
     return {
       montantNet: montantBrut - commission,
@@ -343,15 +343,20 @@ class FinancialService {
           transaction.description += ` - ANNULÉE: ${motifAnnulation}`;
           await transaction.save({ session });
 
-          // Ajuster le portefeuille selon l'ancien statut
+          // Ajuster le portefeuille selon l'ancien statut ET la disponibilité
           const ajustements = {};
-          
+
           if (ancienStatut === 'EN_ATTENTE') {
             ajustements.soldeEnAttente = -transaction.montantNet;
           } else if (ancienStatut === 'CONFIRME') {
-            ajustements.soldeBloqueTemporairement = -transaction.montantNet;
+            if (transaction.estDisponible) {
+              // L'argent a déjà été débloqué vers soldeDisponible par le cron
+              ajustements.soldeDisponible = -transaction.montantNet;
+            } else {
+              ajustements.soldeBloqueTemporairement = -transaction.montantNet;
+            }
           }
-          
+
           ajustements.soldeTotal = -transaction.montantNet;
 
           await this.mettreAJourPortefeuille(transaction.sellerId, ajustements, session);
@@ -566,11 +571,11 @@ class FinancialService {
 
       transactions.forEach(t => {
         if (t.type === 'CREDIT_COMMANDE') {
-          soldeCalcule += t.montantNet;
-          
           if (t.statut === 'EN_ATTENTE') {
             soldeEnAttenteCalcule += t.montantNet;
+            // EN_ATTENTE ne contribue pas encore au soldeTotal
           } else if (t.statut === 'CONFIRME') {
+            soldeCalcule += t.montantNet;
             if (t.estDisponible) {
               soldeDisponibleCalcule += t.montantNet;
             } else {
@@ -578,7 +583,9 @@ class FinancialService {
             }
           }
         } else if (t.type === 'RETRAIT' && t.statut === 'CONFIRME') {
-          soldeCalcule += t.montantNet; // négatif
+          // montant = -montantDemande (frais compris) — c'est ce qui sort du total et du disponible
+          soldeCalcule += t.montant;
+          soldeDisponibleCalcule += t.montant;
         }
       });
 
@@ -748,8 +755,15 @@ class FinancialService {
           throw new Error('Demande de retrait non trouvée');
         }
 
-        if (retrait.statut !== 'EN_ATTENTE') {
-          throw new Error(`Cette demande a déjà été traitée (statut: ${retrait.statut})`);
+        // Transitions autorisées
+        const transitionsAutorisees = {
+          EN_ATTENTE: ['APPROUVE', 'REJETE', 'ANNULE'],
+          APPROUVE:   ['TRAITE', 'REJETE']
+        };
+
+        const permis = transitionsAutorisees[retrait.statut] || [];
+        if (!permis.includes(nouveauStatut)) {
+          throw new Error(`Transition non autorisée: ${retrait.statut} → ${nouveauStatut}`);
         }
 
         const ancienStatut = retrait.statut;
@@ -772,7 +786,7 @@ class FinancialService {
 
         // Traitement selon le nouveau statut
         if (nouveauStatut === 'APPROUVE') {
-          // Créer une transaction de retrait
+          // Créer une transaction de retrait (argent encore en soldeReserveRetrait)
           const transaction = new Transaction({
             sellerId: retrait.sellerId,
             retraitId: retrait._id,
@@ -798,12 +812,34 @@ class FinancialService {
             soldeTotal: -retrait.montantDemande
           }, session);
 
+        } else if (nouveauStatut === 'TRAITE') {
+          // Paiement effectivement versé — aucun mouvement de solde supplémentaire
+          // (déjà déduit à l'APPROUVE), juste le statut change
+
         } else if (nouveauStatut === 'REJETE' || nouveauStatut === 'ANNULE') {
-          // Remettre l'argent dans le solde disponible
-          await this.mettreAJourPortefeuille(retrait.sellerId, {
-            soldeReserveRetrait: -retrait.montantDemande,
-            soldeDisponible: retrait.montantDemande
-          }, session);
+          // Remettre l'argent disponible selon l'état précédent
+          if (ancienStatut === 'EN_ATTENTE') {
+            // Argent encore en soldeReserveRetrait
+            await this.mettreAJourPortefeuille(retrait.sellerId, {
+              soldeReserveRetrait: -retrait.montantDemande,
+              soldeDisponible: retrait.montantDemande
+            }, session);
+          } else if (ancienStatut === 'APPROUVE') {
+            // Déjà déduit du total → recréditer total + disponible
+            await this.mettreAJourPortefeuille(retrait.sellerId, {
+              soldeTotal: retrait.montantDemande,
+              soldeDisponible: retrait.montantDemande
+            }, session);
+
+            // Annuler la transaction de retrait si elle existe
+            if (retrait.transactionId) {
+              await Transaction.findByIdAndUpdate(
+                retrait.transactionId,
+                { statut: 'ANNULE' },
+                { session }
+              );
+            }
+          }
         }
 
         console.log(`💸 Retrait ${retrait.reference} ${nouveauStatut} par admin ${adminId}`);
@@ -856,10 +892,10 @@ class FinancialService {
 
     try {
       return await session.withTransaction(async () => {
-        // Récupérer toutes les transactions confirmées
+        // Toutes les transactions actives (hors annulées)
         const transactions = await Transaction.find({
           sellerId,
-          statut: 'CONFIRME'
+          statut: { $in: ['EN_ATTENTE', 'CONFIRME'] }
         }).session(session);
 
         let soldeTotal = 0;
@@ -868,14 +904,19 @@ class FinancialService {
 
         transactions.forEach(transaction => {
           if (transaction.type === 'CREDIT_COMMANDE') {
-            soldeTotal += transaction.montantNet;
-            if (transaction.estDisponible) {
-              soldeDisponible += transaction.montantNet;
-            } else {
-              soldeBloqueTemporairement += transaction.montantNet;
+            if (transaction.statut === 'CONFIRME') {
+              soldeTotal += transaction.montantNet;
+              if (transaction.estDisponible) {
+                soldeDisponible += transaction.montantNet;
+              } else {
+                soldeBloqueTemporairement += transaction.montantNet;
+              }
             }
-          } else if (transaction.type === 'RETRAIT') {
-            soldeTotal += transaction.montantNet; // montantNet est négatif pour les retraits
+            // EN_ATTENTE → compté dans soldeEnAttente uniquement
+          } else if (transaction.type === 'RETRAIT' && transaction.statut === 'CONFIRME') {
+            // Utiliser montant (= -montantDemande, frais compris) et non montantNet
+            soldeTotal += transaction.montant;
+            soldeDisponible += transaction.montant; // le retrait a été prélevé sur le disponible
           }
         });
 

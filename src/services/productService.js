@@ -38,51 +38,118 @@ class ProductService {
     return hasActiveSubscription;
   }
 
-  async getClientVisibleProducts(baseFilter = {}) {
-    const subscriptionCache = new Map();
-    const products = await Produit.find({
-      ...baseFilter,
-      isDeleted: false,
-      isPublished: "Published"
-    })
-      .sort({ createdAt: -1, _id: -1 })
-      .populate('Clefournisseur');
+  // Build the set of seller IDs eligible for client-facing display.
+  // 2 queries total instead of 1-per-product (was O(n) round-trips).
+  async getEligibleSellerIds() {
+    const [validSellers, activePlans] = await Promise.all([
+      SellerRequest.find(
+        { isvalid: true, subscriptionStatus: { $in: ['active', 'trial'] } },
+        { _id: 1 }
+      ).lean(),
+      PricingPlan.find(
+        { status: { $in: ['active', 'trial'] }, endDate: { $gte: new Date() } },
+        { storeId: 1 }
+      ).lean()
+    ]);
 
-    const visibleProducts = [];
-    for (const product of products) {
-      if (!product.Clefournisseur) continue;
-      if (product.subscriptionControl && product.subscriptionControl.forcedHidden) continue;
+    const validSellerIds = new Set(validSellers.map(s => s._id.toString()));
+    const activeStoreIds = new Set(activePlans.map(p => p.storeId?.toString()));
 
-      const isEligible = await this.isSellerEligibleForClientSales(
-        product.Clefournisseur,
-        subscriptionCache
-      );
-
-      if (isEligible) {
-        visibleProducts.push(product);
-      }
+    // Keep only sellers that satisfy both conditions
+    const eligible = [];
+    for (const id of validSellerIds) {
+      if (activeStoreIds.has(id)) eligible.push(id);
     }
-
-    return visibleProducts;
+    return eligible;
   }
 
-  async getAllProductsSeller(sellerId) {
+  async getClientVisibleProducts(baseFilter = {}, { page = 1, limit = 40 } = {}) {
+    const eligibleSellerIds = await this.getEligibleSellerIds();
+    const skip = (page - 1) * limit;
+
+    const filter = {
+      ...baseFilter,
+      isDeleted: false,
+      isPublished: 'Published',
+      Clefournisseur: { $in: eligibleSellerIds },
+      'subscriptionControl.forcedHidden': { $ne: true }
+    };
+
+    const [products, total] = await Promise.all([
+      Produit.find(filter)
+        .sort({ createdAt: -1, _id: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate('Clefournisseur', 'name storeName logo subscriptionStatus isvalid')
+        .lean(),
+      Produit.countDocuments(filter)
+    ]);
+
+    return { products, total, page, limit, pages: Math.ceil(total / limit) };
+  }
+
+  async getAllProductsSeller(sellerId, { page = 1, limit = 50, search = '', status = '' } = {}) {
     const filter = { isDeleted: false };
-    if (sellerId) {
-      filter.Clefournisseur = sellerId;
-    }
+    if (sellerId) filter.Clefournisseur = sellerId;
+    if (status) filter.isPublished = status;
+    if (search) filter.$text = { $search: search };
+
+    const skip = (page - 1) * limit;
+    const [products, total] = await Promise.all([
+      Produit.find(filter)
+        .sort({ createdAt: -1, _id: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate('Clefournisseur', 'name storeName')
+        .lean(),
+      Produit.countDocuments(filter)
+    ]);
+
+    return { products, total, page, limit, pages: Math.ceil(total / limit) };
+  }
+
+  async getAllProductsClients({ page = 1, limit = 40 } = {}) {
+    return await this.getClientVisibleProducts({}, { page, limit });
+  }
+
+  async getAllProductsAdmin({ page = 1, limit = 50, search = '', status = '', type = '' } = {}) {
+    const filter = {};
+    if (status) filter.isPublished = status;
+    if (type) filter.ClefType = type;
+    if (search) filter.$text = { $search: search };
+
+    const skip = (page - 1) * limit;
+    const [products, total] = await Promise.all([
+      Produit.find(filter)
+        .sort({ createdAt: -1, _id: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate('Clefournisseur', 'name storeName')
+        .lean(),
+      Produit.countDocuments(filter)
+    ]);
+
+    return { products, total, page, limit, pages: Math.ceil(total / limit) };
+  }
+
+  // Lightweight home feed: random eligible products capped at `limit`
+  async getHomeFeed(limit = 40) {
+    const eligibleSellerIds = await this.getEligibleSellerIds();
+    const filter = {
+      isDeleted: false,
+      isPublished: 'Published',
+      Clefournisseur: { $in: eligibleSellerIds },
+      'subscriptionControl.forcedHidden': { $ne: true }
+    };
+    const total = await Produit.countDocuments(filter);
+    const skip = total > limit ? Math.floor(Math.random() * (total - limit)) : 0;
 
     return await Produit.find(filter)
       .sort({ createdAt: -1, _id: -1 })
-      .populate('Clefournisseur');
-  }
-  async getAllProductsClients() {
-    return await this.getClientVisibleProducts();
-  }
-  async getAllProductsAdmin() {
-    return await Produit.find()
-      .sort({ createdAt: -1, _id: -1 })
-      .populate('Clefournisseur');
+      .skip(skip)
+      .limit(limit)
+      .select('_id name prix prixPromo image1 ClefType Clefournisseur quantite')
+      .lean();
   }
 
   async getProductById(productId, sellerId = null) {
@@ -97,8 +164,53 @@ class ProductService {
     return await Produit.findOne({ _id: productId }).populate('Clefournisseur');
   }
 
-  // Créer un produit
+  // Vérifier si le seller peut encore ajouter un produit selon son plan
+  async checkProductLimit(sellerId) {
+    if (!sellerId) return { allowed: true };
+
+    const plan = await PricingPlan.findOne({
+      storeId: sellerId,
+      status: { $in: ['active', 'trial'] }
+    }).lean();
+
+    if (!plan) return { allowed: true }; // pas de plan = pas de limite appliquée
+
+    const maxProducts = plan.features?.productManagement?.maxProducts ?? plan.productLimit ?? -1;
+
+    if (maxProducts === -1) return { allowed: true }; // illimité
+
+    const currentCount = await Produit.countDocuments({
+      Clefournisseur: sellerId,
+      isDeleted: false
+    });
+
+    if (currentCount >= maxProducts) {
+      return {
+        allowed: false,
+        message: `Limite atteinte : votre plan ${plan.planType} autorise ${maxProducts} article(s). Vous en avez déjà ${currentCount}.`,
+        current: currentCount,
+        max: maxProducts,
+        planType: plan.planType
+      };
+    }
+
+    return { allowed: true, current: currentCount, max: maxProducts };
+  }
+
+  // Créer un produit (avec vérification de limite selon le plan)
   async createProduct(productData) {
+    const sellerId = productData.Clefournisseur;
+
+    if (sellerId) {
+      const limitCheck = await this.checkProductLimit(sellerId.toString());
+      if (!limitCheck.allowed) {
+        const error = new Error(limitCheck.message);
+        error.code = 'PRODUCT_LIMIT_REACHED';
+        error.details = limitCheck;
+        throw error;
+      }
+    }
+
     const product = new Produit(productData);
     return await product.save();
   }
@@ -207,32 +319,50 @@ class ProductService {
     return !!updated;
   }
 
-  async searchByType(type) {
-    return await this.getClientVisibleProducts({ ClefType: type });
+  async searchBySeller(sellerId, { page = 1, limit = 50 } = {}) {
+    const filter = { Clefournisseur: sellerId, isDeleted: false };
+    const skip = (page - 1) * limit;
+    const [products, total] = await Promise.all([
+      Produit.find(filter).sort({ createdAt: -1, _id: -1 }).skip(skip).limit(limit).lean(),
+      Produit.countDocuments(filter)
+    ]);
+    return { products, total, page, limit, pages: Math.ceil(total / limit) };
   }
 
-  async searchByTypeAndSeller(type, seller) {
-    return await Produit.find({
-      ClefType: type,
+  async searchByType(type, { page = 1, limit = 40 } = {}) {
+    return await this.getClientVisibleProducts({ ClefType: type }, { page, limit });
+  }
+
+  async searchByTypeAndSeller(type, seller, { page = 1, limit = 50 } = {}) {
+    const filter = { ClefType: type, Clefournisseur: seller, isDeleted: false, isPublished: 'Published' };
+    const skip = (page - 1) * limit;
+    const [products, total] = await Promise.all([
+      Produit.find(filter).sort({ createdAt: -1, _id: -1 }).skip(skip).limit(limit).lean(),
+      Produit.countDocuments(filter)
+    ]);
+    return { products, total, page, limit, pages: Math.ceil(total / limit) };
+  }
+
+  async searchByName(name, { page = 1, limit = 40 } = {}) {
+    return await this.getClientVisibleProducts(
+      { $text: { $search: name } },
+      { page, limit }
+    );
+  }
+
+  async searchByNameAndSeller(name, seller, { page = 1, limit = 50 } = {}) {
+    const filter = {
+      $text: { $search: name },
       Clefournisseur: seller,
       isDeleted: false,
-      isPublished: "Published"
-    }).sort({ createdAt: -1, _id: -1 });
-  }
-
-  async searchByName(name) {
-    return await this.getClientVisibleProducts({
-      name: { $regex: name, $options: "i" }
-    });
-  }
-
-  async searchByNameAndSeller(name, seller) {
-    return await Produit.find({
-      name: { $regex: name, $options: "i" },
-      Clefournisseur: seller,
-      isDeleted: false,
-      isPublished: "Published"
-    }).sort({ createdAt: -1, _id: -1 });
+      isPublished: 'Published'
+    };
+    const skip = (page - 1) * limit;
+    const [products, total] = await Promise.all([
+      Produit.find(filter).sort({ createdAt: -1, _id: -1 }).skip(skip).limit(limit).lean(),
+      Produit.countDocuments(filter)
+    ]);
+    return { products, total, page, limit, pages: Math.ceil(total / limit) };
   }
 
   async validateProduct(productId, validationData) {

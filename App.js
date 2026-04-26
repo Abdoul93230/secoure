@@ -15,7 +15,6 @@ const userRoutes = require("./src/routes/userRoutes");
 const productRoutes = require("./src/routes/productRoutes");
 const orderRoutes = require("./src/routes/orderRoutes");
 const sellerRoutes = require("./src/routes/sellerRoutes");
-const supplierRoutes = require("./src/routes/supplierRoutes");
 const authRoutes = require("./src/routes/authRoutes");
 const paymentRoutes = require("./src/routes/paymentRoutes");
 const shippingRoutes = require("./src/routes/shippingRoutes");
@@ -43,6 +42,14 @@ const CronJobs = require('./src/utils/cronJobs');
 const port = 8083;
 const app = express();
 const server = http.createServer(app);
+
+// Absorb abrupt client disconnections (ECONNRESET) at the TCP level
+server.on("connection", (socket) => {
+  socket.on("error", (err) => {
+    if (err.code === "ECONNRESET") return;
+    console.error("Socket error:", err);
+  });
+});
 
 // Rate limiting
 // const limiter = rateLimit({
@@ -113,6 +120,11 @@ app
 
 // WebSocket management
 io.on("connection", (socket) => {
+  // Absorb transport errors (ECONNRESET, etc.) so they don't crash the process
+  socket.on("error", (err) => {
+    // client disconnected abruptly — nothing to do
+  });
+
   socket.on("payment:join", ({ reference }) => {
     if (reference) {
       socket.join(`payment:${reference}`);
@@ -163,7 +175,6 @@ app.use("/", userRoutes);
 app.use("/", productRoutes);
 app.use("/", orderRoutes);
 app.use("/", sellerRoutes);
-app.use("/", supplierRoutes);
 app.use("/", paymentRoutes);
 app.use("/", shippingRoutes);
 app.use("/api/marketing", marketingRoutes);

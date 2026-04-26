@@ -512,6 +512,12 @@ const produitSchema = new mongoose.Schema(
   { strict: false }
 );
 
+// Indexes for common query patterns
+produitSchema.index({ Clefournisseur: 1, isDeleted: 1, createdAt: -1 });
+produitSchema.index({ isPublished: 1, isDeleted: 1, createdAt: -1 });
+produitSchema.index({ ClefType: 1, isDeleted: 1, isPublished: 1 });
+produitSchema.index({ name: 'text', description: 'text' }); // full-text search
+
 const Produit = mongoose.model("Produit", produitSchema);
 ////////////////////////////////////////////////////////////////////////////////required message///////////////////////////
 const typeProduits = new mongoose.Schema({

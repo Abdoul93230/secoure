@@ -1,0 +1,5 @@
+{"timestamp":"2026-04-25T09:00:00.819Z","level":"SUCCESS","operation":"CONFIRMATION_AUTOMATIQUE","data":{"confirmees":0,"total":0}}
+{"timestamp":"2026-04-25T09:00:01.344Z","level":"SUCCESS","operation":"DEBLOCAGE_AUTOMATIQUE","data":{"ok":1,"$clusterTime":{"clusterTime":{"$timestamp":"7632619023473049803"},"signature":{"hash":"wi6/tCZMMKmcbDAr/1DW2AJ5HnU=","keyId":{"low":16,"high":1763403835,"unsigned":false}}},"operationTime":{"$timestamp":"7632619023473049803"}}}
+{"timestamp":"2026-04-25T09:30:00.738Z","level":"SUCCESS","operation":"CONFIRMATION_AUTOMATIQUE","data":{"confirmees":0,"total":0}}
+{"timestamp":"2026-04-25T09:30:01.214Z","level":"SUCCESS","operation":"DEBLOCAGE_AUTOMATIQUE","data":{"ok":1,"$clusterTime":{"clusterTime":{"$timestamp":"7632626754414182425"},"signature":{"hash":"FQIZz3Kx0HhzYS/7okAWReX1A9E=","keyId":{"low":16,"high":1763403835,"unsigned":false}}},"operationTime":{"$timestamp":"7632626754414182424"}}}
+{"timestamp":"2026-04-25T10:01:15.243Z","level":"ERROR","operation":"TACHES_AUTOMATIQUES","data":{"error":"connection 4 to 89.192.9.252:27017 closed"}}

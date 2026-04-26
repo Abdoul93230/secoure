@@ -7,6 +7,7 @@ const middelware = require('../auth/middelware');
 router.get('/Products', middelware.authSeller, productControler.getAllProductsSeller);
 router.get('/ProductsClients', productControler.getAllProductsClients);
 router.get('/ProductsAdmin', middelware.authAdmin, productControler.getAllProductsAdmin);
+router.get('/ProductsHome', productControler.getHomeFeed);
 router.post('/product', middelware.authSeller, middelware.handleUpload, productControler.createProduct);
 router.get('/Product/:productId', middelware.authSeller, productControler.getProductById);
 router.get('/ProductAdmin/:productId', middelware.authAdmin, productControler.getProductByIdAdmin);
@@ -16,6 +17,14 @@ router.put('/Products/bulk-update', middelware.authSeller, productControler.bulk
 router.post('/Products/bulk-create', middelware.authSeller, productControler.bulkCreate);
 router.delete('/Product/:productId', middelware.authSeller, productControler.deleteProduct);
 router.delete('/ProductSeller/:productId', productControler.deleteProductAttribut);
+
+// Products by seller (remplace les anciennes routes supplierRoutes supprimées)
+router.get('/searchProductBySeller/:sellerId', productControler.searchProductBySeller);
+router.get('/searchProductBySellerAdmin/:sellerId', middelware.authAdmin, productControler.searchProductBySeller);
+// Alias pour compatibilité web/mobile (anciens noms fournisseur)
+router.get('/searchProductBySupplier/:sellerId', middelware.authSeller, productControler.searchProductBySeller);
+router.get('/searchProductBySupplierClients/:sellerId', productControler.searchProductBySeller);
+router.get('/searchProductBySupplierAdmin/:sellerId', middelware.authAdmin, productControler.searchProductBySeller);
 
 // Product search
 router.get('/searchProductByType/:type', productControler.searchProductByType);

@@ -16,7 +16,7 @@ const PLAN_DEFAULTS = {
       monthly: 2500,
       annual: 27000, // 2500 * 12 mois (moin 10% pour paiement annuel)
     },
-    commission: 6,
+    commission: 3,
     productLimit: 20,
     features: {
       productManagement: {
@@ -49,7 +49,7 @@ const PLAN_DEFAULTS = {
       monthly: 4500,
       annual: 48600, // 4500 * 12 mois (moin 10% pour paiement annuel)
     },
-    commission: 3.5,
+    commission: 2.5,
     productLimit: -1, // illimité
     features: {
       productManagement: {
@@ -82,7 +82,7 @@ const PLAN_DEFAULTS = {
       monthly: 9000,
       annual: 97200, // 9000 * 12 mois (moin 10% pour paiement annuel)
     },
-    commission: 2.5,
+    commission: 2,
     productLimit: -1, // illimité
     features: {
       productManagement: {
@@ -459,10 +459,10 @@ const createSeller = async (req, res) => {
 
     console.log(req.body);
 
-    // Calculer la date de fin (pour le plan Starter, ajouter 3 mois gratuits)
+    // Calculer la date de fin (pour le plan Starter, ajouter 2 mois gratuits)
     let endDate = new Date();
     if (planType === "Starter") {
-      endDate.setMonth(endDate.getMonth() + 3); // 3 mois gratuits
+      endDate.setMonth(endDate.getMonth() + 2); // 2 mois gratuits
     }
     // else {
     //   endDate.setMonth(endDate.getMonth() + 1); // 1 mois par défaut pour les autres plans

@@ -7,14 +7,14 @@ const SUBSCRIPTION_CONFIG = {
   PLANS: {
     Starter: {
       name: "Starter",
-      description: "Inclut 3 mois gratuits pour toute nouvelle création de compte. Idéal pour les entrepreneurs débutants, petits artisans et testeurs de marché.",
+      description: "Inclut 2 mois gratuits pour toute nouvelle création de compte. Idéal pour les entrepreneurs débutants, petits artisans et testeurs de marché.",
       pricing: {
         monthly: 1000,
         annual: 10800,  // 1000 * 12 - 10% discount
-        trialPeriod: 3  // mois gratuits
+        trialPeriod: 2  // mois gratuits
       },
-      commission: 4.0,
-      productLimit: 10,
+      commission: 3.0,
+      productLimit: 20,
       features: {
         productManagement: {
           maxProducts: 10,
@@ -49,7 +49,7 @@ const SUBSCRIPTION_CONFIG = {
         annual: 27000,  // 2500 * 12 - 10% discount
         trialPeriod: 0
       },
-      commission: 3.0,
+      commission: 2.5,
       productLimit: -1, // illimité
       features: {
         productManagement: {
@@ -85,7 +85,7 @@ const SUBSCRIPTION_CONFIG = {
         annual: 54000,  // 5000 * 12 - 10% discount
         trialPeriod: 0
       },
-      commission: 2.5,
+      commission: 2.0,
       productLimit: -1,
       features: {
         productManagement: {
@@ -178,8 +178,7 @@ const SUBSCRIPTION_CONFIG = {
     return plan ? plan.features : null;
   },
 
-  // 🎯 NOUVEAU: Configuration par défaut
-  DEFAULT_COMMISSION: 4.0  // Plan Starter par défaut
+  DEFAULT_COMMISSION: 3.0  // Plan Starter par défaut
 };
 
 module.exports = SUBSCRIPTION_CONFIG;

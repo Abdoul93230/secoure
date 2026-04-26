@@ -16,22 +16,35 @@ const { gererChangementEtatCommande } = require('./controllers/financeController
 
 // Product CRUD Operations
 const getAllProductsSeller = handleAsyncError(async (req, res) => {
-  const products = await productService.getAllProductsSeller(req.userId);
-  // console.log({ products });
-
-  res.json({ message: "Tous les produits", data: products });
+  const page = parseInt(req.query.page) || 1;
+  const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+  const search = req.query.search || '';
+  const status = req.query.status || '';
+  const result = await productService.getAllProductsSeller(req.userId, { page, limit, search, status });
+  res.json({ message: "Tous les produits", ...result, data: result.products });
 });
+
 const getAllProductsClients = handleAsyncError(async (req, res) => {
-  const products = await productService.getAllProductsClients();
-  // console.log({ products });
-
-  res.json({ message: "Tous les produits", data: products });
+  const page = parseInt(req.query.page) || 1;
+  const limit = Math.min(parseInt(req.query.limit) || 40, 100);
+  const result = await productService.getAllProductsClients({ page, limit });
+  res.json({ message: "Tous les produits", ...result, data: result.products });
 });
-const getAllProductsAdmin = handleAsyncError(async (req, res) => {
-  const products = await productService.getAllProductsAdmin();
-  // console.log({ products });
 
-  res.json({ message: "Tous les produits", data: products });
+const getAllProductsAdmin = handleAsyncError(async (req, res) => {
+  const page = parseInt(req.query.page) || 1;
+  const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+  const search = req.query.search || '';
+  const status = req.query.status || '';
+  const type = req.query.type || '';
+  const result = await productService.getAllProductsAdmin({ page, limit, search, status, type });
+  res.json({ message: "Tous les produits", ...result, data: result.products });
+});
+
+const getHomeFeed = handleAsyncError(async (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 40, 80);
+  const products = await productService.getHomeFeed(limit);
+  res.json({ message: "Home feed", products, data: products });
 });
 
 const getProductById = handleAsyncError(async (req, res) => {
@@ -178,12 +191,13 @@ const createProduct = handleAsyncError(async (req, res) => {
       });
     }
 
-    if (error.message.includes("Limite de produits atteinte")) {
-      return res.status(403).json({ 
+    if (error.code === 'PRODUCT_LIMIT_REACHED' || error.message.includes("Limite atteinte") || error.message.includes("Limite de produits atteinte")) {
+      return res.status(403).json({
         success: false,
-        message: "Limite de produits atteinte",
+        message: error.message,
         error: error.message,
-        upgradeRequired: true
+        upgradeRequired: true,
+        details: error.details || null
       });
     }
 
@@ -589,28 +603,44 @@ const deleteProductAttribut = handleAsyncError(async (req, res) => {
 });
 
 // Product Search Operations
+const searchProductBySeller = handleAsyncError(async (req, res) => {
+  const { sellerId } = req.params;
+  const page = parseInt(req.query.page) || 1;
+  const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+  const result = await productService.searchBySeller(sellerId, { page, limit });
+  res.json({ message: "Produits du seller", ...result, products: result.products, data: result.products });
+});
+
 const searchProductByType = handleAsyncError(async (req, res) => {
   const { type } = req.params;
-  const products = await productService.searchByType(type);
-  res.json({ data: products });
+  const page = parseInt(req.query.page) || 1;
+  const limit = Math.min(parseInt(req.query.limit) || 40, 100);
+  const result = await productService.searchByType(type, { page, limit });
+  res.json({ ...result, data: result.products });
 });
 
 const searchProductByTypeBySeller = handleAsyncError(async (req, res) => {
   const { type, seller } = req.params;
-  const products = await productService.searchByTypeAndSeller(type, seller);
-  res.json({ data: products });
+  const page = parseInt(req.query.page) || 1;
+  const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+  const result = await productService.searchByTypeAndSeller(type, seller, { page, limit });
+  res.json({ ...result, data: result.products });
 });
 
 const searchProductByName = handleAsyncError(async (req, res) => {
   const { name } = req.params;
-  const products = await productService.searchByName(name);
-  res.json({ data: products });
+  const page = parseInt(req.query.page) || 1;
+  const limit = Math.min(parseInt(req.query.limit) || 40, 100);
+  const result = await productService.searchByName(name, { page, limit });
+  res.json({ ...result, data: result.products });
 });
 
 const searchProductByNameBySeller = handleAsyncError(async (req, res) => {
   const { name, seller } = req.params;
-  const products = await productService.searchByNameAndSeller(name, seller);
-  res.json({ data: products });
+  const page = parseInt(req.query.page) || 1;
+  const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+  const result = await productService.searchByNameAndSeller(name, seller, { page, limit });
+  res.json({ ...result, data: result.products });
 });
 
 // Product Validation
@@ -1201,19 +1231,20 @@ const annulerTransactions = async (commandeId) => {
             reference: `ANN_${Date.now()}_${transaction.sellerId}`,
             dateConfirmation: new Date()
           });
-          
+
           await remboursement.save({ session });
-          
-          // Retirer l'argent du solde disponible
+
+          // Retirer du bon solde selon que les 48h sont passées ou non
+          const incOps = { soldeTotal: -transaction.montantNet };
+          if (transaction.estDisponible) {
+            incOps.soldeDisponible = -transaction.montantNet;
+          } else {
+            incOps.soldeBloqueTemporairement = -transaction.montantNet;
+          }
+
           await Portefeuille.findOneAndUpdate(
             { sellerId: transaction.sellerId },
-            {
-              $inc: {
-                soldeDisponible: -transaction.montantNet,
-                soldeTotal: -transaction.montantNet
-              },
-              dateMiseAJour: new Date()
-            },
+            { $inc: incOps, $set: { dateMiseAJour: new Date() } },
             { session }
           );
         }
@@ -1404,6 +1435,7 @@ module.exports = {
   getAllProductsSeller,
   getAllProductsAdmin,
   getAllProductsClients,
+  getHomeFeed,
   getProductById,
   getProductByIdAdmin,
   createProduct,
@@ -1413,6 +1445,7 @@ module.exports = {
   bulkCreate,
   deleteProduct,
   deleteProductAttribut,
+  searchProductBySeller,
   searchProductByType,
   searchProductByTypeBySeller,
   searchProductByName,

@@ -4,9 +4,37 @@ const { confirmerTransactionsLivrees } = require('../controllers/financeControll
 const SubscriptionCronJobs = require('./subscriptionCronJobs');
 const { setupEnhancedCronJobs } = require('../controllers/enhancedSubscriptionController');
 
+// Recalcul immédiat de tous les portefeuilles (appelé au démarrage)
+async function recalculerTousLesPortefeuilles() {
+  try {
+    const Portefeuille = require('../models/portefeuilleSchema');
+    const portefeuilles = await Portefeuille.find({}, { sellerId: 1 }).lean();
+    let corriges = 0;
+    for (const p of portefeuilles) {
+      try {
+        const check = await FinancialService.verifierCoherencePortefeuille(p.sellerId);
+        if (!check.coherent) {
+          await FinancialService.corrigerIncoherences(p.sellerId);
+          corriges++;
+        }
+      } catch (e) {
+        console.error(`❌ Recalcul seller ${p.sellerId}:`, e.message);
+      }
+    }
+    if (corriges > 0) {
+      console.log(`🔧 Démarrage: ${corriges}/${portefeuilles.length} portefeuilles corrigés`);
+    }
+  } catch (e) {
+    console.error('❌ Erreur recalcul initial:', e.message);
+  }
+}
+
 class CronJobs {
   static init() {
     console.log('🕐 Initialisation des tâches programmées...');
+
+    // Recalcul immédiat au démarrage (sans bloquer)
+    recalculerTousLesPortefeuilles();
 
     // Déblocage de l'argent toutes les heures
     cron.schedule('0 * * * *', async () => {
@@ -41,15 +69,27 @@ class CronJobs {
       }
     });
 
-    // Audit quotidien à 3h du matin
+    // Recalcul et correction automatique de tous les portefeuilles à 3h du matin
     cron.schedule('0 3 * * *', async () => {
-      console.log('🔍 Exécution de l\'audit quotidien...');
+      console.log('🔧 Recalcul automatique des portefeuilles...');
       try {
-        // Ici vous pourriez ajouter une fonction d'audit automatique
-        // qui envoie un rapport par email aux administrateurs
-        console.log('✅ Audit quotidien terminé');
+        const Portefeuille = require('../models/portefeuilleSchema');
+        const portefeuilles = await Portefeuille.find({}, { sellerId: 1 }).lean();
+        let corriges = 0;
+        for (const p of portefeuilles) {
+          try {
+            const check = await FinancialService.verifierCoherencePortefeuille(p.sellerId);
+            if (!check.coherent) {
+              await FinancialService.corrigerIncoherences(p.sellerId);
+              corriges++;
+            }
+          } catch (e) {
+            console.error(`❌ Erreur recalcul seller ${p.sellerId}:`, e.message);
+          }
+        }
+        console.log(`✅ Recalcul terminé: ${corriges}/${portefeuilles.length} portefeuilles corrigés`);
       } catch (error) {
-        console.error('❌ Erreur lors de l\'audit:', error);
+        console.error('❌ Erreur lors du recalcul automatique:', error);
       }
     });
 
