@@ -93,6 +93,49 @@ class CronJobs {
       }
     });
 
+    // Expiration des Baobab Points — chaque jour à 4h
+    cron.schedule('0 4 * * *', async () => {
+      console.log('⏳ Expiration des Baobab Points...');
+      try {
+        const pointsService = require('../services/pointsService');
+        const result = await pointsService.expirePoints();
+        console.log(`✅ Expiration terminée: ${result.expired} transactions, ${result.totalPoints} BP expirés`);
+      } catch (error) {
+        console.error('❌ Erreur expiration points:', error);
+      }
+    });
+
+    // Désactivation automatique des événements expirés — chaque heure
+    cron.schedule('0 * * * *', async () => {
+      try {
+        const Event = require('../models/Event');
+        const result = await Event.updateMany(
+          { isActive: true, endDate: { $lt: new Date() } },
+          { isActive: false }
+        );
+        if (result.modifiedCount > 0) {
+          console.log(`⏰ ${result.modifiedCount} événement(s) expiré(s) désactivé(s)`);
+        }
+      } catch (e) {
+        console.error('❌ Erreur désactivation événements expirés:', e.message);
+      }
+    });
+
+    // Reset mensuel du compteur anti-abus parrainage — le 1er de chaque mois à 0h
+    cron.schedule('0 0 1 * *', async () => {
+      console.log('🔄 Reset mensuel compteur anti-abus parrainage...');
+      try {
+        const PointsTransaction = require('../models/PointsTransaction');
+        // Le compteur mensuel est calculé dynamiquement via countDocuments dans referralService,
+        // donc pas de champ à reset. On purge simplement le cache de config.
+        const configService = require('../services/gamificationConfigService');
+        configService.invalidateCache();
+        console.log('✅ Reset mensuel anti-abus parrainage: cache invalidé');
+      } catch (error) {
+        console.error('❌ Erreur reset mensuel parrainage:', error);
+      }
+    });
+
     // Initialiser les cron jobs d'abonnement
     SubscriptionCronJobs.init();
 

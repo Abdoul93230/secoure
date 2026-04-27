@@ -425,6 +425,33 @@ const createCommande = async (req, res) => {
         finalPrice = subtotal - finalReduction + shipping;
       }
 
+      // 2b. Déduire les Baobab Points si l'utilisateur en utilise
+      let pointsUsed = 0;
+      let pointsDiscount = 0;
+      if (data.pointsToUse && data.pointsToUse > 0 && data.clefUser) {
+        try {
+          const pointsService = require('./services/pointsService');
+          const configService = require('./services/gamificationConfigService');
+          const cfg = await configService.getConfig();
+          const rate = cfg.redemption?.pointsToFcfaRate || 20;
+          const maxPct = cfg.redemption?.maxPercentPerOrder || 30;
+          const maxFcfa = Math.floor(subtotal * maxPct / 100);
+          const maxPoints = Math.floor(maxFcfa / rate);
+          const actualPoints = Math.min(data.pointsToUse, maxPoints);
+          if (actualPoints > 0) {
+            const wallet = await pointsService.getWallet(data.clefUser);
+            const deductible = Math.min(actualPoints, wallet.balance);
+            if (deductible > 0) {
+              pointsUsed = deductible;
+              pointsDiscount = deductible * rate;
+              finalPrice = Math.max(0, finalPrice - pointsDiscount);
+            }
+          }
+        } catch (pErr) {
+          console.error('⚠️ Erreur lecture wallet points:', pErr.message);
+        }
+      }
+
       // 3. Créer la commande
       const commande = new Commande({
         clefUser: data.clefUser,
@@ -440,6 +467,8 @@ const createCommande = async (req, res) => {
         livraisonDetails: data.livraisonDetails,
         prod: data.prod,
         statusPayment: data?.statusPayment ? data.statusPayment : "en cours",
+        pointsUsed,
+        pointsDiscount,
       });
 
       await commande.save({ session });
@@ -455,6 +484,22 @@ const createCommande = async (req, res) => {
           finalReduction,
           { session }
         );
+      }
+
+      // 3b. Débiter les points utilisés (après création commande, avant fin transaction)
+      if (pointsUsed > 0 && data.clefUser) {
+        try {
+          const pointsService = require('./services/pointsService');
+          await pointsService.redeemPoints({
+            userId: data.clefUser,
+            pointsToRedeem: pointsUsed,
+            orderId: commande._id,
+            orderAmountFcfa: subtotal,
+          });
+          console.log(`✅ ${pointsUsed} BP débités pour la commande`);
+        } catch (pErr) {
+          console.error('⚠️ Erreur débit points:', pErr.message);
+        }
       }
 
       // 3. Décrémenter le stock
@@ -746,7 +791,33 @@ const mettreAJourStatuts = async (req, res) => {
     // 3. Gérer les aspects financiers
     await gererValidationFinanciere(commandeId, commandeActuelle.etatTraitement);
 
-    // 4. Réponse de succès
+    // 4. Gamification: créditer points d'achat + bonus 1ère commande + parrainage
+    if (commandeActuelle.clefUser) {
+      try {
+        const pointsService = require('./services/pointsService');
+        const referralService = require('./services/referralService');
+        const orderAmount = commandeActuelle.prixTotal || commandeActuelle.prix || 0;
+
+        await pointsService.creditPurchasePoints({
+          userId: commandeActuelle.clefUser,
+          orderAmountFcfa: orderAmount,
+          orderId: commandeId,
+        });
+        await pointsService.creditFirstOrderBonus({
+          userId: commandeActuelle.clefUser,
+          orderId: commandeId,
+        });
+        await referralService.handleOrderDelivered({
+          userId: commandeActuelle.clefUser,
+          orderId: commandeId,
+        });
+        console.log(`✅ Points gamification crédités pour commande ${commandeId}`);
+      } catch (gErr) {
+        console.error('⚠️ Gamification mettreAJourStatuts:', gErr.message);
+      }
+    }
+
+    // 5. Réponse de succès
     res.status(200).json({
       success: true,
       message: "Commande validée avec succès",
@@ -2349,6 +2420,17 @@ const updateStatusLivraison = async (req, res) => {
     if (nouveauStatus === "Annulée" || nouveauStatus === "annulé") {
       // Annulation: remboursement + restauration stock
       await handleFinancialTransitions(commandeId, ancienEtat, nouveauStatus, isDelete = true);
+
+      // Gamification: retirer les points d'achat attribués à cette commande
+      if (commande.clefUser) {
+        try {
+          const pointsService = require('./services/pointsService');
+          await pointsService.revokeOrderPoints({ userId: commande.clefUser, orderId: commande._id });
+          console.log('✅ Points d\'achat retirés suite à l\'annulation');
+        } catch (gErr) {
+          console.error('⚠️ Gamification revokeOrderPoints:', gErr.message);
+        }
+      }
     } else if (nouveauStatus === "livré") {
       // Livraison réussie: confirmer les transactions financières
       const { gererChangementEtatCommande } = require('./controllers/financeController');
@@ -2357,14 +2439,45 @@ const updateStatusLivraison = async (req, res) => {
         console.log('✅ Transactions confirmées pour livraison réussie');
       } catch (financialError) {
         console.error('❌ Erreur financière lors de la livraison:', financialError);
-        // Ne pas faire échouer la mise à jour pour une erreur financière
+      }
+
+      // Gamification: créditer les points d'achat + bonus 1ère commande + parrainage
+      if (commande.clefUser) {
+        try {
+          const pointsService = require('./services/pointsService');
+          const referralService = require('./services/referralService');
+          const orderAmount = commande.prixTotal || commande.prix || 0;
+
+          // Points d'achat (avec multiplicateur de niveau)
+          await pointsService.creditPurchasePoints({
+            userId: commande.clefUser,
+            orderAmountFcfa: orderAmount,
+            orderId: commande._id,
+          });
+
+          // Bonus première commande (idempotent)
+          await pointsService.creditFirstOrderBonus({
+            userId: commande.clefUser,
+            orderId: commande._id,
+          });
+
+          // Parrainage: si c'est la 1ère commande livrée du filleul
+          await referralService.handleOrderDelivered({
+            userId: commande.clefUser,
+            orderId: commande._id,
+          });
+
+          console.log('✅ Points gamification crédités pour la livraison');
+        } catch (gErr) {
+          console.error('⚠️ Gamification creditPoints:', gErr.message);
+        }
       }
     }
 
     res.status(200).json({
       success: true,
       data: commande,
-      message: nouveauStatus === "Annulée" || nouveauStatus === "annulé" 
+      message: nouveauStatus === "Annulée" || nouveauStatus === "annulé"
         ? "Commande annulée et stock restauré"
         : "Statut de livraison mis à jour"
     });

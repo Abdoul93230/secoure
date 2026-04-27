@@ -341,6 +341,7 @@ const quickRegister = async (req, res) => {
     const name = (req.body?.name || "").trim();
     const password = req.body?.password || "";
     const code = (req.body?.code || req.body?.otp || "").trim();
+    const refCode = (req.body?.refCode || req.body?.ref || "").trim() || null;
 
     const phone = rawPhone ? normalizePhone(rawPhone) : null;
 
@@ -434,6 +435,14 @@ const quickRegister = async (req, res) => {
     await user.save();
 
     await ensureMinimalProfile(user._id, user.phoneNumber || null);
+
+    // Gamification: créer le wallet + attacher le code parrain si fourni
+    try {
+      const referralService = require("../services/referralService");
+      await referralService.attachReferralOnRegister({ userId: user._id, refCode });
+    } catch (gErr) {
+      console.error("Gamification attachReferral:", gErr.message);
+    }
 
     const token = jwt.sign({ userId: user._id, role: "user" }, privateKey, {
       expiresIn: "7d",

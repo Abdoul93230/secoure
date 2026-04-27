@@ -1,7 +1,8 @@
 const jwt = require('jsonwebtoken');
-const { SellerRequest } = require('../Models');
+const { SellerRequest, User } = require('../Models');
 const ADMIN_PRIVATe_KEY = require("../auth/clefAdmin");
 const SELLER_PRIVATe_KEY = require("../auth/clefSeller");
+const USER_PRIVATE_KEY = require("../auth/clef");
 
 
 const VALIDATION_EXEMPT_ROUTES = [
@@ -27,6 +28,7 @@ const isRouteExempt = (req) => {
 
 // Configuration des secrets JWT
 const JWT_SECRETS = {
+  user: USER_PRIVATE_KEY,
   seller: SELLER_PRIVATe_KEY,
   admin: ADMIN_PRIVATe_KEY,
   default: process.env.JWT_SECRET || 'default_secret'
@@ -54,31 +56,31 @@ const extractToken = async (req, res, next) => {
 
     // Essayer de décoder avec différents secrets selon le rôle
     try {
-      // D'abord essayer avec le secret seller
-      // console.log({token});
-      decoded = jwt.verify(token, JWT_SECRETS.seller);
-      // console.log({decoded});
-
-      if (decoded.role === 'seller') {
-        user = await SellerRequest.findById(decoded.userId).select('-password');
+      // 1) User client (clef.js)
+      decoded = jwt.verify(token, JWT_SECRETS.user);
+      if (decoded.role === 'user') {
+        user = await User.findById(decoded.userId).select('-password');
+        if (user) user.role = 'user';
       }
-    } catch (err) {
-      // Si ça échoue, essayer avec le secret admin
-      // console.log({err});
-
+    } catch (userErr) {
       try {
-        decoded = jwt.verify(token, JWT_SECRETS.admin);
-        if (decoded.role === 'admin') {
-          // Ici tu peux ajouter ta logique pour récupérer l'admin
-          // Par exemple : user = await AdminUser.findById(decoded.userId);
-          user = { id: decoded.userId, role: 'admin', name: 'Admin User' };
+        // 2) Seller
+        decoded = jwt.verify(token, JWT_SECRETS.seller);
+        if (decoded.role === 'seller') {
+          user = await SellerRequest.findById(decoded.userId).select('-password');
         }
-      } catch (adminErr) {
-        // Dernière tentative avec le secret par défaut
-        // console.log({adminErr});
-
-        decoded = jwt.verify(token, JWT_SECRETS.default);
-        user = await SellerRequest.findById(decoded.userId).select('-password');
+      } catch (err) {
+        try {
+          // 3) Admin
+          decoded = jwt.verify(token, JWT_SECRETS.admin);
+          if (decoded.role === 'admin') {
+            user = { id: decoded.userId, role: 'admin', name: 'Admin User' };
+          }
+        } catch (adminErr) {
+          // 4) Fallback default secret
+          decoded = jwt.verify(token, JWT_SECRETS.default);
+          user = await SellerRequest.findById(decoded.userId).select('-password');
+        }
       }
     }
 
@@ -207,19 +209,27 @@ const optionalAuth = async (req, res, next) => {
 
       // Même logique que extractToken mais sans retourner d'erreur
       try {
-        decoded = jwt.verify(token, JWT_SECRETS.seller);
-        if (decoded.role === 'seller') {
-          user = await SellerRequest.findById(decoded.userId).select('-password');
+        decoded = jwt.verify(token, JWT_SECRETS.user);
+        if (decoded.role === 'user') {
+          user = await User.findById(decoded.userId).select('-password');
+          if (user) user.role = 'user';
         }
-      } catch (err) {
+      } catch (userErr) {
         try {
-          decoded = jwt.verify(token, JWT_SECRETS.admin);
-          if (decoded.role === 'admin') {
-            user = { id: decoded.userId, role: 'admin', name: 'Admin User' };
+          decoded = jwt.verify(token, JWT_SECRETS.seller);
+          if (decoded.role === 'seller') {
+            user = await SellerRequest.findById(decoded.userId).select('-password');
           }
-        } catch (adminErr) {
-          decoded = jwt.verify(token, JWT_SECRETS.default);
-          user = await SellerRequest.findById(decoded.userId).select('-password');
+        } catch (err) {
+          try {
+            decoded = jwt.verify(token, JWT_SECRETS.admin);
+            if (decoded.role === 'admin') {
+              user = { id: decoded.userId, role: 'admin', name: 'Admin User' };
+            }
+          } catch (adminErr) {
+            decoded = jwt.verify(token, JWT_SECRETS.default);
+            user = await SellerRequest.findById(decoded.userId).select('-password');
+          }
         }
       }
 

@@ -140,6 +140,19 @@ exports.createReview = async (req, res) => {
 
     await newReview.save();
 
+    // Gamification: créditer les points d'avis
+    try {
+      const pointsService = require("../services/pointsService");
+      const hasPhoto = !!(req.body?.image || req.body?.photo || req.body?.imageUrl);
+      await pointsService.creditReviewPoints({
+        userId: String(userId),
+        reviewId: newReview._id,
+        hasPhoto,
+      });
+    } catch (gErr) {
+      console.error("Gamification creditReviewPoints:", gErr.message);
+    }
+
     // Mettre à jour la note moyenne du vendeur
     const seller = await SellerRequest.findById(sellerId);
     const allReviews = await Review.find({ seller: sellerId });
