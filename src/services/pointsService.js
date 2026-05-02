@@ -391,8 +391,8 @@ const revokeOrderPoints = async ({ userId, orderId }) => {
     const r = await creditPoints({
       userId,
       delta: Math.abs(redemptionTxn.delta),
-      type: "ADMIN_CREDIT",
-      reason: "Annulation commande — restitution points utilisés",
+      type: "REFUND",
+      reason: `Restitution ${Math.abs(redemptionTxn.delta)} BP — annulation commande`,
       idempotencyKey: `REDEMPTION_RESTORE_${orderId}`,
       orderId
     });

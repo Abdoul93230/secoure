@@ -2124,12 +2124,18 @@ const updateCommanderef = async (req, res) => {
         throw new Error(`Stock insuffisant: ${errors}`);
       }
 
+      // Réinitialiser les statuts si la commande était annulée (relance)
+      const wasAnnulee =
+        commande.statusLivraison === "annulé" ||
+        commande.etatTraitement === "Annulée" ||
+        commande.etatTraitement === "annulé";
+
       // Mettre à jour la commande
       const dataUpdate = {
         clefUser: data.clefUser,
         nbrProduits: data.nbrProduits,
-        prix: finalPrice, // Total final
-        prixTotal: subtotal, // Sous-total
+        prix: finalPrice,
+        prixTotal: subtotal,
         fraisLivraison: shipping,
         reduction: finalReduction,
         codePro: data.idCodePro ? true : Boolean(data.codePro),
@@ -2138,8 +2144,15 @@ const updateCommanderef = async (req, res) => {
         reference: newReference,
         livraisonDetails: livraisonDetails,
         prod: prod,
-        // IMPORTANT: Réinitialiser le statusPayment lors d'une mise à jour (relance de paiement)
         statusPayment: statusPayment || "en_attente",
+        // Si relance d'une commande annulée: remettre les statuts à zéro
+        ...(wasAnnulee && {
+          statusLivraison: "en cours",
+          etatTraitement: "traitement",
+          stockRestored: false,
+          stockRestorationDate: null,
+          dateValidation: null,
+        }),
       };
       
       console.log('📝 Mise à jour du statusPayment:', dataUpdate.statusPayment);

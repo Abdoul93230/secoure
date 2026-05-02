@@ -28,7 +28,8 @@ const pointsTransactionSchema = new mongoose.Schema({
       "EXPIRY",            // Points expired
       "ADMIN_CREDIT",      // Manual admin addition
       "ADMIN_DEBIT",       // Manual admin removal
-      "CANCELLATION"       // Points revoked on order cancellation
+      "CANCELLATION",      // Points revoked on order cancellation
+      "REFUND"             // Points restored after order cancellation (BP redemption refund)
     ],
     required: true
   },
