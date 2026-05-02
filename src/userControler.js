@@ -796,7 +796,7 @@ const mettreAJourStatuts = async (req, res) => {
       try {
         const pointsService = require('./services/pointsService');
         const referralService = require('./services/referralService');
-        const orderAmount = commandeActuelle.prixTotal || commandeActuelle.prix || 0;
+        const orderAmount = Math.max(0, (commandeActuelle.prix || 0) - (commandeActuelle.fraisLivraison || 0));
 
         await pointsService.creditPurchasePoints({
           userId: commandeActuelle.clefUser,
@@ -2341,7 +2341,17 @@ const updateEtatTraitement = async (req, res) => {
       await gererChangementEtatCommande(commandeId, ancienEtat, nouvelEtat, updatedOrder);
     } catch (financialError) {
       console.error('❌ Erreur financière:', financialError);
-      // Ne pas faire échouer la mise à jour pour une erreur financière
+    }
+
+    // Gamification: restituer les points si annulation
+    if (nouvelEtat === "annulé" && updatedOrder.clefUser) {
+      try {
+        const pointsService = require('./services/pointsService');
+        await pointsService.revokeOrderPoints({ userId: updatedOrder.clefUser, orderId: updatedOrder._id });
+        console.log('✅ Points restitués suite à l\'annulation (etatTraitement)');
+      } catch (gErr) {
+        console.error('⚠️ Gamification revokeOrderPoints (etatTraitement):', gErr.message);
+      }
     }
 
     res.status(200).json({
@@ -2446,7 +2456,7 @@ const updateStatusLivraison = async (req, res) => {
         try {
           const pointsService = require('./services/pointsService');
           const referralService = require('./services/referralService');
-          const orderAmount = commande.prixTotal || commande.prix || 0;
+          const orderAmount = Math.max(0, (commande.prix || 0) - (commande.fraisLivraison || 0));
 
           // Points d'achat (avec multiplicateur de niveau)
           await pointsService.creditPurchasePoints({

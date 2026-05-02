@@ -1,8 +1,18 @@
 const express = require('express');
 const router = express.Router();
+const rateLimit = require('express-rate-limit');
 const sellerController = require('../storeController');
 const {createSellerWithSubscription, loginWithSubscriptionCheck} = require('../controllers/enhancedSellerController');
 const middelware = require('../auth/middelware');
+
+const sellerAuthLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  message: { success: false, message: "Trop de tentatives de connexion. Veuillez réessayer dans 15 minutes." },
+});
 
 // Seller CRUD
 router.post('/createSeller', 
@@ -32,7 +42,7 @@ router.delete('/deleteSeller/:id', sellerController.deleteSeller);
 router.get('/findSellerByName/:name', sellerController.findSellerByName);
 
 // Seller authentication and verification
-router.post('/SellerLogin', loginWithSubscriptionCheck);
+router.post('/SellerLogin', sellerAuthLimiter, loginWithSubscriptionCheck);
 router.get('/Sellerverify/:id', middelware.authSeller, sellerController.verifyToken);
 
 // Seller validation

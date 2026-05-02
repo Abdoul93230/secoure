@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 const Transaction = require('../models/transactionSchema');
 const Portefeuille = require("../models/portefeuilleSchema");
 const Retrait = require("../models/retraitSchema");
+const SUBSCRIPTION_CONFIG = require('../config/subscriptionConfig');
 
 class FinancialService {
 
@@ -22,17 +23,14 @@ class FinancialService {
   static async obtenirTauxCommission(sellerId) {
     try {
       const { SellerRequest, PricingPlan } = require('../Models');
-      const SUBSCRIPTION_CONFIG = require('../config/subscriptionConfig');
-      
-      // Récupérer les informations du seller
+
       const seller = await SellerRequest.findById(sellerId).lean();
-      
+
       if (!seller) {
-        console.log(`⚠️ Seller ${sellerId} non trouvé, commission par défaut`);
-        return SUBSCRIPTION_CONFIG.DEFAULT_COMMISSION; // 4.0%
+        return SUBSCRIPTION_CONFIG.DEFAULT_COMMISSION;
       }
 
-      // Si le seller a un subscriptionId, récupérer le plan actuel depuis PricingPlan
+      // Priorité 1 : plan actif en base
       if (seller.subscriptionId) {
         const activePlan = await PricingPlan.findOne({
           _id: seller.subscriptionId,
@@ -40,33 +38,22 @@ class FinancialService {
         }).lean();
 
         if (activePlan) {
-          console.log(`✅ Plan actif trouvé pour seller ${sellerId}: ${activePlan.planType} (${activePlan.commission}%)`);
           return activePlan.commission;
-        } else {
-          console.log(`⚠️ Plan inactif ou non trouvé pour seller ${sellerId}, recherche alternative...`);
         }
       }
 
-      // Fallback: utiliser le champ subscription du seller
-      const subscription = seller.subscription || 'Starter';
-      const plan = SUBSCRIPTION_CONFIG.PLANS[subscription];
-      
-      if (!plan) {
-        console.log(`⚠️ Plan non trouvé: ${subscription}, utilisation du taux par défaut`);
-        return SUBSCRIPTION_CONFIG.DEFAULT_COMMISSION;
-      }
+      // Priorité 2 : champ subscription du seller → lire depuis config centralisée
+      const planName = seller.subscription || 'Starter';
+      return SUBSCRIPTION_CONFIG.getPlanCommission(planName);
 
-      console.log(`💰 Commission (fallback) seller ${sellerId} (${subscription}): ${plan.commission}%`);
-      return plan.commission;
-      
     } catch (error) {
       console.error(`❌ Erreur obtention commission seller ${sellerId}:`, error);
-      return SUBSCRIPTION_CONFIG.DEFAULT_COMMISSION; // Fallback sécurisé
+      return SUBSCRIPTION_CONFIG.DEFAULT_COMMISSION;
     }
   }
 
   // Calculer le montant net après commission
-  static calculerMontantNet(montantBrut, tauxCommission = 3.0) {
+  static calculerMontantNet(montantBrut, tauxCommission = SUBSCRIPTION_CONFIG.DEFAULT_COMMISSION) {
     const commission = Math.round((montantBrut * tauxCommission) / 100);
     return {
       montantNet: montantBrut - commission,

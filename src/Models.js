@@ -936,6 +936,16 @@ const commandeSchema = new mongoose.Schema(
       required: false,
       default: 0,
     },
+    pointsUsed: {
+      type: Number,
+      required: false,
+      default: 0,
+    },
+    pointsDiscount: {
+      type: Number,
+      required: false,
+      default: 0,
+    },
     codePro: {
       type: Boolean,
       default: false,

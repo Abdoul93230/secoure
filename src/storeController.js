@@ -1,5 +1,6 @@
 const { SellerRequest, Commande, Produit } = require("./Models");
 const { PricingPlan } = require("./Models");
+const SUBSCRIPTION_CONFIG = require('./config/subscriptionConfig');
 const jwt = require("jsonwebtoken");
 const privateKeSeller = require("./auth/clefSeller");
 const bcrypt = require("bcrypt");
@@ -9,107 +10,11 @@ const { default: mongoose } = require("mongoose");
 
 const cloudinary = require('./cloudinary');
 
-// Constantes pour les plans prédéfinis
+// Plans lus depuis la source unique de vérité — ne pas modifier ici
 const PLAN_DEFAULTS = {
-  Starter: {
-    price: {
-      monthly: 2500,
-      annual: 27000, // 2500 * 12 mois (moin 10% pour paiement annuel)
-    },
-    commission: 3,
-    productLimit: 20,
-    features: {
-      productManagement: {
-        maxProducts: 20,
-        maxVariants: 3,
-        maxCategories: 5,
-        catalogImport: true,
-      },
-      paymentOptions: {
-        manualPayment: true,
-        mobileMoney: true,
-        cardPayment: false,
-        customPayment: false,
-      },
-      support: {
-        responseTime: 48, // heures
-        channels: ["email"],
-        onboarding: "standard",
-      },
-      marketing: {
-        marketplaceVisibility: "standard",
-        maxActiveCoupons: 1,
-        emailMarketing: false,
-        abandonedCartRecovery: false,
-      },
-    },
-  },
-  Pro: {
-    price: {
-      monthly: 4500,
-      annual: 48600, // 4500 * 12 mois (moin 10% pour paiement annuel)
-    },
-    commission: 2.5,
-    productLimit: -1, // illimité
-    features: {
-      productManagement: {
-        maxProducts: -1, // illimité
-        maxVariants: 10,
-        maxCategories: 20,
-        catalogImport: true,
-      },
-      paymentOptions: {
-        manualPayment: true,
-        mobileMoney: true,
-        cardPayment: true,
-        customPayment: false,
-      },
-      support: {
-        responseTime: 24, // heures
-        channels: ["email", "chat"],
-        onboarding: "personnalisé",
-      },
-      marketing: {
-        marketplaceVisibility: "prioritaire",
-        maxActiveCoupons: 5,
-        emailMarketing: true,
-        abandonedCartRecovery: false,
-      },
-    },
-  },
-  Business: {
-    price: {
-      monthly: 9000,
-      annual: 97200, // 9000 * 12 mois (moin 10% pour paiement annuel)
-    },
-    commission: 2,
-    productLimit: -1, // illimité
-    features: {
-      productManagement: {
-        maxProducts: -1, // illimité
-        maxVariants: -1, // illimité
-        maxCategories: -1, // illimité
-        catalogImport: true,
-      },
-      paymentOptions: {
-        manualPayment: true,
-        mobileMoney: true,
-        cardPayment: true,
-        customPayment: true,
-      },
-      support: {
-        responseTime: 12, // heures
-        channels: ["email", "chat", "phone", "vip"],
-        onboarding: "VIP",
-      },
-      marketing: {
-        marketplaceVisibility: "premium",
-        maxActiveCoupons: -1, // illimité
-        emailMarketing: true,
-        abandonedCartRecovery: true,
-      },
-    },
-  },
+  Starter:  SUBSCRIPTION_CONFIG.toPlanDefaults('Starter'),
+  Pro:      SUBSCRIPTION_CONFIG.toPlanDefaults('Pro'),
+  Business: SUBSCRIPTION_CONFIG.toPlanDefaults('Business'),
 };
 
 /**

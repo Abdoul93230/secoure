@@ -6,6 +6,7 @@ const nodemailer = require('nodemailer');
 const cron = require('node-cron');
 const crypto = require('crypto');
 const { suspendSellerProducts, restoreSellerProductsIfEligible } = require('../utils/sellerProductSync');
+const SUBSCRIPTION_CONFIG = require('../config/subscriptionConfig');
 
 // Configuration des numéros de paiement pour le Niger
 const PAYMENT_CONFIG = {
@@ -27,97 +28,11 @@ const PAYMENT_CONFIG = {
   }
 };
 
+// Plans lus depuis la source unique de vérité — ne pas modifier ici
 const PLAN_DEFAULTS = {
-  Starter: {
-    price: { monthly: 2500, annual: 27000 },
-    commission: 6,
-    productLimit: 10,
-    features: {
-      productManagement: {
-        maxProducts: 10,
-        maxVariants: 3,
-        maxCategories: 5,
-        catalogImport: false,
-      },
-      paymentOptions: {
-        manualPayment: true,
-        mobileMoney: true,
-        cardPayment: false,
-        customPayment: false,
-      },
-      support: {
-        responseTime: 48,
-        channels: ["email"],
-        onboarding: "standard",
-      },
-      marketing: {
-        marketplaceVisibility: "standard",
-        maxActiveCoupons: 1,
-        emailMarketing: false,
-        abandonedCartRecovery: false,
-      },
-    },
-  },
-  Pro: {
-    price: { monthly: 4500, annual: 48600 },
-    commission: 3.5,
-    productLimit: -1,
-    features: {
-      productManagement: {
-        maxProducts: -1,
-        maxVariants: 10,
-        maxCategories: 20,
-        catalogImport: true,
-      },
-      paymentOptions: {
-        manualPayment: true,
-        mobileMoney: true,
-        cardPayment: true,
-        customPayment: false,
-      },
-      support: {
-        responseTime: 24,
-        channels: ["email", "chat"],
-        onboarding: "personnalisé",
-      },
-      marketing: {
-        marketplaceVisibility: "prioritaire",
-        maxActiveCoupons: 5,
-        emailMarketing: true,
-        abandonedCartRecovery: false,
-      },
-    },
-  },
-  Business: {
-    price: { monthly: 9000, annual: 97200 },
-    commission: 2.5,
-    productLimit: -1,
-    features: {
-      productManagement: {
-        maxProducts: -1,
-        maxVariants: -1,
-        maxCategories: -1,
-        catalogImport: true,
-      },
-      paymentOptions: {
-        manualPayment: true,
-        mobileMoney: true,
-        cardPayment: true,
-        customPayment: true,
-      },
-      support: {
-        responseTime: 12,
-        channels: ["email", "chat", "phone", "vip"],
-        onboarding: "VIP",
-      },
-      marketing: {
-        marketplaceVisibility: "premium",
-        maxActiveCoupons: -1,
-        emailMarketing: true,
-        abandonedCartRecovery: true,
-      },
-    },
-  },
+  Starter:  SUBSCRIPTION_CONFIG.toPlanDefaults('Starter'),
+  Pro:      SUBSCRIPTION_CONFIG.toPlanDefaults('Pro'),
+  Business: SUBSCRIPTION_CONFIG.toPlanDefaults('Business'),
 };
 
 /**

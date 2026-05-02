@@ -9,6 +9,8 @@ const morgan = require("morgan");
 const http = require("http");
 const socketIo = require("socket.io");
 const axios = require("axios");
+const rateLimit = require("express-rate-limit");
+const mongoSanitize = require("express-mongo-sanitize");
 
 // Import routes
 const userRoutes = require("./src/routes/userRoutes");
@@ -52,12 +54,25 @@ server.on("connection", (socket) => {
   });
 });
 
-// Rate limiting
-// const limiter = rateLimit({
-//   windowMs: 15 * 60 * 1000, // 15 minutes
-//   max: 100 // limit each IP to 100 requests per windowMs
-// });
-// app.use(limiter);
+// ─── Rate Limiting ──────────────────────────────────────────────────────────
+// Limite générale : 200 req/15 min par IP
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: "Trop de requêtes. Veuillez réessayer dans quelques minutes." },
+});
+
+// Limite stricte sur les endpoints d'authentification : 10 tentatives/15 min
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true, // ne compte que les échecs
+  message: { success: false, message: "Trop de tentatives de connexion. Compte temporairement bloqué (15 min)." },
+});
 
 
 // Socket.IO configuration
@@ -90,6 +105,7 @@ app.set("io", io);
 
 // Middleware configuration
 app
+  .use(globalLimiter)
   .use(
     cors({
       origin: [
@@ -117,6 +133,7 @@ app
   .use(morgan("dev"))
   .use(bodyparser.json())
   .use(cookieParser())
+  .use(mongoSanitize()) // Bloque les injections NoSQL ($where, $ne, etc.)
   .use("/images", express.static(path.join(__dirname, "./src/uploads/images")));
 
 // WebSocket management

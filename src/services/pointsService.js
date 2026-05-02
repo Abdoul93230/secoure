@@ -361,22 +361,45 @@ const redeemPoints = async ({ userId, pointsToRedeem, orderId, orderAmountFcfa }
 // ─── Cancel points on order cancellation ─────────────────────────────────────
 
 const revokeOrderPoints = async ({ userId, orderId }) => {
-  // Find the credit transaction for this order
+  const results = [];
+
+  // Revoke purchase points earned for this order
   const creditTxn = await PointsTransaction.findOne({
     userId: String(userId),
     orderId,
     type: "PURCHASE"
   });
-  if (!creditTxn || creditTxn.delta <= 0) return null;
+  if (creditTxn && creditTxn.delta > 0) {
+    const r = await debitPoints({
+      userId,
+      delta: creditTxn.delta,
+      type: "CANCELLATION",
+      reason: "Annulation commande — points achat retirés",
+      idempotencyKey: `CANCELLATION_${orderId}`,
+      orderId
+    });
+    results.push(r);
+  }
 
-  return debitPoints({
-    userId,
-    delta: creditTxn.delta,
-    type: "CANCELLATION",
-    reason: "Annulation commande — points retirés",
-    idempotencyKey: `CANCELLATION_${orderId}`,
-    orderId
+  // Restore redeemed points (REDEMPTION debitPoints stores delta as negative)
+  const redemptionTxn = await PointsTransaction.findOne({
+    userId: String(userId),
+    orderId,
+    type: "REDEMPTION"
   });
+  if (redemptionTxn && redemptionTxn.delta < 0) {
+    const r = await creditPoints({
+      userId,
+      delta: Math.abs(redemptionTxn.delta),
+      type: "ADMIN_CREDIT",
+      reason: "Annulation commande — restitution points utilisés",
+      idempotencyKey: `REDEMPTION_RESTORE_${orderId}`,
+      orderId
+    });
+    results.push(r);
+  }
+
+  return results.length > 0 ? results : null;
 };
 
 // ─── Admin manual adjustment ──────────────────────────────────────────────────

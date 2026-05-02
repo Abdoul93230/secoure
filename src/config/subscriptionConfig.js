@@ -1,23 +1,28 @@
 /**
- * Configuration centralisée des abonnements
- * ⚠️ FICHIER CRITIQUE - Synchronise backend et frontend
+ * ╔══════════════════════════════════════════════════════════════╗
+ * ║        SOURCE UNIQUE DE VÉRITÉ — PLANS ABONNEMENTS          ║
+ * ║  Modifier ICI uniquement. Tout le backend et le frontend     ║
+ * ║  lisent ces valeurs. Ne pas dupliquer dans d'autres fichiers.║
+ * ╚══════════════════════════════════════════════════════════════╝
  */
 
 const SUBSCRIPTION_CONFIG = {
+
   PLANS: {
     Starter: {
       name: "Starter",
-      description: "Inclut 2 mois gratuits pour toute nouvelle création de compte. Idéal pour les entrepreneurs débutants, petits artisans et testeurs de marché.",
+      description: "Idéal pour débuter. 2 mois d'essai gratuit.",
       pricing: {
         monthly: 1000,
-        annual: 10800,  // 1000 * 12 - 10% discount
-        trialPeriod: 2  // mois gratuits
+        annual: 10800,   // 1000 * 12 - 10%
+        trialMonths: 2,
+        annualDiscount: 0.10,
       },
-      commission: 3.0,
+      commission: 3.0,   // % prélevé sur chaque vente
       productLimit: 20,
       features: {
         productManagement: {
-          maxProducts: 10,
+          maxProducts: 20,
           maxVariants: 3,
           maxCategories: 5,
           catalogImport: false,
@@ -39,18 +44,20 @@ const SUBSCRIPTION_CONFIG = {
           emailMarketing: false,
           abandonedCartRecovery: false,
         },
-      }
+      },
     },
+
     Pro: {
       name: "Pro",
-      description: "Pour les vendeurs réguliers souhaitant un meilleur taux de commission.",
+      description: "Pour les vendeurs réguliers avec plus de volume.",
       pricing: {
         monthly: 2500,
-        annual: 27000,  // 2500 * 12 - 10% discount
-        trialPeriod: 0
+        annual: 27000,   // 2500 * 12 - 10%
+        trialMonths: 0,
+        annualDiscount: 0.10,
       },
       commission: 2.5,
-      productLimit: -1, // illimité
+      productLimit: -1,  // illimité
       features: {
         productManagement: {
           maxProducts: -1,
@@ -75,15 +82,17 @@ const SUBSCRIPTION_CONFIG = {
           emailMarketing: true,
           abandonedCartRecovery: false,
         },
-      }
+      },
     },
+
     Business: {
       name: "Business",
-      description: "Pour les vendeurs établis avec un volume de vente élevé.",
+      description: "Pour les vendeurs établis à fort volume.",
       pricing: {
         monthly: 5000,
-        annual: 54000,  // 5000 * 12 - 10% discount
-        trialPeriod: 0
+        annual: 54000,   // 5000 * 12 - 10%
+        trialMonths: 0,
+        annualDiscount: 0.10,
       },
       commission: 2.0,
       productLimit: -1,
@@ -112,73 +121,81 @@ const SUBSCRIPTION_CONFIG = {
           abandonedCartRecovery: true,
           customMarketing: true,
         },
-      }
-    }
+      },
+    },
   },
-  
+
+  // Commission par défaut si le plan du seller n'est pas trouvé
+  DEFAULT_COMMISSION: 3.0,
+
   PAYMENT_METHODS: {
-    mynita: { 
-      phone: "+22790123456", 
-      name: "iHambaObab Mynita",
-      active: true
-    },
-    aman: { 
-      phone: "+22798765432", 
-      name: "iHambaObab Aman",
-      active: true
-    },
-    airtel_money: { 
-      phone: "+22787654321", 
-      name: "iHambaObab Airtel Money",
-      active: true
-    },
-    orange_money: { 
-      phone: "+22776543210", 
-      name: "iHambaObab Orange Money",
-      active: true
-    }
+    mynita:       { phone: "+22790123456", name: "iHambaObab Mynita",       active: true },
+    aman:         { phone: "+22798765432", name: "iHambaObab Aman",         active: true },
+    airtel_money: { phone: "+22787654321", name: "iHambaObab Airtel Money", active: true },
+    orange_money: { phone: "+22776543210", name: "iHambaObab Orange Money", active: true },
   },
 
   SUBSCRIPTION_STATUSES: {
-    ACTIVE: 'active',
-    EXPIRED: 'expired',
+    ACTIVE:    'active',
+    EXPIRED:   'expired',
     SUSPENDED: 'suspended',
     CANCELLED: 'cancelled',
-    PENDING: 'pending',
-    TRIAL: 'trial'
+    PENDING:   'pending',
+    TRIAL:     'trial',
   },
 
   REQUEST_STATUSES: {
-    PENDING_PAYMENT: 'pending_payment',
+    PENDING_PAYMENT:   'pending_payment',
     PAYMENT_SUBMITTED: 'payment_submitted',
-    PAYMENT_VERIFIED: 'payment_verified',
-    ACTIVATED: 'activated',
-    REJECTED: 'rejected',
-    CANCELLED: 'cancelled'
+    PAYMENT_VERIFIED:  'payment_verified',
+    ACTIVATED:         'activated',
+    REJECTED:          'rejected',
+    CANCELLED:         'cancelled',
   },
 
-  GRACE_PERIOD_DAYS: 7,
-  PAYMENT_DEADLINE_HOURS: 24,
-  RENEWAL_REMINDER_DAYS: [7, 3, 1], // Jours avant expiration pour rappels
+  GRACE_PERIOD_DAYS:        7,
+  PAYMENT_DEADLINE_HOURS:   24,
+  RENEWAL_REMINDER_DAYS:    [7, 3, 1],
 
-  // Méthodes utilitaires
-  getPlanPrice: (planName, billingCycle = 'monthly') => {
+  // ─── Utilitaires ──────────────────────────────────────────────
+
+  getPlan(planName) {
+    return SUBSCRIPTION_CONFIG.PLANS[planName] || null;
+  },
+
+  getPlanPrice(planName, billingCycle = 'monthly') {
     const plan = SUBSCRIPTION_CONFIG.PLANS[planName];
     return plan ? plan.pricing[billingCycle] : null;
   },
 
-  calculateAnnualSavings: (planName) => {
+  getPlanCommission(planName) {
+    const plan = SUBSCRIPTION_CONFIG.PLANS[planName];
+    return plan ? plan.commission : SUBSCRIPTION_CONFIG.DEFAULT_COMMISSION;
+  },
+
+  calculateAnnualSavings(planName) {
     const plan = SUBSCRIPTION_CONFIG.PLANS[planName];
     if (!plan) return 0;
     return (plan.pricing.monthly * 12) - plan.pricing.annual;
   },
 
-  getPlanFeatures: (planName) => {
+  getPlanFeatures(planName) {
     const plan = SUBSCRIPTION_CONFIG.PLANS[planName];
     return plan ? plan.features : null;
   },
 
-  DEFAULT_COMMISSION: 3.0  // Plan Starter par défaut
+  // Retourne un objet compatible avec l'ancien PLAN_DEFAULTS (price + commission + productLimit + features)
+  toPlanDefaults(planName) {
+    const plan = SUBSCRIPTION_CONFIG.PLANS[planName];
+    if (!plan) return null;
+    return {
+      price:        { monthly: plan.pricing.monthly, annual: plan.pricing.annual },
+      commission:   plan.commission,
+      productLimit: plan.productLimit,
+      trialMonths:  plan.pricing.trialMonths,
+      features:     plan.features,
+    };
+  },
 };
 
 module.exports = SUBSCRIPTION_CONFIG;
