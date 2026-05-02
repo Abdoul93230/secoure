@@ -19,37 +19,45 @@ class FinancialService {
     }
   }
 
-  // Obtenir le taux de commission selon le plan d'abonnement du seller via PricingPlan
-  static async obtenirTauxCommission(sellerId) {
+  // Obtenir le taux de commission ET le nom du plan du seller
+  // Retourne { taux: Number, planName: String }
+  static async obtenirInfosPlanSeller(sellerId) {
     try {
       const { SellerRequest, PricingPlan } = require('../Models');
 
       const seller = await SellerRequest.findById(sellerId).lean();
-
       if (!seller) {
-        return SUBSCRIPTION_CONFIG.DEFAULT_COMMISSION;
+        return { taux: SUBSCRIPTION_CONFIG.DEFAULT_COMMISSION, planName: 'Starter' };
       }
 
-      // Priorité 1 : plan actif en base
+      // Priorité 1 : plan lié au seller (actif, essai, ou en cours d'activation)
       if (seller.subscriptionId) {
         const activePlan = await PricingPlan.findOne({
           _id: seller.subscriptionId,
-          status: { $in: ['active', 'trial'] }
+          status: { $nin: ['expired', 'cancelled'] }
         }).lean();
 
         if (activePlan) {
-          return activePlan.commission;
+          const planName = activePlan.planType || 'Starter';
+          // Toujours lire depuis SUBSCRIPTION_CONFIG — source de vérité, jamais la valeur DB
+          return { taux: SUBSCRIPTION_CONFIG.getPlanCommission(planName), planName };
         }
       }
 
-      // Priorité 2 : champ subscription du seller → lire depuis config centralisée
+      // Priorité 2 : champ subscription du seller
       const planName = seller.subscription || 'Starter';
-      return SUBSCRIPTION_CONFIG.getPlanCommission(planName);
+      return { taux: SUBSCRIPTION_CONFIG.getPlanCommission(planName), planName };
 
     } catch (error) {
-      console.error(`❌ Erreur obtention commission seller ${sellerId}:`, error);
-      return SUBSCRIPTION_CONFIG.DEFAULT_COMMISSION;
+      console.error(`❌ Erreur obtention plan seller ${sellerId}:`, error);
+      return { taux: SUBSCRIPTION_CONFIG.DEFAULT_COMMISSION, planName: 'Starter' };
     }
+  }
+
+  // Rétrocompatibilité — retourne uniquement le taux (utilisé par financeController)
+  static async obtenirTauxCommission(sellerId) {
+    const { taux } = await this.obtenirInfosPlanSeller(sellerId);
+    return taux;
   }
 
   // Calculer le montant net après commission
@@ -110,8 +118,8 @@ class FinancialService {
 
         // Créer une transaction pour chaque seller
         for (const [sellerId, vente] of Object.entries(ventesParlSeller)) {
-          // 🎯 NOUVEAU: Obtenir le taux de commission selon le pack du seller
-          const tauxCommissionSeller = await this.obtenirTauxCommission(sellerId);
+          // Obtenir le plan ET le taux du seller au moment exact de la transaction
+          const { taux: tauxCommissionSeller, planName } = await this.obtenirInfosPlanSeller(sellerId);
           const { montantNet, commission, tauxCommission } = this.calculerMontantNet(vente.montantBrut, tauxCommissionSeller);
 
           const transaction = new Transaction({
@@ -123,9 +131,17 @@ class FinancialService {
             montantNet,
             commission,
             tauxCommission,
+            // Snapshot immuable du plan au moment de la transaction
+            // Si le seller change de plan ou si les taux changent dans la config,
+            // ce snapshot garantit la traçabilité des calculs historiques
+            planSnapshot: {
+              planName,
+              tauxCommission,
+              snapshotDate: new Date(),
+            },
             description: `Vente en cours - Commande ${reference}`,
             reference: `${reference}_${sellerId}`,
-            dateDisponibilite: new Date(Date.now() + 48 * 60 * 60 * 1000), // +48h
+            dateDisponibilite: new Date(Date.now() + 48 * 60 * 60 * 1000),
             estDisponible: false,
             metadata: {
               produits: vente.produits,

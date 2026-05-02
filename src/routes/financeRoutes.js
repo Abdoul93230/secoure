@@ -173,6 +173,82 @@ router.post('/test/create-transaction/:sellerId', async (req, res) => {
   }
 });
 
+// Évolution temporelle du portefeuille (depuis la création du seller)
+router.get('/seller/:sellerId/evolution', async (req, res) => {
+  try {
+    const sellerId = req.params.sellerId;
+
+    // Toutes les transactions (tous statuts sauf ANNULE/EXPIRE) triées chronologiquement
+    const transactions = await Transaction.find({
+      sellerId,
+      statut: { $nin: ['ANNULE', 'EXPIRE'] }
+    }).sort({ dateTransaction: 1 });
+
+    if (!transactions.length) {
+      return res.json({ success: true, data: [] });
+    }
+
+    // Grouper par mois (YYYY-MM)
+    const byMonth = {};
+    for (const t of transactions) {
+      const d = new Date(t.dateTransaction);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      if (!byMonth[key]) byMonth[key] = { key, ventes: 0, commissions: 0, retraits: 0, net: 0 };
+
+      if (t.type === 'CREDIT_COMMANDE') {
+        byMonth[key].ventes      += t.montant || 0;
+        byMonth[key].commissions += t.commission || 0;
+        byMonth[key].net         += t.montantNet || 0;
+      } else if (t.type === 'RETRAIT') {
+        byMonth[key].retraits += Math.abs(t.montantNet || 0);
+      } else if (t.type === 'ANNULATION') {
+        byMonth[key].net -= Math.abs(t.montantNet || 0);
+      } else if (t.type === 'CORRECTION') {
+        byMonth[key].net += t.montantNet || 0;
+      }
+    }
+
+    // Remplir les mois vides entre le premier et le dernier mois
+    const keys = Object.keys(byMonth).sort();
+    const [firstYear, firstMonth] = keys[0].split('-').map(Number);
+    const now = new Date();
+    const lastYear = now.getFullYear();
+    const lastMonth = now.getMonth() + 1;
+
+    const allMonths = [];
+    let y = firstYear, m = firstMonth;
+    while (y < lastYear || (y === lastYear && m <= lastMonth)) {
+      const key = `${y}-${String(m).padStart(2, '0')}`;
+      allMonths.push(byMonth[key] || { key, ventes: 0, commissions: 0, retraits: 0, net: 0 });
+      m++;
+      if (m > 12) { m = 1; y++; }
+    }
+
+    // Calculer le solde cumulé mois par mois
+    let cumulNet = 0;
+    const data = allMonths.map(mo => {
+      cumulNet += mo.net - mo.retraits;
+      const [yr, mn] = mo.key.split('-');
+      const label = new Intl.DateTimeFormat('fr-FR', { month: 'short', year: 'numeric' })
+        .format(new Date(Number(yr), Number(mn) - 1, 1));
+      return {
+        key: mo.key,
+        label,
+        ventes: Math.round(mo.ventes),
+        commissions: Math.round(mo.commissions),
+        retraits: Math.round(mo.retraits),
+        net: Math.round(mo.net),
+        soldesCumule: Math.max(0, Math.round(cumulNet))
+      };
+    });
+
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('❌ Erreur évolution portefeuille:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // 🔧 ENDPOINT DE RÉPARATION: Corriger les incohérences du portefeuille
 router.post('/seller/:sellerId/fix-coherence', async (req, res) => {
   try {

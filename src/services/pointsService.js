@@ -354,7 +354,7 @@ const redeemPoints = async ({ userId, pointsToRedeem, orderId, orderAmountFcfa }
     reason: `Utilisation de ${actualPoints} BP sur commande (−${discountFcfa} FCFA)`,
     idempotencyKey: `REDEMPTION_${orderId}`,
     orderId,
-    metadata: { discountFcfa, rate }
+    metadata: { discountFcfa, rate, maxPercentPerOrder: maxPct }
   });
 };
 
@@ -381,27 +381,30 @@ const revokeOrderPoints = async ({ userId, orderId }) => {
     results.push(r);
   }
 
-  // Restore all redeemed points for this order (may have multiple REDEMPTION txns from retries)
-  const redemptionTxns = await PointsTransaction.find({
-    userId: String(userId),
-    orderId,
-    type: "REDEMPTION"
-  });
-  for (const redemptionTxn of redemptionTxns) {
-    if (redemptionTxn.delta >= 0) continue;
-    // Use the txn's own idempotency key to build a unique restore key
-    const restoreKey = `RESTORE_${redemptionTxn.idempotencyKey || redemptionTxn._id}`;
-    const alreadyRestored = await PointsTransaction.findOne({ idempotencyKey: restoreKey });
-    if (alreadyRestored) continue;
-    const r = await creditPoints({
-      userId,
-      delta: Math.abs(redemptionTxn.delta),
-      type: "REFUND",
-      reason: `Restitution ${Math.abs(redemptionTxn.delta)} BP — annulation/relance commande`,
-      idempotencyKey: restoreKey,
-      orderId
-    });
-    results.push(r);
+  // Net-based restoration: totalDebited - totalAlreadyRestored = what we actually owe back
+  const redemptionTxns = await PointsTransaction.find({ userId: String(userId), orderId, type: "REDEMPTION" });
+  const refundTxns     = await PointsTransaction.find({ userId: String(userId), orderId, type: "REFUND" });
+
+  const totalDebited  = redemptionTxns.reduce((s, t) => s + Math.abs(t.delta), 0);
+  const totalRestored = refundTxns.reduce((s, t) => s + t.delta, 0);
+  const netToRestore  = totalDebited - totalRestored;
+
+  if (netToRestore > 0) {
+    // Version = number of REFUND txns already recorded + 1 → idempotent within a single attempt
+    const version = refundTxns.length + 1;
+    const restoreKey = `RESTORE_NET_${orderId}_v${version}`;
+    const alreadyDone = await PointsTransaction.findOne({ idempotencyKey: restoreKey });
+    if (!alreadyDone) {
+      const r = await creditPoints({
+        userId,
+        delta: netToRestore,
+        type: "REFUND",
+        reason: `Restitution ${netToRestore} BP — annulation/relance commande`,
+        idempotencyKey: restoreKey,
+        orderId
+      });
+      results.push(r);
+    }
   }
 
   return results.length > 0 ? results : null;

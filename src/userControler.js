@@ -368,6 +368,94 @@ const getUserProfile = (req, res) => {
     });
 };
 
+// ─── Security: recalculate order amounts from DB ─────────────────────────────
+
+const VALID_STATUS_PAYMENT = ["en_attente", "en cours", "payé à la livraison", "payé par téléphone"];
+
+const recalculateOrderAmounts = async (nbrProduits, customerZoneId) => {
+  const { Produit, SellerRequest } = require('./Models');
+  const shippingServiceF = require('./services/shippingServiceF');
+
+  const productIds = nbrProduits.map(item => item.produit);
+  // Fetch complet pour pouvoir construire le snapshot prod côté backend
+  const products = await Produit.find({ _id: { $in: productIds } })
+    .select('_id name prix prixPromo image1 image2 image3 Clefournisseur shipping description categorie poids')
+    .lean();
+
+  const productMap = new Map(products.map(p => [String(p._id), p]));
+
+  let serverSubtotal = 0;
+  // Construire le snapshot prod depuis la DB — immuable, reflète l'état exact au moment de la commande
+  const serverProd = [];
+
+  for (const item of nbrProduits) {
+    const product = productMap.get(String(item.produit));
+    if (!product) throw new Error(`Produit introuvable: ${item.produit}`);
+    const unitPrice = product.prixPromo > 0 ? product.prixPromo : product.prix;
+    serverSubtotal += unitPrice * item.quantite;
+
+    serverProd.push({
+      _id: product._id,
+      name: product.name,
+      prix: product.prix,
+      prixPromo: product.prixPromo || 0,
+      prixSnapshot: unitPrice,       // prix effectivement appliqué
+      image1: product.image1,
+      image2: product.image2,
+      image3: product.image3,
+      Clefournisseur: product.Clefournisseur,
+      description: product.description,
+      categorie: product.categorie,
+      poids: product.poids,
+      shipping: product.shipping,
+      snapshotDate: new Date(),       // date du snapshot pour traçabilité
+    });
+  }
+
+  let serverShipping = null;
+  let serverShippingByStore = [];
+
+  if (customerZoneId) {
+    try {
+      const sellerItems = {};
+      for (const item of nbrProduits) {
+        const product = productMap.get(String(item.produit));
+        if (!product) continue;
+        const sellerId = String(product.Clefournisseur);
+        if (!sellerItems[sellerId]) {
+          sellerItems[sellerId] = { sellerId, weight: 0, items: 0 };
+        }
+        sellerItems[sellerId].weight += (product.shipping?.weight || 0.5) * item.quantite;
+        sellerItems[sellerId].items += item.quantite;
+      }
+
+      const sellerIds = Object.keys(sellerItems);
+      const sellers = await SellerRequest.find({ _id: { $in: sellerIds } })
+        .select('_id storeName')
+        .lean();
+      const sellerNameMap = new Map(sellers.map(s => [String(s._id), s.storeName || 'Boutique']));
+
+      const shippingResult = await shippingServiceF.calculateMultiVendorShipping(
+        Object.values(sellerItems),
+        customerZoneId
+      );
+      serverShipping = shippingResult.totalShipping;
+
+      serverShippingByStore = shippingResult.vendors.map(v => ({
+        storeId: String(v.sellerId),
+        storeName: sellerNameMap.get(String(v.sellerId)) || 'Boutique',
+        shippingCost: v.totalCost || 0,
+      }));
+    } catch (shippingErr) {
+      console.warn('⚠️ Shipping recalculation failed, skipping validation:', shippingErr.message);
+    }
+  }
+
+  return { serverSubtotal, serverShipping, serverShippingByStore, serverProd };
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 const createCommande = async (req, res) => {
   const data = req.body;
   const StockService = require('./services/stockService');
@@ -379,19 +467,59 @@ const createCommande = async (req, res) => {
   let _pointsUsedForDebit = 0; // Stocké hors transaction pour débit post-commit
 
   try {
+    // ── Security: validate statusPayment ──────────────────────────────────────
+    if (data.statusPayment && !VALID_STATUS_PAYMENT.includes(data.statusPayment)) {
+      return res.status(400).json({ message: `Statut de paiement invalide: ${data.statusPayment}` });
+    }
+
+    // ── Security: recalculate amounts from DB (outside transaction for clean reads) ──
+    let serverSubtotal, serverShipping, serverShippingByStore, serverProd;
+    try {
+      ({ serverSubtotal, serverShipping, serverShippingByStore, serverProd } = await recalculateOrderAmounts(
+        data.nbrProduits,
+        data.customerZoneId || null
+      ));
+    } catch (calcErr) {
+      console.error('❌ Erreur recalcul montants:', calcErr.message);
+      return res.status(400).json({ message: calcErr.message });
+    }
+
+    const clientSubtotal = data.prixTotal || data.prix || 0;
+    const subtotalDiff = Math.abs(serverSubtotal - clientSubtotal);
+    if (subtotalDiff > 1) {
+      console.warn(`⚠️ Écart sous-total: client=${clientSubtotal} server=${serverSubtotal}`);
+      return res.status(400).json({
+        message: `Écart de prix détecté (${subtotalDiff} FCFA). Veuillez actualiser votre panier.`,
+        serverSubtotal,
+      });
+    }
+
+    if (serverShipping !== null) {
+      const clientShipping = data.fraisLivraison || 0;
+      const shippingDiff = Math.abs(serverShipping - clientShipping);
+      if (shippingDiff > 50) {
+        console.warn(`⚠️ Écart frais livraison: client=${clientShipping} server=${serverShipping}`);
+        return res.status(400).json({
+          message: `Écart de frais de livraison détecté. Veuillez actualiser votre panier.`,
+          serverShipping,
+        });
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     await session.withTransaction(async () => {
       // 1. Valider la disponibilité du stock
       console.log('🔍 Validation du stock pour la commande...');
       const stockValidation = await StockService.validateStockAvailability(data.nbrProduits);
-      
+
       if (!stockValidation.valid) {
         const errors = stockValidation.invalidItems.map(item => item.error).join(', ');
         throw new Error(`Stock insuffisant: ${errors}`);
       }
 
       // 2. Traiter le code promo via le nouveau système centralisé
-      let subtotal = data.prixTotal || data.prix; // Le montant de base pour la promo (produits seulement)
-      let shipping = data.fraisLivraison || 0;
+      let subtotal = serverSubtotal; // Utiliser le montant recalculé depuis la DB
+      let shipping = data.fraisLivraison || 0; // Valeur client validée (écart < 50 FCFA vérifié avant)
       let finalPrice = subtotal + shipping;
       let finalReduction = data.reduction || 0;
       
@@ -467,7 +595,8 @@ const createCommande = async (req, res) => {
         codePromo: (data.idCodePro && promoResult && promoResult.promoCode) ? promoResult.promoCode.code : null,
         reference: data.reference,
         livraisonDetails: data.livraisonDetails,
-        prod: data.prod,
+        prod: serverProd,
+        shippingByStore: data.shippingByStore?.length ? data.shippingByStore : serverShippingByStore,
         statusPayment: data?.statusPayment ? data.statusPayment : "en cours",
         pointsUsed,
         pointsDiscount,
@@ -511,7 +640,7 @@ const createCommande = async (req, res) => {
           userId: data.clefUser,
           pointsToRedeem: _pointsUsedForDebit,
           orderId: commande._id,
-          orderAmountFcfa: data.prixTotal || data.prix,
+          orderAmountFcfa: serverSubtotal,
         });
         console.log(`✅ ${_pointsUsedForDebit} BP débités pour la commande`);
       } catch (pErr) {
@@ -2049,23 +2178,65 @@ const updateCommanderef = async (req, res) => {
 
   // Démarrer une transaction
   const session = await mongoose.startSession();
-  let _bpToRestore = false;     // Anciens BP à restituer (hors transaction)
-  let _oldCommandeId = null;    // ID de la commande pour revokeOrderPoints
-  let _oldClefUser = null;      // UserId pour les opérations wallet
-  let _newPointsUsed = 0;       // Nouveaux BP calculés (hors transaction)
+  let _bpToRestore = false;
+  let _bpToRestoreAmount = 0;   // Montant exact lu depuis commande.pointsUsed
+  let _restoreIdempotencyKey = null; // Clé unique liée à l'oldReference
+  let _oldCommandeId = null;
+  let _oldClefUser = null;
+  let _newPointsUsed = 0;
   let _newPointsDiscount = 0;
   let _subtotalForRedeem = 0;
 
   try {
+    const data = req.body;
+
+    // ── Security: validate statusPayment ──────────────────────────────────────
+    if (data.statusPayment && !VALID_STATUS_PAYMENT.includes(data.statusPayment)) {
+      return res.status(400).json({ message: `Statut de paiement invalide: ${data.statusPayment}` });
+    }
+
+    // ── Security: recalculate amounts from DB ─────────────────────────────────
+    let serverSubtotal, serverShipping, serverShippingByStore, serverProd;
+    try {
+      ({ serverSubtotal, serverShipping, serverShippingByStore, serverProd } = await recalculateOrderAmounts(
+        data.nbrProduits,
+        data.customerZoneId || null
+      ));
+    } catch (calcErr) {
+      console.error('❌ Erreur recalcul montants (relance):', calcErr.message);
+      return res.status(400).json({ message: calcErr.message });
+    }
+
+    const clientSubtotal = data.prixTotal || data.prix || 0;
+    const subtotalDiff = Math.abs(serverSubtotal - clientSubtotal);
+    if (subtotalDiff > 1) {
+      console.warn(`⚠️ Écart sous-total relance: client=${clientSubtotal} server=${serverSubtotal}`);
+      return res.status(400).json({
+        message: `Écart de prix détecté (${subtotalDiff} FCFA). Veuillez actualiser votre panier.`,
+        serverSubtotal,
+      });
+    }
+
+    if (serverShipping !== null) {
+      const clientShipping = data.fraisLivraison || 0;
+      const shippingDiff = Math.abs(serverShipping - clientShipping);
+      if (shippingDiff > 50) {
+        console.warn(`⚠️ Écart livraison relance: client=${clientShipping} server=${serverShipping}`);
+        return res.status(400).json({
+          message: `Écart de frais de livraison détecté. Veuillez actualiser votre panier.`,
+          serverShipping,
+        });
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     await session.withTransaction(async () => {
       const {
         oldReference,
         newReference,
         livraisonDetails,
-        prod,
         statusPayment,
       } = req.body;
-      data = req.body;
 
       // Vérifier que la commande existe avec l'ancienne référence
       const commande = await Commande.findOne({ reference: oldReference }).session(session);
@@ -2083,9 +2254,9 @@ const updateCommanderef = async (req, res) => {
         throw new Error("Vous n'êtes pas autorisé à modifier cette commande");
       }
 
-      // 2. Traiter le code promo pour la mise à jour
-      let subtotal = data.prixTotal || data.prix;
-      let shipping = data.fraisLivraison || 0;
+      // 2. Traiter le code promo pour la mise à jour (utiliser les montants recalculés en DB)
+      let subtotal = serverSubtotal;
+      let shipping = data.fraisLivraison || 0; // Valeur client validée (écart < 50 FCFA vérifié avant)
       let finalPrice = subtotal + shipping;
       let finalReduction = data.reduction || 0;
 
@@ -2131,8 +2302,12 @@ const updateCommanderef = async (req, res) => {
       _oldClefUser = commande.clefUser;
       _subtotalForRedeem = subtotal;
 
-      // Toujours tenter la restitution — revokeOrderPoints est idempotent et gère les doublons
-      _bpToRestore = true;
+      // Restituer exactement ce que la commande avait (vérité en DB), clé liée à oldReference
+      if (commande.pointsUsed > 0) {
+        _bpToRestore = true;
+        _bpToRestoreAmount = commande.pointsUsed;
+        _restoreIdempotencyKey = `RESTORE_REF_${data.oldReference}`;
+      }
 
       // Calculer les nouveaux BP (lecture wallet sans session, hors transaction)
       if (data.pointsToUse && data.pointsToUse > 0 && data.clefUser) {
@@ -2190,7 +2365,8 @@ const updateCommanderef = async (req, res) => {
         codePromo: (data.idCodePro && promoResult && promoResult.promoCode) ? promoResult.promoCode.code : (commande.codePromo || null),
         reference: newReference,
         livraisonDetails: livraisonDetails,
-        prod: prod,
+        prod: serverProd,
+        shippingByStore: data.shippingByStore?.length ? data.shippingByStore : serverShippingByStore,
         statusPayment: statusPayment || "en_attente",
         pointsUsed,
         pointsDiscount,
@@ -2240,11 +2416,19 @@ const updateCommanderef = async (req, res) => {
     const { stockResult } = req.updateResult;
 
     // Opérations wallet hors transaction (pointsService gère sa propre session ACID)
-    if (_bpToRestore && _oldCommandeId && _oldClefUser) {
+    if (_bpToRestore && _bpToRestoreAmount > 0 && _oldClefUser && _restoreIdempotencyKey) {
       try {
         const pointsService = require('./services/pointsService');
-        console.log('♻️ Restitution des anciens BP après commit...');
-        await pointsService.revokeOrderPoints({ userId: _oldClefUser, orderId: _oldCommandeId });
+        console.log(`♻️ Restitution de ${_bpToRestoreAmount} BP (ref: ${req.body.oldReference})...`);
+        await pointsService.creditPoints({
+          userId: _oldClefUser,
+          delta: _bpToRestoreAmount,
+          type: "REFUND",
+          reason: `Restitution ${_bpToRestoreAmount} BP — relance commande`,
+          idempotencyKey: _restoreIdempotencyKey,
+          orderId: _oldCommandeId,
+        });
+        console.log(`✅ ${_bpToRestoreAmount} BP restitués`);
       } catch (pErr) {
         console.error('⚠️ Erreur restitution anciens BP:', pErr.message);
       }

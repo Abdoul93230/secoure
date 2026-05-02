@@ -6,6 +6,7 @@ const FinancialService = require('./services/FinancialService');
 const { confirmerTransactionsLivrees, tacheDeblocage, tacheNettoyage } = require("./controllers/financeController");
 const financialLogger = require('./utils/financialLogger');
 const { setupUniversalCronJobs } = require("./controllers/subscriptionController");
+const syncPlanCommissions = require('./utils/syncPlanCommissions');
 
 const MONGODB_URI= process.env.MONGODB_URI
 // PromoCode
@@ -24,9 +25,12 @@ mongoose
     }
   )
 
-  .then(() => {
+  .then(async () => {
     console.log("Connexion à MongoDB établie");
-    
+
+    // Synchroniser les commissions PricingPlan avec SUBSCRIPTION_CONFIG au démarrage
+    await syncPlanCommissions();
+
     // Tâche principale: mise à jour des codes promo et gestion financière
     const job = new cron.CronJob("*/30 * * * *", async () => {
       try {

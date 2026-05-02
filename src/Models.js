@@ -984,6 +984,17 @@ const commandeSchema = new mongoose.Schema(
       ],
     },
     prod: Object,
+    shippingByStore: {
+      type: [
+        {
+          storeId: { type: String, required: true },
+          storeName: { type: String, required: true },
+          shippingCost: { type: Number, required: true },
+        },
+      ],
+      required: false,
+      default: [],
+    },
   },
   { strict: false }
 );

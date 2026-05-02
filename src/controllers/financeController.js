@@ -3,6 +3,7 @@ const Portefeuille = require('../models/portefeuilleSchema');
 const Retrait = require('../models/retraitSchema');
 const Transaction = require('../models/transactionSchema');
 const FinancialService = require('../services/FinancialService');
+const SUBSCRIPTION_CONFIG = require('../config/subscriptionConfig');
 const mongoose = require("mongoose");
 
 // Obtenir le dashboard financier du seller
@@ -178,17 +179,17 @@ const gererChangementEtatCommande = async (commandeId, ancienEtat, nouvelEtat, c
 // Fonction pour obtenir les commandes avec informations financières
 async function getSellerOrdersWithFinancialInfo(sellerId, options = {}) {
   try {
-    // 🔥 CORRECTION: Convertir sellerId en ObjectId
-    const sellerObjectId = mongoose.Types.ObjectId.isValid(sellerId) 
+    const sellerObjectId = mongoose.Types.ObjectId.isValid(sellerId)
       ? new mongoose.Types.ObjectId(sellerId)
       : sellerId;
 
-    // 🔥 NOUVEAU: Options de pagination
     const page = parseInt(options.page) || 1;
     const limit = parseInt(options.limit) || 10;
     const skip = (page - 1) * limit;
 
-    // Pipeline principal avec pagination
+    // Taux de commission réel du seller (depuis SUBSCRIPTION_CONFIG, source de vérité)
+    const tauxCommission = await FinancialService.obtenirTauxCommission(sellerId);
+
     const pipeline = [
       { $unwind: "$nbrProduits" },
       {
@@ -202,7 +203,6 @@ async function getSellerOrdersWithFinancialInfo(sellerId, options = {}) {
       { $unwind: "$productInfo" },
       {
         $match: {
-          // 🔥 CORRECTION: Utiliser sellerObjectId
           "productInfo.Clefournisseur": sellerObjectId,
         },
       },
@@ -218,7 +218,6 @@ async function getSellerOrdersWithFinancialInfo(sellerId, options = {}) {
           reduction: { $first: "$reduction" },
           date: { $first: "$date" },
           etatTraitement: { $first: "$etatTraitement" },
-
           sellerProducts: {
             $push: {
               produitId: "$nbrProduits.produit",
@@ -232,7 +231,6 @@ async function getSellerOrdersWithFinancialInfo(sellerId, options = {}) {
               image: "$productInfo.image1",
             },
           },
-
           sellerTotal: {
             $sum: {
               $multiply: [
@@ -241,95 +239,100 @@ async function getSellerOrdersWithFinancialInfo(sellerId, options = {}) {
                   $cond: {
                     if: { $gt: ["$productInfo.prixPromo", 0] },
                     then: "$productInfo.prixPromo",
-                    else: "$productInfo.prix"
-                  }
-                }
+                    else: "$productInfo.prix",
+                  },
+                },
               ],
             },
           },
         },
       },
 
-      // Lookup pour les transactions
+      // Lookup des transactions existantes
+      // Note: sellerId est stocké en String dans TransactionSeller
       {
         $lookup: {
           from: "transactionsellers",
-          let: { 
-            commandeId: "$_id",
-            sellerId: sellerObjectId
-          },
+          let: { commandeId: "$_id", sid: { $toString: sellerObjectId } },
           pipeline: [
             {
               $match: {
                 $expr: {
                   $and: [
                     { $eq: ["$commandeId", "$$commandeId"] },
-                    { $eq: ["$sellerId", "$$sellerId"] },
-                    { $eq: ["$type", "CREDIT_COMMANDE"] }
-                  ]
-                }
-              }
-            }
+                    { $eq: ["$sellerId", "$$sid"] },
+                    { $eq: ["$type", "CREDIT_COMMANDE"] },
+                  ],
+                },
+              },
+            },
           ],
-          as: "transactionInfo"
-        }
+          as: "transactionInfo",
+        },
       },
 
-      // Ajouter les informations financières
+      // Champs financiers : transaction réelle si elle existe, sinon estimation
       {
         $addFields: {
+          hasTransaction: { $gt: [{ $size: "$transactionInfo" }, 0] },
           transactionStatus: {
             $cond: {
               if: { $gt: [{ $size: "$transactionInfo" }, 0] },
               then: { $arrayElemAt: ["$transactionInfo.statut", 0] },
-              else: "AUCUNE"
-            }
+              else: "AUCUNE",
+            },
+          },
+          // Valeurs réelles depuis la transaction (montants définitifs calculés au moment de la prise en charge)
+          commission: {
+            $cond: {
+              if: { $gt: [{ $size: "$transactionInfo" }, 0] },
+              then: { $arrayElemAt: ["$transactionInfo.commission", 0] },
+              else: null,  // null = pas encore de transaction, estimation calculée en JS après
+            },
           },
           montantNet: {
             $cond: {
               if: { $gt: [{ $size: "$transactionInfo" }, 0] },
               then: { $arrayElemAt: ["$transactionInfo.montantNet", 0] },
-              else: 0
-            }
+              else: null,
+            },
           },
-          commission: {
+          tauxCommission: {
             $cond: {
               if: { $gt: [{ $size: "$transactionInfo" }, 0] },
-              then: { $arrayElemAt: ["$transactionInfo.commission", 0] },
-              else: 0
-            }
+              then: { $arrayElemAt: ["$transactionInfo.tauxCommission", 0] },
+              else: null,
+            },
           },
           estDisponible: {
             $cond: {
               if: { $gt: [{ $size: "$transactionInfo" }, 0] },
               then: { $arrayElemAt: ["$transactionInfo.estDisponible", 0] },
-              else: false
-            }
+              else: false,
+            },
           },
           dateDisponibilite: {
             $cond: {
               if: { $gt: [{ $size: "$transactionInfo" }, 0] },
               then: { $arrayElemAt: ["$transactionInfo.dateDisponibilite", 0] },
-              else: null
-            }
-          }
-        }
+              else: null,
+            },
+          },
+        },
       },
 
       { $sort: { date: -1 } },
     ];
 
-    // 🔥 NOUVEAU: Exécuter le pipeline avec pagination
-    const orders = await Commande.aggregate(pipeline)
-      .skip(skip)
-      .limit(limit);
+    const rawOrders = await Commande.aggregate(pipeline).skip(skip).limit(limit);
 
-    // 🔥 NOUVEAU: Compter le total pour la pagination
-    const totalPipeline = [
-      ...pipeline.slice(0, -1), // Tous les stages sauf le sort
-      { $count: "total" }
-    ];
-    
+    // Enrichir avec le taux du seller ; les montants commission/net restent null si pas de transaction
+    const orders = rawOrders.map((order) => ({
+      ...order,
+      tauxCommission: order.tauxCommission || tauxCommission,
+    }));
+
+    const totalPipeline = [...pipeline.slice(0, -1), { $count: "total" }];
     const totalResult = await Commande.aggregate(totalPipeline);
     const total = totalResult.length > 0 ? totalResult[0].total : 0;
     const totalPages = Math.ceil(total / limit);
@@ -342,8 +345,8 @@ async function getSellerOrdersWithFinancialInfo(sellerId, options = {}) {
         totalOrders: total,
         hasNext: page < totalPages,
         hasPrev: page > 1,
-        limit
-      }
+        limit,
+      },
     };
   } catch (error) {
     console.error("❌ Erreur récupération commandes seller:", error);

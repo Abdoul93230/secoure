@@ -46,6 +46,12 @@ const transactionSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  // Snapshot du plan au moment de la transaction — immuable, traçabilité historique
+  planSnapshot: {
+    planName: { type: String },   // ex: "Pro"
+    tauxCommission: { type: Number }, // copie de tauxCommission pour lisibilité
+    snapshotDate: { type: Date, default: Date.now },
+  },
   description: {
     type: String,
     required: true
