@@ -2115,6 +2115,47 @@ const updateCommanderef = async (req, res) => {
         finalPrice = subtotal - finalReduction + shipping;
       }
 
+      // 2b. Gérer les Baobab Points (restituer les anciens, déduire les nouveaux)
+      let pointsUsed = 0;
+      let pointsDiscount = 0;
+
+      // Restituer les BP de l'ancienne commande si elle en avait
+      if (commande.pointsDiscount > 0) {
+        try {
+          const pointsService = require('./services/pointsService');
+          console.log('♻️ Restitution des anciens BP avant relance:', commande.pointsUsed, 'pts');
+          await pointsService.revokeOrderPoints({ userId: commande.clefUser, orderId: commande._id });
+        } catch (pErr) {
+          console.error('⚠️ Erreur restitution anciens BP:', pErr.message);
+        }
+      }
+
+      // Appliquer les nouveaux BP si l'utilisateur en utilise
+      if (data.pointsToUse && data.pointsToUse > 0 && data.clefUser) {
+        try {
+          const pointsService = require('./services/pointsService');
+          const configService = require('./services/gamificationConfigService');
+          const cfg = await configService.getConfig();
+          const rate = cfg.redemption?.pointsToFcfaRate || 20;
+          const maxPct = cfg.redemption?.maxPercentPerOrder || 30;
+          const maxFcfa = Math.floor(subtotal * maxPct / 100);
+          const maxPoints = Math.floor(maxFcfa / rate);
+          const actualPoints = Math.min(data.pointsToUse, maxPoints);
+          if (actualPoints > 0) {
+            const wallet = await pointsService.getWallet(data.clefUser);
+            const deductible = Math.min(actualPoints, wallet.balance);
+            if (deductible > 0) {
+              pointsUsed = deductible;
+              pointsDiscount = deductible * rate;
+              finalPrice = Math.max(0, finalPrice - pointsDiscount);
+              console.log(`✅ BP appliqués: ${pointsUsed} pts = -${pointsDiscount} FCFA`);
+            }
+          }
+        } catch (pErr) {
+          console.error('⚠️ Erreur calcul BP relance:', pErr.message);
+        }
+      }
+
       // Valider la disponibilité du stock pour les nouveaux produits
       console.log('🔍 Validation du stock pour la mise à jour de commande...');
       const stockValidation = await StockService.validateStockAvailability(data.nbrProduits);
@@ -2145,6 +2186,8 @@ const updateCommanderef = async (req, res) => {
         livraisonDetails: livraisonDetails,
         prod: prod,
         statusPayment: statusPayment || "en_attente",
+        pointsUsed,
+        pointsDiscount,
         // Si relance d'une commande annulée: remettre les statuts à zéro
         ...(wasAnnulee && {
           statusLivraison: "en cours",
@@ -2157,7 +2200,7 @@ const updateCommanderef = async (req, res) => {
       
       console.log('📝 Mise à jour du statusPayment:', dataUpdate.statusPayment);
 
-      await Commande.findOneAndUpdate({ reference: oldReference }, dataUpdate, { session });
+      const updatedCommande = await Commande.findOneAndUpdate({ reference: oldReference }, dataUpdate, { session, new: true });
 
       // Enregistrer le nouvel usage
       if (data.idCodePro && finalReduction > 0) {
@@ -2169,6 +2212,22 @@ const updateCommanderef = async (req, res) => {
           finalReduction,
           { session }
         );
+      }
+
+      // Débiter les nouveaux BP hors transaction Mongoose (opération wallet indépendante)
+      if (pointsUsed > 0 && data.clefUser) {
+        try {
+          const pointsService = require('./services/pointsService');
+          await pointsService.redeemPoints({
+            userId: data.clefUser,
+            pointsToRedeem: pointsUsed,
+            orderId: updatedCommande._id,
+            orderAmountFcfa: subtotal,
+          });
+          console.log(`✅ ${pointsUsed} BP débités du wallet (relance commande)`);
+        } catch (pErr) {
+          console.error('⚠️ Erreur débit BP relance:', pErr.message);
+        }
       }
 
       // 3. Mettre à jour le stock (restaurer ancien + décrémenter nouveau)
