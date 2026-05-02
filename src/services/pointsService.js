@@ -381,19 +381,24 @@ const revokeOrderPoints = async ({ userId, orderId }) => {
     results.push(r);
   }
 
-  // Restore redeemed points (REDEMPTION debitPoints stores delta as negative)
-  const redemptionTxn = await PointsTransaction.findOne({
+  // Restore all redeemed points for this order (may have multiple REDEMPTION txns from retries)
+  const redemptionTxns = await PointsTransaction.find({
     userId: String(userId),
     orderId,
     type: "REDEMPTION"
   });
-  if (redemptionTxn && redemptionTxn.delta < 0) {
+  for (const redemptionTxn of redemptionTxns) {
+    if (redemptionTxn.delta >= 0) continue;
+    // Use the txn's own idempotency key to build a unique restore key
+    const restoreKey = `RESTORE_${redemptionTxn.idempotencyKey || redemptionTxn._id}`;
+    const alreadyRestored = await PointsTransaction.findOne({ idempotencyKey: restoreKey });
+    if (alreadyRestored) continue;
     const r = await creditPoints({
       userId,
       delta: Math.abs(redemptionTxn.delta),
       type: "REFUND",
-      reason: `Restitution ${Math.abs(redemptionTxn.delta)} BP — annulation commande`,
-      idempotencyKey: `REDEMPTION_RESTORE_${orderId}`,
+      reason: `Restitution ${Math.abs(redemptionTxn.delta)} BP — annulation/relance commande`,
+      idempotencyKey: restoreKey,
       orderId
     });
     results.push(r);

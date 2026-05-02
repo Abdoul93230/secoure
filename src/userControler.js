@@ -2131,11 +2131,8 @@ const updateCommanderef = async (req, res) => {
       _oldClefUser = commande.clefUser;
       _subtotalForRedeem = subtotal;
 
-      // Mémoriser si les anciens BP doivent être restitués
-      if (commande.pointsDiscount > 0) {
-        _bpToRestore = true;
-        console.log('♻️ Anciens BP à restituer après commit:', commande.pointsUsed, 'pts');
-      }
+      // Toujours tenter la restitution — revokeOrderPoints est idempotent et gère les doublons
+      _bpToRestore = true;
 
       // Calculer les nouveaux BP (lecture wallet sans session, hors transaction)
       if (data.pointsToUse && data.pointsToUse > 0 && data.clefUser) {
