@@ -376,7 +376,8 @@ const createCommande = async (req, res) => {
 
   // Démarrer une transaction pour assurer la cohérence
   const session = await mongoose.startSession();
-  
+  let _pointsUsedForDebit = 0; // Stocké hors transaction pour débit post-commit
+
   try {
     await session.withTransaction(async () => {
       // 1. Valider la disponibilité du stock
@@ -445,6 +446,7 @@ const createCommande = async (req, res) => {
               pointsUsed = deductible;
               pointsDiscount = deductible * rate;
               finalPrice = Math.max(0, finalPrice - pointsDiscount);
+              _pointsUsedForDebit = deductible; // Mémoriser pour débit post-commit
             }
           }
         } catch (pErr) {
@@ -486,22 +488,6 @@ const createCommande = async (req, res) => {
         );
       }
 
-      // 3b. Débiter les points utilisés (après création commande, avant fin transaction)
-      if (pointsUsed > 0 && data.clefUser) {
-        try {
-          const pointsService = require('./services/pointsService');
-          await pointsService.redeemPoints({
-            userId: data.clefUser,
-            pointsToRedeem: pointsUsed,
-            orderId: commande._id,
-            orderAmountFcfa: subtotal,
-          });
-          console.log(`✅ ${pointsUsed} BP débités pour la commande`);
-        } catch (pErr) {
-          console.error('⚠️ Erreur débit points:', pErr.message);
-        }
-      }
-
       // 3. Décrémenter le stock
       console.log('📦 Décrémentation du stock...');
       const stockResult = await StockService.decrementStock(data.nbrProduits, { session });
@@ -516,9 +502,26 @@ const createCommande = async (req, res) => {
     });
 
     const { commande, stockResult } = req.commandeResult;
+
+    // Débiter les BP hors transaction (pointsService gère sa propre session ACID)
+    if (_pointsUsedForDebit > 0 && data.clefUser) {
+      try {
+        const pointsService = require('./services/pointsService');
+        await pointsService.redeemPoints({
+          userId: data.clefUser,
+          pointsToRedeem: _pointsUsedForDebit,
+          orderId: commande._id,
+          orderAmountFcfa: data.prixTotal || data.prix,
+        });
+        console.log(`✅ ${_pointsUsedForDebit} BP débités pour la commande`);
+      } catch (pErr) {
+        console.error('⚠️ Erreur débit points post-commit:', pErr.message);
+      }
+    }
+
     const message = "Commande créée avec succès et stock mis à jour.";
-    return res.json({ 
-      message, 
+    return res.json({
+      message,
       commande,
       stockOperations: stockResult.operations
     });
@@ -2046,7 +2049,13 @@ const updateCommanderef = async (req, res) => {
 
   // Démarrer une transaction
   const session = await mongoose.startSession();
-  
+  let _bpToRestore = false;     // Anciens BP à restituer (hors transaction)
+  let _oldCommandeId = null;    // ID de la commande pour revokeOrderPoints
+  let _oldClefUser = null;      // UserId pour les opérations wallet
+  let _newPointsUsed = 0;       // Nouveaux BP calculés (hors transaction)
+  let _newPointsDiscount = 0;
+  let _subtotalForRedeem = 0;
+
   try {
     await session.withTransaction(async () => {
       const {
@@ -2115,22 +2124,20 @@ const updateCommanderef = async (req, res) => {
         finalPrice = subtotal - finalReduction + shipping;
       }
 
-      // 2b. Gérer les Baobab Points (restituer les anciens, déduire les nouveaux)
+      // 2b. Gérer les Baobab Points — calcul uniquement, les opérations wallet se font hors transaction
       let pointsUsed = 0;
       let pointsDiscount = 0;
+      _oldCommandeId = commande._id;
+      _oldClefUser = commande.clefUser;
+      _subtotalForRedeem = subtotal;
 
-      // Restituer les BP de l'ancienne commande si elle en avait
+      // Mémoriser si les anciens BP doivent être restitués
       if (commande.pointsDiscount > 0) {
-        try {
-          const pointsService = require('./services/pointsService');
-          console.log('♻️ Restitution des anciens BP avant relance:', commande.pointsUsed, 'pts');
-          await pointsService.revokeOrderPoints({ userId: commande.clefUser, orderId: commande._id });
-        } catch (pErr) {
-          console.error('⚠️ Erreur restitution anciens BP:', pErr.message);
-        }
+        _bpToRestore = true;
+        console.log('♻️ Anciens BP à restituer après commit:', commande.pointsUsed, 'pts');
       }
 
-      // Appliquer les nouveaux BP si l'utilisateur en utilise
+      // Calculer les nouveaux BP (lecture wallet sans session, hors transaction)
       if (data.pointsToUse && data.pointsToUse > 0 && data.clefUser) {
         try {
           const pointsService = require('./services/pointsService');
@@ -2148,7 +2155,9 @@ const updateCommanderef = async (req, res) => {
               pointsUsed = deductible;
               pointsDiscount = deductible * rate;
               finalPrice = Math.max(0, finalPrice - pointsDiscount);
-              console.log(`✅ BP appliqués: ${pointsUsed} pts = -${pointsDiscount} FCFA`);
+              _newPointsUsed = deductible;
+              _newPointsDiscount = pointsDiscount;
+              console.log(`✅ BP calculés: ${pointsUsed} pts = -${pointsDiscount} FCFA`);
             }
           }
         } catch (pErr) {
@@ -2214,22 +2223,6 @@ const updateCommanderef = async (req, res) => {
         );
       }
 
-      // Débiter les nouveaux BP hors transaction Mongoose (opération wallet indépendante)
-      if (pointsUsed > 0 && data.clefUser) {
-        try {
-          const pointsService = require('./services/pointsService');
-          await pointsService.redeemPoints({
-            userId: data.clefUser,
-            pointsToRedeem: pointsUsed,
-            orderId: updatedCommande._id,
-            orderAmountFcfa: subtotal,
-          });
-          console.log(`✅ ${pointsUsed} BP débités du wallet (relance commande)`);
-        } catch (pErr) {
-          console.error('⚠️ Erreur débit BP relance:', pErr.message);
-        }
-      }
-
       // 3. Mettre à jour le stock (restaurer ancien + décrémenter nouveau)
       console.log('📦 Mise à jour du stock...');
       const stockResult = await StockService.decrementStock(
@@ -2248,6 +2241,39 @@ const updateCommanderef = async (req, res) => {
     });
 
     const { stockResult } = req.updateResult;
+
+    // Opérations wallet hors transaction (pointsService gère sa propre session ACID)
+    if (_bpToRestore && _oldCommandeId && _oldClefUser) {
+      try {
+        const pointsService = require('./services/pointsService');
+        console.log('♻️ Restitution des anciens BP après commit...');
+        await pointsService.revokeOrderPoints({ userId: _oldClefUser, orderId: _oldCommandeId });
+      } catch (pErr) {
+        console.error('⚠️ Erreur restitution anciens BP:', pErr.message);
+      }
+    }
+    if (_newPointsUsed > 0 && req.body.clefUser) {
+      try {
+        const pointsService = require('./services/pointsService');
+        const cfg = await require('./services/gamificationConfigService').getConfig();
+        const rate = cfg.redemption?.pointsToFcfaRate || 20;
+        const discountFcfa = _newPointsUsed * rate;
+        // Clé unique incluant la nouvelle référence pour éviter conflit avec l'ancienne REDEMPTION du même orderId
+        await pointsService.debitPoints({
+          userId: req.body.clefUser,
+          delta: _newPointsUsed,
+          type: "REDEMPTION",
+          reason: `Utilisation de ${_newPointsUsed} BP sur relance commande (−${discountFcfa} FCFA)`,
+          idempotencyKey: `REDEMPTION_${_oldCommandeId}_${req.body.newReference}`,
+          orderId: _oldCommandeId,
+          metadata: { discountFcfa, rate, isRelance: true }
+        });
+        console.log(`✅ ${_newPointsUsed} BP débités du wallet (relance commande)`);
+      } catch (pErr) {
+        console.error('⚠️ Erreur débit BP relance:', pErr.message);
+      }
+    }
+
     res.status(200).json({
       message: "Référence mise à jour avec succès et stock mis à jour",
       commande: {
@@ -2255,7 +2281,7 @@ const updateCommanderef = async (req, res) => {
       },
       stockOperations: stockResult.operations
     });
-    
+
   } catch (error) {
     console.error("❌ Erreur lors de la mise à jour de la référence:", error);
     res.status(500).json({
