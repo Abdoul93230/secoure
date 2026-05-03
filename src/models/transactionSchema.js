@@ -22,7 +22,7 @@ const transactionSchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ['CREDIT_COMMANDE', 'RETRAIT', 'COMMISSION', 'ANNULATION', 'CORRECTION'],
+    enum: ['CREDIT_COMMANDE', 'RETRAIT', 'COMMISSION', 'ANNULATION', 'CORRECTION', 'CREDIT_POS', 'ANNULATION_POS'],
     required: true
   },
   statut: {

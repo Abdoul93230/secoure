@@ -35,6 +35,8 @@ const enhancedAdminRoutes = require('./src/routes/enhancedAdminRoutes');
 const sellerSubscriptionRoutes = require('./src/routes/sellerSubscriptionRoutes');
 const promoCodeRoutes = require('./src/routes/promoCodeRoutes');
 const gamificationRoutes = require('./src/routes/gamificationRoutes');
+const newsletterRoutes = require('./src/routes/newsletterRoutes');
+const posRoutes = require('./src/routes/posRoutes');
 
 // Import middleware
 const { errorHandler } = require('./src/middleware/errorHandler');
@@ -210,6 +212,8 @@ app.use('/api/adminSeller', authMiddleware.requireAdmin, enhancedAdminRoutes);
 app.use('/api/seller/subscription', authMiddleware.requireSeller, sellerSubscriptionRoutes);
 app.use('/api/promocodes', promoCodeRoutes);
 app.use('/api/gamification', gamificationRoutes);
+app.use('/api/newsletter', newsletterRoutes);
+app.use('/api/pos', posRoutes);
 
 
 // Start server

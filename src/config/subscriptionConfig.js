@@ -18,9 +18,10 @@ const SUBSCRIPTION_CONFIG = {
         trialMonths: 2,
         annualDiscount: 0.10,
       },
-      commission: 3.0,   // % prélevé sur chaque vente
+      commission: 3.0,   // % prélevé sur chaque vente marketplace
       productLimit: 20,
       features: {
+        pos: false,      // Caisse POS non incluse
         productManagement: {
           maxProducts: 20,
           maxVariants: 3,
@@ -59,6 +60,7 @@ const SUBSCRIPTION_CONFIG = {
       commission: 2.5,
       productLimit: -1,  // illimité
       features: {
+        pos: true,       // ✅ Caisse POS incluse — 0% commission sur ventes physiques
         productManagement: {
           maxProducts: -1,
           maxVariants: 10,
@@ -97,6 +99,7 @@ const SUBSCRIPTION_CONFIG = {
       commission: 2.0,
       productLimit: -1,
       features: {
+        pos: true,       // ✅ Caisse POS incluse — 0% commission sur ventes physiques
         productManagement: {
           maxProducts: -1,
           maxVariants: -1,
@@ -182,6 +185,11 @@ const SUBSCRIPTION_CONFIG = {
   getPlanFeatures(planName) {
     const plan = SUBSCRIPTION_CONFIG.PLANS[planName];
     return plan ? plan.features : null;
+  },
+
+  hasPosAccess(planName) {
+    const plan = SUBSCRIPTION_CONFIG.PLANS[planName];
+    return plan ? plan.features.pos === true : false;
   },
 
   // Retourne un objet compatible avec l'ancien PLAN_DEFAULTS (price + commission + productLimit + features)

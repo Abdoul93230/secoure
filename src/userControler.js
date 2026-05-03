@@ -1633,7 +1633,8 @@ const Send_email = async (req, res) => {
   `;
 
   const mailOptions = {
-    from: senderEmail,
+    from: `"Ihambaobab" <HabouNiger227@gmail.com>`,
+    replyTo: senderEmail,
     to: "HabouNiger227@gmail.com",
     subject: `${subject} : ${senderEmail}`,
     text: message,

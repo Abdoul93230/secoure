@@ -37,6 +37,7 @@ router.post('/saveUserPushToken', userController.saveUserPushToken);
 
 // Email services
 router.post('/sendMail', userController.Send_email);
+router.post('/SendMail', userController.Send_email);
 router.post('/Send_email_freind', userController.Send_email_freind);
 
 // Promo codes

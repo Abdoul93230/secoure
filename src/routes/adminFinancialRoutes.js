@@ -781,4 +781,141 @@ router.get('/finances/commandes/:commandeId/transitions', verifyAdmin, async (re
   }
 });
 
+// ─── POS Admin Routes ─────────────────────────────────────────────────────────
+// Ces routes donnent à l'admin une vue globale des ventes directes (caisse physique)
+// et permettent de vérifier que les commissions sont bien prélevées selon l'abonnement.
+
+const VenteDirecte = require('../models/VenteDirecte');
+
+// GET /adminf/pos/dashboard
+// KPIs globaux POS : CA, commissions prélevées, nb ventes, par période
+router.get('/pos/dashboard', verifyAdmin, async (req, res) => {
+  try {
+    const { periode = 30 } = req.query;
+    const dateDebut = new Date();
+    dateDebut.setDate(dateDebut.getDate() - Number(periode));
+
+    const [stats, parSeller, parModePaiement, recentes] = await Promise.all([
+      // KPIs globaux
+      VenteDirecte.aggregate([
+        { $match: { statut: 'COMPLETEE', createdAt: { $gte: dateDebut } } },
+        { $group: {
+          _id: null,
+          totalCA: { $sum: '$total' },
+          totalNet: { $sum: '$montantNet' },
+          totalCommissions: { $sum: '$commission' },
+          nombreVentes: { $sum: 1 },
+          tauxMoyenCommission: { $avg: '$planSnapshot.tauxCommission' },
+        }},
+      ]),
+      // Top sellers POS
+      VenteDirecte.aggregate([
+        { $match: { statut: 'COMPLETEE', createdAt: { $gte: dateDebut } } },
+        { $group: {
+          _id: '$sellerId',
+          totalCA: { $sum: '$total' },
+          totalCommissions: { $sum: '$commission' },
+          nombreVentes: { $sum: 1 },
+          planName: { $last: '$planSnapshot.planName' },
+        }},
+        { $sort: { totalCA: -1 } },
+        { $limit: 20 },
+      ]),
+      // Répartition par mode de paiement
+      VenteDirecte.aggregate([
+        { $match: { statut: 'COMPLETEE', createdAt: { $gte: dateDebut } } },
+        { $group: {
+          _id: '$modePaiement',
+          count: { $sum: 1 },
+          totalCA: { $sum: '$total' },
+        }},
+      ]),
+      // 10 dernières ventes
+      VenteDirecte.find({ createdAt: { $gte: dateDebut } })
+        .sort({ createdAt: -1 })
+        .limit(10)
+        .lean(),
+    ]);
+
+    // Enrichir les sellers avec leur nom de boutique
+    const { SellerRequest } = require('../Models');
+    const sellerIds = parSeller.map(s => s._id);
+    const sellersInfo = await SellerRequest.find({ _id: { $in: sellerIds } })
+      .select('storeName').lean();
+    const sellerMap = Object.fromEntries(sellersInfo.map(s => [String(s._id), s.storeName]));
+
+    const parSellerEnrichi = parSeller.map(s => ({
+      ...s,
+      storeName: sellerMap[s._id] || 'Boutique inconnue',
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        kpis: stats[0] || { totalCA: 0, totalNet: 0, totalCommissions: 0, nombreVentes: 0, tauxMoyenCommission: 0 },
+        parSeller: parSellerEnrichi,
+        parModePaiement,
+        recentes,
+        periode: Number(periode),
+      },
+    });
+  } catch (err) {
+    console.error('❌ Erreur admin POS dashboard:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// GET /adminf/pos/ventes
+// Liste paginée de toutes les ventes directes avec filtres
+router.get('/pos/ventes', verifyAdmin, async (req, res) => {
+  try {
+    const { page = 1, limit = 30, sellerId, statut, dateStart, dateEnd, modePaiement } = req.query;
+    const query = {};
+    if (sellerId) query.sellerId = sellerId;
+    if (statut) query.statut = statut;
+    if (modePaiement) query.modePaiement = modePaiement;
+    if (dateStart || dateEnd) {
+      query.createdAt = {};
+      if (dateStart) query.createdAt.$gte = new Date(dateStart);
+      if (dateEnd) query.createdAt.$lte = new Date(dateEnd);
+    }
+
+    const [ventes, total] = await Promise.all([
+      VenteDirecte.find(query)
+        .sort({ createdAt: -1 })
+        .skip((Number(page) - 1) * Number(limit))
+        .limit(Number(limit))
+        .lean(),
+      VenteDirecte.countDocuments(query),
+    ]);
+
+    // Enrichir avec les noms de boutiques
+    const { SellerRequest } = require('../Models');
+    const ids = [...new Set(ventes.map(v => v.sellerId))];
+    const sellers = await SellerRequest.find({ _id: { $in: ids } }).select('storeName').lean();
+    const sMap = Object.fromEntries(sellers.map(s => [String(s._id), s.storeName]));
+
+    const ventesEnrichies = ventes.map(v => ({
+      ...v,
+      storeName: sMap[v.sellerId] || 'Boutique inconnue',
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        ventes: ventesEnrichies,
+        pagination: {
+          page: Number(page),
+          limit: Number(limit),
+          total,
+          pages: Math.ceil(total / Number(limit)),
+        },
+      },
+    });
+  } catch (err) {
+    console.error('❌ Erreur admin POS liste:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 module.exports = router;
