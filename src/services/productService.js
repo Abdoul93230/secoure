@@ -1575,7 +1575,7 @@ async getSellerSubscriptionInfo(sellerId) {
 
     // Compter les produits actuels du vendeur
     const productCount = await Produit.countDocuments({
-      createdBy: sellerId,
+      Clefournisseur: sellerId,
       isDeleted: false
     });
 

@@ -531,23 +531,29 @@ const bulkCreate = handleAsyncError(async (req, res) => {
       return lines.join("\n");
     };
 
+    const PLACEHOLDER_IMAGE = "https://chagona.onrender.com/images/image-1688253105925-0.jpeg";
+
     const docs = effectiveProducts.map(p => {
-      const hasImage = !!(p.image_url || p.image1);
+      const image1 = p.image_url || p.image1 || null;
+      const hasImage = !!image1;
+      const prix = Math.max(10, Number(p.prix || p.price || 10));
       return {
         name: p.nom || p.name || "Produit importé",
-        prix: Number(p.prix || p.price || 0),
+        prix,
         prixPromo: Number(p.prixPromo || p.prix_promo || 0),
-        quantite: Number(p.stock || p.quantite || 1),
+        quantite: Math.max(1, Number(p.stock || p.quantite || 1)),
         description: p.description && p.description.trim() ? p.description : autoDesc(p),
-        marque: p.marque || p.brand || "inconu",
-        image1: p.image_url || p.image1 || null,
+        marque: p.marque || p.brand || "Inconnu",
+        image1: image1 || PLACEHOLDER_IMAGE,
         image2: p.image2_url || p.image2 || null,
         image3: p.image3_url || p.image3 || null,
         Clefournisseur: sellerId,
-        ClefType: p.ClefType || p.type_id || null,
+        ClefType: p.ClefType || p.type_id || "autre",
         isPublished: hasImage ? "Attente" : "UnPublished",
+        comments: hasImage ? "Aucun commentaire" : "Produit non publié : aucune image fournie lors de l'import en masse. Ajoutez une image pour soumettre à validation.",
         sellerOrAdmin: "seller",
         sellerOrAdmin_id: sellerId,
+        createdBy: sellerId,
         shipping: {
           weight: Number(p.poids_kg || p.weight || 0.5),
           origine: p.origine || "Niger",
@@ -557,7 +563,7 @@ const bulkCreate = handleAsyncError(async (req, res) => {
       };
     });
 
-    const Produit = require('./models/Produit');
+    const { Produit } = require('./Models');
     const result = await Produit.insertMany(docs, { ordered: false });
 
     res.status(201).json({
@@ -641,6 +647,37 @@ const searchProductByNameBySeller = handleAsyncError(async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 50, 100);
   const result = await productService.searchByNameAndSeller(name, seller, { page, limit });
   res.json({ ...result, data: result.products });
+});
+
+// Bulk Validation (admin) — un seul updateMany, zéro boucle
+const bulkValidateProducts = handleAsyncError(async (req, res) => {
+  const { productIds, published, comments } = req.body;
+
+  if (!Array.isArray(productIds) || productIds.length === 0) {
+    return res.status(400).json({ message: "Aucun produit sélectionné" });
+  }
+  if (!["Published", "UnPublished", "Attente", "Refuser"].includes(published)) {
+    return res.status(400).json({ message: "Statut invalide" });
+  }
+
+  const { Produit } = require('./Models');
+  const result = await Produit.updateMany(
+    { _id: { $in: productIds } },
+    {
+      $set: {
+        isPublished: published,
+        isValidated: published === "Published",
+        validatedBy: req.userId,
+        comments: comments || (published === "Refuser" ? "Refusé par l'administrateur" : "Aucun commentaire"),
+      }
+    }
+  );
+
+  res.json({
+    message: `${result.modifiedCount} produit(s) mis à jour`,
+    modifiedCount: result.modifiedCount,
+    matchedCount: result.matchedCount,
+  });
 });
 
 // Product Validation
@@ -1451,6 +1488,7 @@ module.exports = {
   searchProductByName,
   searchProductByNameBySeller,
   validateProductStatus,
+  bulkValidateProducts,
   
   // Category operations
   getAllCategories,

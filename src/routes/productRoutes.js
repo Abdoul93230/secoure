@@ -34,6 +34,7 @@ router.get('/searchProductByNameBySeller/:name/:seller', productControler.search
 
 // Product validation
 router.put('/product/validateProduct/:productId', middelware.authAdmin, productControler.validateProductStatus);
+router.put('/products/bulk-validate', middelware.authAdmin, productControler.bulkValidateProducts);
 
 // Product pub
 router.get('/productPubget', productControler.productPubget);
