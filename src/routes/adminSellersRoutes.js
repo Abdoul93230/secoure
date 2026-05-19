@@ -198,6 +198,15 @@ router.post('/suspend-seller/:sellerId', requireAdmin, async (req, res) => {
 
     await suspendSellerProducts(sellerId, 'admin_suspension');
 
+    // Notifier le vendeur en temps réel via Socket.IO
+    const io = req?.app?.get?.('io');
+    if (io) {
+      io.to(`seller:${sellerId}`).emit('account_suspended', {
+        suspensionReason: reason,
+        suspendedAt: new Date()
+      });
+    }
+
     // Envoyer notification si demandé
     if (sendNotification) {
       console.log(`📧 Email de suspension à envoyer à ${seller.email}: ${reason}`);
@@ -271,6 +280,14 @@ router.post('/reactivate-seller/:sellerId', requireAdmin, async (req, res) => {
     });
 
     await restoreSellerProductsIfEligible(sellerId);
+
+    // Notifier le vendeur en temps réel via Socket.IO
+    const io = req?.app?.get?.('io');
+    if (io) {
+      io.to(`seller:${sellerId}`).emit('account_reactivated', {
+        reactivatedAt: new Date()
+      });
+    }
 
     res.json({
       status: 'success',

@@ -13,17 +13,42 @@ const MONGODB_URI= process.env.MONGODB_URI
 // 'mongodb://127.0.0.1:27017/dbschagona'
 
 
-mongoose
-  .connect(
-    MONGODB_URI || "mongodb+srv://abdoulrazak9323:qrru0xfJGmJG0TSc@cluster0.mvrgous.mongodb.net/?retryWrites=true&w=majority",
-    // "mongodb://127.0.0.1:27017/dbschagona",
-    // "mongodb://127.0.0.1:27017/iham",
+const MONGO_URI = MONGODB_URI || "mongodb+srv://abdoulrazak9323:qrru0xfJGmJG0TSc@cluster0.mvrgous.mongodb.net/?retryWrites=true&w=majority";
 
-    {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    }
-  )
+// Reconnexion automatique sur déconnexion
+mongoose.connection.on('disconnected', () => {
+  console.warn('⚠️  MongoDB déconnecté — reconnexion dans 5s...');
+  setTimeout(() => {
+    mongoose.connect(MONGO_URI, mongoOptions).catch(err =>
+      console.error('❌ Reconnexion échouée:', err.message)
+    );
+  }, 5000);
+});
+
+mongoose.connection.on('error', (err) => {
+  console.error('❌ Erreur MongoDB connection:', err.message);
+});
+
+const mongoOptions = {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+  // Keepalive : envoie un ping toutes les 10s pour éviter la fermeture par Atlas
+  heartbeatFrequencyMS: 10000,
+  // Délai max pour trouver un serveur disponible
+  serverSelectionTimeoutMS: 10000,
+  // Délai max pour établir une connexion TCP
+  connectTimeoutMS: 10000,
+  // Délai max d'inactivité d'un socket avant fermeture
+  socketTimeoutMS: 45000,
+  // Ferme les connexions du pool inactives depuis plus de 30s (< timeout Atlas)
+  maxIdleTimeMS: 30000,
+  // Pool de connexions
+  maxPoolSize: 10,
+  minPoolSize: 2,
+};
+
+mongoose
+  .connect(MONGO_URI, mongoOptions)
 
   .then(async () => {
     console.log("Connexion à MongoDB établie");
@@ -33,6 +58,10 @@ mongoose
 
     // Tâche principale: mise à jour des codes promo et gestion financière
     const job = new cron.CronJob("*/30 * * * *", async () => {
+      if (mongoose.connection.readyState !== 1) {
+        console.warn('⚠️  Cron ignoré — MongoDB non connecté (state:', mongoose.connection.readyState, ')');
+        return;
+      }
       try {
         // Mise à jour des codes promo (legacy)
         await models.PromoCode.updateIsValideAsync();
@@ -58,6 +87,7 @@ mongoose
 
     // Tâche de nettoyage quotidienne
     const cleanupJob = new cron.CronJob("0 2 * * *", async () => {
+      if (mongoose.connection.readyState !== 1) return;
       try {
         const result3 = await FinancialService.nettoyageAutomatique();
         console.log(`✅ Nettoyage terminé: ${result3.retraitsExpires} retraits expirés`);

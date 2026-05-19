@@ -129,7 +129,7 @@ const createProduct = handleAsyncError(async (req, res) => {
 
     // Préparer les données du produit avec vérifications d'abonnement
     const productData = await productService.prepareProductData(req.body, req.files);
-    
+
     // Créer le produit
     const newProduct = await productService.createProduct(productData);
 
@@ -548,7 +548,7 @@ const bulkCreate = handleAsyncError(async (req, res) => {
         image2: p.image2_url || p.image2 || null,
         image3: p.image3_url || p.image3 || null,
         Clefournisseur: sellerId,
-        ClefType: p.ClefType || p.type_id || "autre",
+        ClefType: p.ClefType || p.type_id || null,
         isPublished: hasImage ? "Attente" : "UnPublished",
         comments: hasImage ? "Aucun commentaire" : "Produit non publié : aucune image fournie lors de l'import en masse. Ajoutez une image pour soumettre à validation.",
         sellerOrAdmin: "seller",
@@ -649,6 +649,47 @@ const searchProductByNameBySeller = handleAsyncError(async (req, res) => {
   res.json({ ...result, data: result.products });
 });
 
+// Compter les produits sans type valide pour un seller (admin)
+const countProductsWithoutType = handleAsyncError(async (req, res) => {
+  const { sellerId } = req.params;
+  const { Produit } = require('./Models');
+  const count = await Produit.countDocuments({
+    Clefournisseur: sellerId,
+    isDeleted: false,
+    $or: [
+      { ClefType: null },
+      { ClefType: { $exists: false } },
+      { ClefType: "autre" },
+      { ClefType: "" },
+    ]
+  });
+  res.json({ count });
+});
+
+// Mise à jour en masse par l'admin (types différents par produit) — un seul bulkWrite
+const adminBulkUpdateProducts = handleAsyncError(async (req, res) => {
+  const { updates } = req.body;
+  // updates = [{ id: "...", changes: { ClefType: "...", ... } }, ...]
+
+  if (!Array.isArray(updates) || updates.length === 0) {
+    return res.status(400).json({ message: "Aucune mise à jour fournie" });
+  }
+
+  const { Produit } = require('./Models');
+  const bulkOps = updates.map(u => ({
+    updateOne: {
+      filter: { _id: u.id },
+      update: { $set: u.changes }
+    }
+  }));
+
+  const result = await Produit.bulkWrite(bulkOps);
+  res.json({
+    message: `${result.modifiedCount} produit(s) mis à jour`,
+    modifiedCount: result.modifiedCount,
+  });
+});
+
 // Bulk Validation (admin) — un seul updateMany, zéro boucle
 const bulkValidateProducts = handleAsyncError(async (req, res) => {
   const { productIds, published, comments } = req.body;
@@ -741,6 +782,21 @@ const supCategorie = handleAsyncError(async (req, res) => {
 const getAllType = handleAsyncError(async (req, res) => {
   const types = await typeService.getAllTypes();
   res.json({ message: "Tous les types", data: types });
+});
+
+// Types enrichis avec le nom de leur catégorie (pour les selects d'assignation)
+const getAllTypeWithCategories = handleAsyncError(async (req, res) => {
+  const { TypeProduit, Categorie } = require('./Models');
+  const [types, categories] = await Promise.all([
+    TypeProduit.find().lean(),
+    Categorie.find().lean(),
+  ]);
+  const catMap = Object.fromEntries(categories.map(c => [c._id.toString(), c.name]));
+  const enriched = types.map(t => ({
+    ...t,
+    categorieName: catMap[t.clefCategories] || null,
+  }));
+  res.json({ message: "Types avec catégories", data: enriched });
 });
 
 const getAllTypeBySeller = handleAsyncError(async (req, res) => {
@@ -1489,6 +1545,9 @@ module.exports = {
   searchProductByNameBySeller,
   validateProductStatus,
   bulkValidateProducts,
+  countProductsWithoutType,
+  adminBulkUpdateProducts,
+  getAllTypeWithCategories,
   
   // Category operations
   getAllCategories,

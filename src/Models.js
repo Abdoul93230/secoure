@@ -357,6 +357,12 @@ const produitSchema = new mongoose.Schema(
         "Le nom de la marque doit comporter au moins 3 caractères.",
       ],
     },
+    barcode: {
+      type: String,
+      required: false,
+      sparse: true,
+      default: null,
+    },
     quantite: {
       type: Number,
       required: true,
@@ -1229,6 +1235,12 @@ const sellerRequestSchema = new mongoose.Schema(
       type: String,
       required: true,
       enum: ["physique", "enligne", "hybride"],
+    },
+    businessProfile: {
+      type: String,
+      required: false,
+      default: "hybride",
+      enum: ["commercant", "createur", "hybride"],
     },
 
     // Localisation

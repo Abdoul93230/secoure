@@ -700,39 +700,46 @@ async checkProductCreationEligibility(sellerId) {
   }
 
   // ========== VALIDATION DES FICHIERS ==========
-  if (!files) {
-    throw new Error("Aucune image du produit n'a été envoyée.");
-  }
+  const hasImage1File    = files?.image1;
+  const externalImage1   = data.image1_external_url;
+  const externalImage2   = data.image2_external_url;
+  const externalImage3   = data.image3_external_url;
 
-  if (!files.image1) {
+  if (!hasImage1File && !externalImage1) {
     throw new Error("La première image du produit est obligatoire");
   }
 
   // ========== GESTION DES IMAGES ==========
-  if (files) {
-    // Image principale 1
-    if (files.image1) {
-      productData.image1 = await this.uploadImage(files.image1[0].path);
-    }
+  // Priorité : fichier uploadé > URL externe (Open Food Facts / autre source)
+  if (hasImage1File) {
+    productData.image1 = await this.uploadImage(files.image1[0].path);
+  } else if (externalImage1) {
+    productData.image1 = externalImage1;
+  }
 
-    // Image principale 2
-    if (files.image2) {
-      productData.image2 = await this.uploadImage(files.image2[0].path);
-    }
+  if (files?.image2) {
+    productData.image2 = await this.uploadImage(files.image2[0].path);
+  } else if (externalImage2) {
+    productData.image2 = externalImage2;
+  }
 
-    // Image principale 3
-    if (files.image3) {
-      productData.image3 = await this.uploadImage(files.image3[0].path);
-    }
+  if (files?.image3) {
+    productData.image3 = await this.uploadImage(files.image3[0].path);
+  } else if (externalImage3) {
+    productData.image3 = externalImage3;
+  }
 
-    // Gestion des nouveaux champs d'images
-    if (files.nouveauChampImages) {
-      const newPictures = [];
-      for (const file of files.nouveauChampImages) {
-        newPictures.push(await this.uploadImage(file.path));
-      }
-      productData.pictures = newPictures;
+  if (files?.nouveauChampImages) {
+    const newPictures = [];
+    for (const file of files.nouveauChampImages) {
+      newPictures.push(await this.uploadImage(file.path));
     }
+    productData.pictures = newPictures;
+  }
+
+  // Barcode
+  if (data.barcode) {
+    productData.barcode = data.barcode;
   }
 
   return productData;

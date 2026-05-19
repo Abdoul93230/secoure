@@ -35,6 +35,8 @@ router.get('/searchProductByNameBySeller/:name/:seller', productControler.search
 // Product validation
 router.put('/product/validateProduct/:productId', middelware.authAdmin, productControler.validateProductStatus);
 router.put('/products/bulk-validate', middelware.authAdmin, productControler.bulkValidateProducts);
+router.get('/products/missing-type/:sellerId', middelware.authAdmin, productControler.countProductsWithoutType);
+router.put('/products/admin-bulk-update', middelware.authAdmin, productControler.adminBulkUpdateProducts);
 
 // Product pub
 router.get('/productPubget', productControler.productPubget);
@@ -49,6 +51,7 @@ router.delete('/supCategorie', productControler.supCategorie);
 
 // Types
 router.get('/getAllType', productControler.getAllType);
+router.get('/getAllTypeWithCategories', productControler.getAllTypeWithCategories);
 router.get('/getAllTypeBySeller/:seller', productControler.getAllTypeBySeller);
 router.post('/createProductType', productControler.createProductType);
 router.delete('/suppType', productControler.suppType);

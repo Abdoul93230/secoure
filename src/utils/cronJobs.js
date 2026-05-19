@@ -1,8 +1,11 @@
 const cron = require('node-cron');
+const mongoose = require('mongoose');
 const FinancialService = require('../services/FinancialService');
 const { confirmerTransactionsLivrees } = require('../controllers/financeController');
 const SubscriptionCronJobs = require('./subscriptionCronJobs');
 const { setupEnhancedCronJobs } = require('../controllers/enhancedSubscriptionController');
+
+const isDbReady = () => mongoose.connection.readyState === 1;
 
 // Recalcul immédiat de tous les portefeuilles (appelé au démarrage)
 async function recalculerTousLesPortefeuilles() {
@@ -38,6 +41,7 @@ class CronJobs {
 
     // Déblocage de l'argent toutes les heures
     cron.schedule('0 * * * *', async () => {
+      if (!isDbReady()) return;
       console.log('🔓 Exécution de la tâche de déblocage...');
       try {
         const result = await FinancialService.debloquerArgentDisponible();
@@ -49,6 +53,7 @@ class CronJobs {
 
     // Confirmation des transactions livrées toutes les 30 minutes
     cron.schedule('*/30 * * * *', async () => {
+      if (!isDbReady()) return;
       console.log('✅ Exécution de la confirmation des transactions...');
       try {
         const result = await confirmerTransactionsLivrees();
@@ -60,6 +65,7 @@ class CronJobs {
 
     // Nettoyage automatique tous les jours à 2h du matin
     cron.schedule('0 2 * * *', async () => {
+      if (!isDbReady()) return;
       console.log('🧹 Exécution du nettoyage automatique...');
       try {
         const result = await FinancialService.nettoyageAutomatique();

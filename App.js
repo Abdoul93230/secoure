@@ -157,6 +157,18 @@ io.on("connection", (socket) => {
     }
   });
 
+  socket.on("seller:join", ({ sellerId }) => {
+    if (sellerId) {
+      socket.join(`seller:${sellerId}`);
+    }
+  });
+
+  socket.on("seller:leave", ({ sellerId }) => {
+    if (sellerId) {
+      socket.leave(`seller:${sellerId}`);
+    }
+  });
+
   socket.on("delete_message", (data) => {
     io.emit("delete_message", data);
   });
