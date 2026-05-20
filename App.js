@@ -234,6 +234,10 @@ server.listen(port, () => {
     `Votre application est en écoute sur : https://habou227.onrender.com:${port}`
   );
   
+  // Nettoyer les vieux logs financiers au démarrage (garde 7 jours)
+  const financialLogger = require('./src/utils/financialLogger');
+  financialLogger.cleanOldLogs(7);
+
   // Initialize cron jobs for subscription management and financial tasks
   console.log('Initializing cron jobs...');
   CronJobs.init();

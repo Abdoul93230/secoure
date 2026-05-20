@@ -2,10 +2,15 @@
 const fs = require('fs');
 const path = require('path');
 
+// En production : console uniquement, aucun fichier écrit sur le serveur
+const FILE_LOGGING = process.env.NODE_ENV !== 'production';
+
 class FinancialLogger {
   constructor() {
-    this.logDir = path.join(__dirname, '../logs');
-    this.ensureLogDirectory();
+    if (FILE_LOGGING) {
+      this.logDir = path.join(__dirname, '../logs');
+      this.ensureLogDirectory();
+    }
   }
 
   ensureLogDirectory() {
@@ -21,36 +26,26 @@ class FinancialLogger {
 
   formatLogEntry(level, operation, data) {
     const timestamp = new Date().toISOString();
-    const entry = {
-      timestamp,
-      level,
-      operation,
-      data
-    };
-    return JSON.stringify(entry) + '\n';
+    return JSON.stringify({ timestamp, level, operation, data }) + '\n';
   }
 
   log(level, operation, data) {
-    try {
-      const logEntry = this.formatLogEntry(level, operation, data);
-      const logFile = this.getLogFileName('financial');
-      
-      fs.appendFileSync(logFile, logEntry);
-      
-      // Aussi logger dans la console avec couleurs
-      const colors = {
-        INFO: '\x1b[36m',    // Cyan
-        WARN: '\x1b[33m',    // Jaune
-        ERROR: '\x1b[31m',   // Rouge
-        SUCCESS: '\x1b[32m', // Vert
-        RESET: '\x1b[0m'
-      };
-      
-      const color = colors[level] || colors.INFO;
-      console.log(`${color}[${level}] ${operation}:${colors.RESET}`, data);
-      
-    } catch (error) {
-      console.error('Erreur lors de l\'écriture du log financier:', error);
+    const colors = {
+      INFO:    '\x1b[36m',
+      WARN:    '\x1b[33m',
+      ERROR:   '\x1b[31m',
+      SUCCESS: '\x1b[32m',
+      RESET:   '\x1b[0m'
+    };
+    const color = colors[level] || colors.INFO;
+    console.log(`${color}[${level}] ${operation}:${colors.RESET}`, data);
+
+    if (FILE_LOGGING) {
+      try {
+        fs.appendFileSync(this.getLogFileName('financial'), this.formatLogEntry(level, operation, data));
+      } catch (error) {
+        console.error('Erreur écriture log:', error.message);
+      }
     }
   }
 
@@ -124,22 +119,28 @@ class FinancialLogger {
     });
   }
 
-  // Nettoyer les anciens logs (garder 30 jours)
-  cleanOldLogs(daysToKeep = 30) {
+  // Nettoyer les anciens logs (no-op en production)
+  cleanOldLogs(daysToKeep = 7) {
+    if (!FILE_LOGGING) return;
     try {
       const files = fs.readdirSync(this.logDir);
       const cutoffDate = new Date();
       cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
+      let deleted = 0;
 
       files.forEach(file => {
+        if (!file.endsWith('.log')) return;
         const filePath = path.join(this.logDir, file);
         const stats = fs.statSync(filePath);
-        
         if (stats.mtime < cutoffDate) {
           fs.unlinkSync(filePath);
-          console.log(`Log supprimé: ${file}`);
+          deleted++;
         }
       });
+
+      if (deleted > 0) {
+        console.log(`🧹 Logs financiers: ${deleted} fichier(s) supprimé(s) (>${daysToKeep}j)`);
+      }
     } catch (error) {
       console.error('Erreur lors du nettoyage des logs:', error);
     }
