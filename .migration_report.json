@@ -1,0 +1,270 @@
+{
+  "startedAt": "2026-05-20T14:02:42.023Z",
+  "dryRun": false,
+  "collections": {
+    "storelikes": {
+      "total": 4,
+      "migrated": 0,
+      "skipped": 4,
+      "urlsReplaced": 0
+    },
+    "productpubs": {
+      "total": 4,
+      "migrated": 0,
+      "skipped": 4,
+      "urlsReplaced": 0
+    },
+    "produits": {
+      "total": 137,
+      "migrated": 107,
+      "skipped": 15,
+      "urlsReplaced": 538
+    },
+    "admins": {
+      "total": 1,
+      "migrated": 1,
+      "skipped": 0,
+      "urlsReplaced": 0
+    },
+    "portefeuilles": {
+      "total": 7,
+      "migrated": 7,
+      "skipped": 0,
+      "urlsReplaced": 0
+    },
+    "banners": {
+      "total": 5,
+      "migrated": 5,
+      "skipped": 0,
+      "urlsReplaced": 5
+    },
+    "subscriptionqueues": {
+      "total": 9,
+      "migrated": 9,
+      "skipped": 0,
+      "urlsReplaced": 0
+    },
+    "transactionsellers": {
+      "total": 18,
+      "migrated": 18,
+      "skipped": 0,
+      "urlsReplaced": 0
+    },
+    "adminmessages": {
+      "total": 0,
+      "migrated": 0,
+      "skipped": 0,
+      "urlsReplaced": 0
+    },
+    "zonefs": {
+      "total": 148,
+      "migrated": 148,
+      "skipped": 0,
+      "urlsReplaced": 0
+    },
+    "pricingplans": {
+      "total": 18,
+      "migrated": 18,
+      "skipped": 0,
+      "urlsReplaced": 0
+    },
+    "stores": {
+      "total": 0,
+      "migrated": 0,
+      "skipped": 0,
+      "urlsReplaced": 0
+    },
+    "pointstransactions": {
+      "total": 45,
+      "migrated": 45,
+      "skipped": 0,
+      "urlsReplaced": 0
+    },
+    "sellerrequests": {
+      "total": 12,
+      "migrated": 12,
+      "skipped": 0,
+      "urlsReplaced": 24
+    },
+    "typeproduits": {
+      "total": 498,
+      "migrated": 498,
+      "skipped": 0,
+      "urlsReplaced": 0
+    },
+    "retraits": {
+      "total": 2,
+      "migrated": 2,
+      "skipped": 0,
+      "urlsReplaced": 0
+    },
+    "reviews": {
+      "total": 2,
+      "migrated": 2,
+      "skipped": 0,
+      "urlsReplaced": 0
+    },
+    "profiles": {
+      "total": 10,
+      "migrated": 10,
+      "skipped": 0,
+      "urlsReplaced": 6
+    },
+    "codepromos": {
+      "total": 3,
+      "migrated": 3,
+      "skipped": 0,
+      "urlsReplaced": 0
+    },
+    "productcomments": {
+      "total": 56,
+      "migrated": 56,
+      "skipped": 0,
+      "urlsReplaced": 0
+    },
+    "promocodev2": {
+      "total": 3,
+      "migrated": 3,
+      "skipped": 0,
+      "urlsReplaced": 0
+    },
+    "emailcampaigns": {
+      "total": 0,
+      "migrated": 0,
+      "skipped": 0,
+      "urlsReplaced": 0
+    },
+    "subscriptionrequests": {
+      "total": 9,
+      "migrated": 9,
+      "skipped": 0,
+      "urlsReplaced": 4
+    },
+    "shippingpolicies": {
+      "total": 6,
+      "migrated": 6,
+      "skipped": 0,
+      "urlsReplaced": 0
+    },
+    "usermessages": {
+      "total": 0,
+      "migrated": 0,
+      "skipped": 0,
+      "urlsReplaced": 0
+    },
+    "commandes": {
+      "total": 60,
+      "migrated": 60,
+      "skipped": 0,
+      "urlsReplaced": 323
+    },
+    "events": {
+      "total": 0,
+      "migrated": 0,
+      "skipped": 0,
+      "urlsReplaced": 0
+    },
+    "adressshippings": {
+      "total": 27,
+      "migrated": 27,
+      "skipped": 0,
+      "urlsReplaced": 0
+    },
+    "cartebancaires": {
+      "total": 0,
+      "migrated": 0,
+      "skipped": 0,
+      "urlsReplaced": 0
+    },
+    "mobilemoneys": {
+      "total": 0,
+      "migrated": 0,
+      "skipped": 0,
+      "urlsReplaced": 0
+    },
+    "fournisseurs": {
+      "total": 4,
+      "migrated": 4,
+      "skipped": 0,
+      "urlsReplaced": 1
+    },
+    "transactions": {
+      "total": 21,
+      "migrated": 21,
+      "skipped": 0,
+      "urlsReplaced": 0
+    },
+    "shippingzones": {
+      "total": 2,
+      "migrated": 2,
+      "skipped": 0,
+      "urlsReplaced": 0
+    },
+    "categories": {
+      "total": 27,
+      "migrated": 27,
+      "skipped": 0,
+      "urlsReplaced": 6
+    },
+    "ventedirectes": {
+      "total": 11,
+      "migrated": 11,
+      "skipped": 0,
+      "urlsReplaced": 28
+    },
+    "transporteurs": {
+      "total": 0,
+      "migrated": 0,
+      "skipped": 0,
+      "urlsReplaced": 0
+    },
+    "gamificationconfigs": {
+      "total": 1,
+      "migrated": 1,
+      "skipped": 0,
+      "urlsReplaced": 0
+    },
+    "users": {
+      "total": 41,
+      "migrated": 41,
+      "skipped": 0,
+      "urlsReplaced": 0
+    },
+    "paymentmethodes": {
+      "total": 24,
+      "migrated": 24,
+      "skipped": 0,
+      "urlsReplaced": 0
+    },
+    "likes": {
+      "total": 10,
+      "migrated": 10,
+      "skipped": 0,
+      "urlsReplaced": 0
+    },
+    "subscriptionhistories": {
+      "total": 19,
+      "migrated": 19,
+      "skipped": 0,
+      "urlsReplaced": 0
+    },
+    "zones": {
+      "total": 0,
+      "migrated": 0,
+      "skipped": 0,
+      "urlsReplaced": 0
+    },
+    "pointswallets": {
+      "total": 2,
+      "migrated": 2,
+      "skipped": 0,
+      "urlsReplaced": 0
+    }
+  },
+  "cloudinary": {
+    "migrated": 677,
+    "failed": 6,
+    "skipped": 0
+  },
+  "finishedAt": "2026-05-20T14:24:56.999Z"
+}

@@ -327,7 +327,7 @@ const produitSchema = new mongoose.Schema(
     },
     image1: {
       type: String,
-      required: true,
+      required: false, // Optionnel — les nouveaux produits utilisent pictures[]
       match: [
         /^(http|https):\/\/\S+$/,
         "Veuillez fournir une URL d'image valide.",
@@ -513,7 +513,14 @@ const produitSchema = new mongoose.Schema(
     createdAt: {
       type: Date,
       default: Date.now,
-    }
+    },
+    // Contrôle de visibilité lié à l'abonnement du seller
+    subscriptionControl: {
+      forcedHidden: { type: Boolean, default: false },
+      reason: { type: String, default: null },
+      hiddenAt: { type: Date, default: null },
+      restoredAt: { type: Date, default: null },
+    },
   },
   { strict: false }
 );
@@ -1219,6 +1226,7 @@ const sellerRequestSchema = new mongoose.Schema(
       type: String,
       required: true,
       enum: [
+        // Anciennes valeurs conservées pour rétrocompatibilité
         "mode",
         "electronique",
         "maison",
@@ -1229,6 +1237,28 @@ const sellerRequestSchema = new mongoose.Schema(
         "alimentation",
         "livres",
         "services",
+        // Nouvelles catégories
+        "Mode & Vêtements",
+        "Textile & Tissus",
+        "Téléphones & Tablettes",
+        "Électronique & Informatique",
+        "Électroménager",
+        "Maison & Décoration",
+        "Beauté & Santé",
+        "Alimentation & Boissons",
+        "Agriculture & Élevage",
+        "Construction & Matériaux",
+        "Énergie & Solaire",
+        "Sports & Loisirs",
+        "Artisanat & Art",
+        "Bijoux & Accessoires",
+        "Livres & Médias",
+        "Enfants & Bébés",
+        "Fournitures Scolaires & Bureau",
+        "Automobile & Moto",
+        "Jardin & Bricolage",
+        "Services",
+        "Occasion & Reconditionné",
       ],
     },
     storeType: {
@@ -1319,7 +1349,13 @@ const sellerRequestSchema = new mongoose.Schema(
       type: Date,
       required: false,
       default: null
-    }
+    },
+    // Statut d'abonnement dénormalisé pour les requêtes rapides
+    subscriptionStatus: {
+      type: String,
+      enum: ['active', 'trial', 'expired', 'suspended', 'cancelled', 'pending'],
+      default: 'pending',
+    },
   },
   { strict: false }
 );
