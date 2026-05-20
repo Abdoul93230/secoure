@@ -45,6 +45,7 @@ router.delete('/productPubDelete/:id', productControler.productPubDelete);
 
 // Categories
 router.get('/getAllCategories', productControler.getAllCategories);
+router.get('/getCategoriesWithProducts', productControler.getCategoriesWithProducts);
 router.post('/categorie', middelware.upload.single('image'), productControler.createCategorie);
 router.put('/updateCategorie/:id', middelware.upload.single('image'), productControler.updateCategorie);
 router.delete('/supCategorie', productControler.supCategorie);

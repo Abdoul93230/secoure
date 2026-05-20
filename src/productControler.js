@@ -778,6 +778,50 @@ const supCategorie = handleAsyncError(async (req, res) => {
   res.json({ message: "Catégorie supprimée avec succès" });
 });
 
+// Catégories avec comptage de produits publiés (filtre les vides)
+const getCategoriesWithProducts = handleAsyncError(async (req, res) => {
+  const { TypeProduit, Categorie, Produit } = require('./Models');
+
+  const [categories, types] = await Promise.all([
+    Categorie.find({ name: { $ne: 'all' } }, { name: 1, image: 1 }).lean(),
+    TypeProduit.find({}, { _id: 1, clefCategories: 1 }).lean(),
+  ]);
+
+  const typesByCat = {};
+  types.forEach(t => {
+    const cid = t.clefCategories;
+    if (!typesByCat[cid]) typesByCat[cid] = [];
+    typesByCat[cid].push(t._id.toString());
+  });
+
+  const typeIds = types.map(t => t._id.toString());
+  const counts = await Produit.aggregate([
+    {
+      $match: {
+        isPublished: 'Published',
+        isDeleted: { $ne: true },
+        ClefType: { $in: typeIds },
+        'subscriptionControl.forcedHidden': { $ne: true },
+      }
+    },
+    { $group: { _id: '$ClefType', count: { $sum: 1 } } }
+  ]);
+
+  const countByType = {};
+  counts.forEach(c => { countByType[c._id] = c.count; });
+
+  const result = categories
+    .map(cat => {
+      const catTypeIds = typesByCat[cat._id.toString()] || [];
+      const productCount = catTypeIds.reduce((sum, tid) => sum + (countByType[tid] || 0), 0);
+      return { ...cat, productCount };
+    })
+    .filter(cat => cat.productCount > 0)
+    .sort((a, b) => b.productCount - a.productCount);
+
+  res.json({ message: 'Catégories avec produits', data: result });
+});
+
 // Type Operations
 const getAllType = handleAsyncError(async (req, res) => {
   const types = await typeService.getAllTypes();
@@ -1551,6 +1595,7 @@ module.exports = {
   
   // Category operations
   getAllCategories,
+  getCategoriesWithProducts,
   createCategorie,
   updateCategorie,
   supCategorie,
