@@ -4,6 +4,7 @@ const FinancialService = require('../services/FinancialService');
 const { confirmerTransactionsLivrees } = require('../controllers/financeController');
 const SubscriptionCronJobs = require('./subscriptionCronJobs');
 const { setupEnhancedCronJobs } = require('../controllers/enhancedSubscriptionController');
+const { SellerRequest } = require('../Models');
 
 const isDbReady = () => mongoose.connection.readyState === 1;
 
@@ -124,6 +125,26 @@ class CronJobs {
         }
       } catch (e) {
         console.error('❌ Erreur désactivation événements expirés:', e.message);
+      }
+    });
+
+    // Reset mensuel quota SMS vendeurs — le 1er de chaque mois à 0h05
+    cron.schedule('5 0 1 * *', async () => {
+      if (!isDbReady()) return;
+      console.log('📱 Reset mensuel quota SMS vendeurs...');
+      try {
+        const nextReset = new Date();
+        nextReset.setMonth(nextReset.getMonth() + 1);
+        nextReset.setDate(1);
+        nextReset.setHours(0, 0, 0, 0);
+
+        const result = await SellerRequest.updateMany(
+          { 'smsQuota.mensuel': { $gt: 0 } },
+          { $set: { 'smsQuota.utilise': 0, 'smsQuota.resetDate': nextReset } }
+        );
+        console.log(`✅ Reset SMS: ${result.modifiedCount} vendeurs remis à 0`);
+      } catch (error) {
+        console.error('❌ Erreur reset quota SMS:', error);
       }
     });
 

@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const SELLER_PRIVATE_KEY = require("../auth/clefSeller");
 const multer = require('multer');
 const {
+  createInitialSubscription,
   createFutureSubscriptionRequest,
   validatePaymentAndPrepareActivation,
   checkAndActivateNextSubscription,
@@ -14,6 +15,7 @@ const {
 const { SellerRequest,PricingPlan } = require('../Models');
 const { activateWithCode, submitPaymentProof, cancelSubscriptionRequest, cleanupLinkedQueuedSubscription } = require('../controllers/enhancedSubscriptionController');
 const SubscriptionRequest = require('../models/Abonnements/SubscriptionRequest');
+const SubscriptionQueue = require('../models/Abonnements/SubscriptionQueue');
 
 const cloudinary = require('../cloudinary');
 
@@ -154,43 +156,81 @@ router.get('/available-plans', async (req, res) => {
 });
 
 /**
+ * Démarrer l'essai gratuit pour un vendeur sans abonnement.
+ * Starter → 2 mois gratuits, Pro / Business → 1 mois gratuit. Aucun paiement.
+ */
+router.post('/start-trial', requireSeller, async (req, res) => {
+  try {
+    const { planType } = req.body;
+    const sellerId = req.seller._id;
+
+    if (!['Starter', 'Pro', 'Business'].includes(planType)) {
+      return res.status(400).json({ status: 'error', message: 'Type de plan invalide' });
+    }
+
+    // Vérifie qu'il n'a pas déjà un abonnement actif / essai
+    const existing = await SubscriptionQueue.findOne({ storeId: sellerId });
+    if (existing && existing.accountStatus !== 'no_subscription') {
+      return res.status(400).json({ status: 'error', message: 'Un abonnement est déjà actif ou en essai.' });
+    }
+
+    const result = await createInitialSubscription(sellerId, planType);
+    const trialMonths = PLAN_DEFAULTS[planType]?.trialMonths || (planType === 'Starter' ? 2 : 1);
+
+    res.json({
+      status: 'success',
+      message: `Essai gratuit ${planType} démarré — ${trialMonths} mois offerts.`,
+      data: {
+        planType,
+        trialMonths,
+        startDate: result.subscription.startDate,
+        endDate: result.subscription.endDate,
+      }
+    });
+  } catch (error) {
+    console.error('Erreur start-trial:', error);
+    res.status(500).json({ status: 'error', message: error.message || 'Erreur lors du démarrage de l\'essai' });
+  }
+});
+
+/**
  * Créer une demande d'abonnement futur
  */
 router.post('/create-future-request', requireSeller, async (req, res) => {
   try {
-    const { planType, billingCycle, paymentMethod } = req.body;
+    const { planType, billingCycle, paymentMethod, upgradeMode } = req.body;
     const sellerId = req.seller._id;
-    console.log({planType, billingCycle, paymentMethod, sellerId});
-    
-    // Validations
+
     if (!['Starter', 'Pro', 'Business'].includes(planType)) {
-      return res.status(400).json({
-        status: 'error',
-        message: 'Type de plan invalide'
-      });
+      return res.status(400).json({ status: 'error', message: 'Type de plan invalide' });
     }
 
     if (!Object.keys(PAYMENT_CONFIG).includes(paymentMethod)) {
-      return res.status(400).json({
-        status: 'error',
-        message: 'Méthode de paiement non supportée'
-      });
+      return res.status(400).json({ status: 'error', message: 'Méthode de paiement non supportée' });
     }
 
-    const result = await createFutureSubscriptionRequest(sellerId, planType, billingCycle, paymentMethod);
+    // upgradeMode peut être 'immediate' ou 'scheduled' (défaut)
+    const resolvedUpgradeMode = upgradeMode === 'immediate' ? 'immediate' : 'scheduled';
+
+    const result = await createFutureSubscriptionRequest(
+      sellerId, planType, billingCycle, paymentMethod, resolvedUpgradeMode
+    );
 
     res.json({
       status: 'success',
-      message: 'Demande d\'abonnement futur créée avec succès',
+      message: result.data.isImmediateUpgrade
+        ? 'Demande d\'upgrade immédiat créée. En attente de validation admin.'
+        : 'Demande d\'abonnement créée avec succès.',
       data: result.data
     });
 
   } catch (error) {
     console.error('Erreur création demande future:', error);
-    res.status(500).json({
+    // Erreur métier (ex: plan pas supérieur) → 400 et non 500
+    const status = error.message?.includes('supérieur') ? 400 : 500;
+    res.status(status).json({
       status: 'error',
-      message: 'Erreur lors de la création de la demande',
-      error: error.message
+      message: error.message || 'Erreur lors de la création de la demande'
     });
   }
 });

@@ -1356,6 +1356,20 @@ const sellerRequestSchema = new mongoose.Schema(
       enum: ['active', 'trial', 'expired', 'suspended', 'cancelled', 'pending'],
       default: 'pending',
     },
+    // Modules métier activés par l'admin
+    modules: {
+      bilanJournalier:    { type: Boolean, default: false },
+      alertesStock:       { type: Boolean, default: false },
+      performanceProduits:{ type: Boolean, default: false },
+      carnetCreances:     { type: Boolean, default: false },
+      rapportPeriodique:  { type: Boolean, default: false },
+    },
+    // Quota SMS pour le module CarnetCreances
+    smsQuota: {
+      mensuel:   { type: Number, default: 0 },   // nb max par mois alloué par l'admin
+      utilise:   { type: Number, default: 0 },   // consommé ce mois-ci
+      resetDate: { type: Date, default: null },   // date du prochain reset
+    },
   },
   { strict: false }
 );

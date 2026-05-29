@@ -9,7 +9,7 @@ const forgotPassword = require('../auth/forgotPassword');
 const quickAuthController = require('../auth/quickAuthController');
 const { SellerRequest } = require('../Models');
 
-// Rate limiter strict pour les endpoints sensibles (login, forgot password)
+// Rate limiter strict pour les endpoints sensibles (login)
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
@@ -17,6 +17,16 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
   skipSuccessfulRequests: true,
   message: { success: false, message: "Trop de tentatives. Veuillez réessayer dans 15 minutes." },
+});
+
+// Rate limiter dédié OTP/reset — 5 demandes d'envoi max par 15 min par IP
+const otpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: false,
+  message: { success: false, message: "Trop de demandes de code. Veuillez réessayer dans 15 minutes." },
 });
 
 // Authentication — protégés par rate limit strict
@@ -61,12 +71,12 @@ router.get('/verifyAdmin', middelware.authAdmin, AdminController.verifyToken);
 // Admin routes
 router.get('/admin/:adminId', AdminController.getAdmin);
 
-// Password reset
-router.post('/forgot_password', forgotPassword.forgot_password);
-router.post('/forgotPassword', forgotPassword.forgot_password);
-router.post('/reset_password', forgotPassword.reset_password);
+// Password reset — protégé par rate limiter OTP
+router.post('/forgot_password', otpLimiter, forgotPassword.forgot_password);
+router.post('/forgotPassword', otpLimiter, forgotPassword.forgot_password);
+router.post('/reset_password', otpLimiter, forgotPassword.reset_password);
 // Vendeur : reset par email OU par SMS (même endpoint, champ email ou phone)
-router.post('/forgotPassword_seller', forgotPassword.forgot_password_seller);
-router.post('/reset_password_seller', forgotPassword.reset_password_seller);
+router.post('/forgotPassword_seller', otpLimiter, forgotPassword.forgot_password_seller);
+router.post('/reset_password_seller', otpLimiter, forgotPassword.reset_password_seller);
 
 module.exports = router;

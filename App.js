@@ -28,6 +28,7 @@ const shippingAddressRoutes = require("./src/routes/shippingRoutesF");
 const stockRoutes = require("./src/routes/stockRoutes");
 
 const adminZonesRoutes = require('./src/routes/adminZones');
+const adminShippingRoutes = require('./src/routes/adminShippingRoutes');
 const sellerShippingRoutes = require('./src/routes/sellerShipping');
 const publicShippingRoutes = require('./src/routes/publicShipping');
 const adminSellersRoutes = require('./src/routes/adminSellersRoutes');
@@ -37,6 +38,13 @@ const promoCodeRoutes = require('./src/routes/promoCodeRoutes');
 const gamificationRoutes = require('./src/routes/gamificationRoutes');
 const newsletterRoutes = require('./src/routes/newsletterRoutes');
 const posRoutes = require('./src/routes/posRoutes');
+
+// Modules métier
+const bilanRoutes = require('./src/modules/bilanJournalier/bilanRoutes');
+const alertesRoutes = require('./src/modules/alertesStock/alertesRoutes');
+const performanceRoutes = require('./src/modules/performanceProduits/performanceRoutes');
+const creancesRoutes = require('./src/modules/carnetCreances/creancesRoutes');
+const rapportRoutes = require('./src/modules/rapportPeriodique/rapportRoutes');
 
 // Import middleware
 const { errorHandler } = require('./src/middleware/errorHandler');
@@ -217,6 +225,7 @@ app.use("/api/shipping", shippingAddressRoutes);
 app.use("/api/stock", stockRoutes);
 
 app.use('/api/admin/zones', authMiddleware.requireAdmin, adminZonesRoutes);
+app.use('/api/admin/seller-shipping', authMiddleware.requireAdmin, adminShippingRoutes);
 app.use('/api/seller', authMiddleware.requireSeller, sellerShippingRoutes);
 app.use('/api/shipping2', publicShippingRoutes);
 app.use('/api/adminSeller', authMiddleware.requireAdmin, adminSellersRoutes);
@@ -226,6 +235,26 @@ app.use('/api/promocodes', promoCodeRoutes);
 app.use('/api/gamification', gamificationRoutes);
 app.use('/api/newsletter', newsletterRoutes);
 app.use('/api/pos', posRoutes);
+
+// Modules métier (tous protégés par requireSeller)
+const { SellerRequest } = require('./src/Models');
+
+// GET /api/modules/acces — retourne les modules activés + quota SMS du vendeur connecté
+app.get('/api/modules/acces', authMiddleware.requireSeller, async (req, res) => {
+  try {
+    const seller = await SellerRequest.findById(req.user.id).select('modules smsQuota').lean();
+    if (!seller) return res.status(404).json({ status: 'error', message: 'Vendeur introuvable' });
+    return res.json({ status: 'success', data: { modules: seller.modules || {}, smsQuota: seller.smsQuota || {} } });
+  } catch (err) {
+    return res.status(500).json({ status: 'error', message: err.message });
+  }
+});
+
+app.use('/api/modules/bilan', authMiddleware.requireSeller, bilanRoutes);
+app.use('/api/modules/stock', authMiddleware.requireSeller, alertesRoutes);
+app.use('/api/modules/performance', authMiddleware.requireSeller, performanceRoutes);
+app.use('/api/modules/creances', authMiddleware.requireSeller, creancesRoutes);
+app.use('/api/modules/rapports', authMiddleware.requireSeller, rapportRoutes);
 
 
 // Start server

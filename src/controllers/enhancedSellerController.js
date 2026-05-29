@@ -261,8 +261,11 @@ const createSellerWithSubscription = async (req, res) => {
     let {
       email, emailp, name, userName2, phone, storeName, storeDescription,
       category, storeType, region, city, address, postalCode, businessPhone,
-      whatsapp, facebook, instagram, website, openingHours, minimumOrder, password
+      whatsapp, facebook, instagram, website, openingHours, minimumOrder, password,
+      planType
     } = req.body;
+    // Valider le plan choisi ; Starter par défaut
+    const resolvedPlanType = ['Starter', 'Pro', 'Business'].includes(planType) ? planType : 'Starter';
 
     // Validations requises (votre code existant)
     const requiredFields = {
@@ -277,7 +280,6 @@ const createSellerWithSubscription = async (req, res) => {
       region: "La région est requise",
       city: "La ville est requise",
       address: "L'adresse est requise",
-      businessPhone: "Le téléphone professionnel est requis",
       password: "Le mot de passe est requis",
     };
 
@@ -390,17 +392,18 @@ const createSellerWithSubscription = async (req, res) => {
 
     const savedSeller = await newSeller.save();
 
-    // Création automatique de l'abonnement d'essai Starter (3 mois gratuits)
+    // Création automatique de l'abonnement d'essai selon le plan choisi
     try {
-      const subscriptionResult = await createInitialSubscription(savedSeller._id);
+      const subscriptionResult = await createInitialSubscription(savedSeller._id, resolvedPlanType);
 
-      // Mise à jour du vendeur avec l'ID de l'abonnement
       await SellerRequest.findByIdAndUpdate(savedSeller._id, {
         subscriptionId: subscriptionResult.subscription._id,
         trialEndsAt: subscriptionResult.subscription.endDate
       });
 
-      // Réponse de succès avec informations complètes
+      const trialMonths = resolvedPlanType === 'Starter' ? 2 : 1;
+      const trialLabel = `${trialMonths} mois`;
+
       return res.status(201).json({
         status: "success",
         message: "🎉 Votre boutique a été créée avec succès !",
@@ -414,18 +417,35 @@ const createSellerWithSubscription = async (req, res) => {
           },
           trialSubscription: {
             id: subscriptionResult.subscription._id,
-            planType: 'Starter',
+            planType: resolvedPlanType,
             status: 'trial',
             startDate: subscriptionResult.subscription.startDate,
             endDate: subscriptionResult.subscription.endDate,
             daysRemaining: Math.ceil((subscriptionResult.subscription.endDate - new Date()) / (1000 * 60 * 60 * 24)),
-            benefits: [
-              "✨ 3 mois d'accès gratuit complet",
-              "📦 Jusqu'à 20 produits",
-              "💬 Support email",
-              "📱 Paiements mobile money",
-              "🎯 Visibilité marketplace standard"
-            ]
+            trialMonths,
+            benefits: resolvedPlanType === 'Starter'
+              ? [
+                  `✨ ${trialLabel} d'accès gratuit`,
+                  "📦 Jusqu'à 20 produits",
+                  "💬 Support email",
+                  "📱 Paiements mobile money",
+                  "🎯 Visibilité marketplace standard"
+                ]
+              : resolvedPlanType === 'Pro'
+              ? [
+                  `✨ ${trialLabel} d'accès gratuit`,
+                  "📦 Produits & variantes illimités",
+                  "🖥️ Caisse POS incluse",
+                  "💳 Carte bancaire + Mobile Money",
+                  "⭐ Visibilité prioritaire marketplace"
+                ]
+              : [
+                  `✨ ${trialLabel} d'accès gratuit`,
+                  "📦 Produits & variantes illimités",
+                  "🖥️ Caisse POS incluse",
+                  "💰 Commission la plus basse (2%)",
+                  "👑 Visibilité premium + sponsoring"
+                ]
           },
           onboarding: {
             currentStep: 1,

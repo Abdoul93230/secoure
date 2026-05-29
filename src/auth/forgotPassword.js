@@ -16,8 +16,8 @@ const getTransporter = () =>
   nodemailer.createTransport({
     service: "gmail",
     auth: {
-      user: process.env.MAIL_USER || "HabouNiger227@gmail.com",
-      pass: process.env.MAIL_PASS || "lctrgorwycvjrqcv",
+      user: process.env.EMAIL_USER || process.env.MAIL_USER,
+      pass: process.env.EMAIL_PASS || process.env.MAIL_PASS,
     },
     tls: { rejectUnauthorized: false },
   });
@@ -95,7 +95,7 @@ const forgot_password = async (req, res) => {
     otpStore.set(email, { otp, expiresAt: Date.now() + OTP_EXPIRY_MS, sentAt: Date.now(), attempts: 0 });
 
     await getTransporter().sendMail({
-      from: `"IhamBaobab" <${process.env.MAIL_USER || "HabouNiger227@gmail.com"}>`,
+      from: `"IhamBaobab" <${process.env.EMAIL_USER || process.env.MAIL_USER}>`,
       to: email,
       subject: "Code de récupération de mot de passe — IhamBaobab",
       html: buildHtml(otp),
@@ -165,14 +165,14 @@ const forgot_password_seller = async (req, res) => {
 
     if (sendMethod === "email") {
       await getTransporter().sendMail({
-        from: `"IhamBaobab" <${process.env.MAIL_USER || "HabouNiger227@gmail.com"}>`,
+        from: `"IhamBaobab" <${process.env.EMAIL_USER || process.env.MAIL_USER}>`,
         to: email,
         subject: "Code de récupération de mot de passe — IhamBaobab Vendeurs",
         html: buildHtml(otp),
       });
     } else {
       const smsText = `Votre code IhamBaobab est ${otp}. Il expire dans 10 minutes. Ne le partagez jamais.`;
-      await lafricaSms.sendSms({ to: key, message: smsText });
+      await lafricaSms.sendSms({ to: key, text: smsText });
     }
 
     return res.status(200).json({

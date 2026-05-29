@@ -11,7 +11,7 @@ const SUBSCRIPTION_CONFIG = {
   PLANS: {
     Starter: {
       name: "Starter",
-      description: "Idéal pour débuter. 2 mois d'essai gratuit.",
+      description: "Idéal pour débuter. 2 mois d'essai gratuit, aucun paiement requis.",
       pricing: {
         monthly: 2000,
         annual: 21600,   // 2000 * 12 - 10%
@@ -50,11 +50,11 @@ const SUBSCRIPTION_CONFIG = {
 
     Pro: {
       name: "Pro",
-      description: "Pour les vendeurs réguliers avec plus de volume.",
+      description: "Pour les vendeurs réguliers. 1 mois d'essai gratuit, aucun paiement requis.",
       pricing: {
         monthly: 5000,
         annual: 54000,   // 5000 * 12 - 10%
-        trialMonths: 0,
+        trialMonths: 1,
         annualDiscount: 0.10,
       },
       commission: 2.5,
@@ -89,11 +89,11 @@ const SUBSCRIPTION_CONFIG = {
 
     Business: {
       name: "Business",
-      description: "Pour les vendeurs établis à fort volume.",
+      description: "Pour les vendeurs établis à fort volume. 1 mois d'essai gratuit, aucun paiement requis.",
       pricing: {
         monthly: 10000,
         annual: 108000,   // 10000 * 12 - 10%
-        trialMonths: 0,
+        trialMonths: 1,
         annualDiscount: 0.10,
       },
       commission: 2.0,

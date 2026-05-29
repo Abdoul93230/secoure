@@ -473,19 +473,22 @@ const PLAN_DEFAULTS = {
 };
 
 /**
- * Créer l'abonnement initial lors de l'inscription (Starter 3 mois gratuit)
+ * Créer l'abonnement d'essai initial lors de l'inscription.
+ * Starter → 2 mois gratuits. Pro / Business → 1 mois gratuit.
  */
-const createInitialSubscription = async (sellerId) => {
+const createInitialSubscription = async (sellerId, planType = 'Starter') => {
   try {
+    const resolvedPlan = ['Starter', 'Pro', 'Business'].includes(planType) ? planType : 'Starter';
+    const planConfig = PLAN_DEFAULTS[resolvedPlan];
+    const trialMonths = planConfig.trialMonths || (resolvedPlan === 'Starter' ? 2 : 1);
+
     const startDate = new Date();
     const endDate = new Date();
-    const planConfig = PLAN_DEFAULTS.Starter;
-    endDate.setMonth(endDate.getMonth() + (planConfig.trialMonths || 2));
+    endDate.setMonth(endDate.getMonth() + trialMonths);
 
-    // Créer l'abonnement d'essai
     const subscription = new PricingPlan({
       storeId: sellerId,
-      planType: 'Starter',
+      planType: resolvedPlan,
       ...planConfig,
       startDate,
       endDate,
@@ -499,7 +502,6 @@ const createInitialSubscription = async (sellerId) => {
 
     await subscription.save();
 
-    // Créer la file d'attente pour ce vendeur
     const queue = new SubscriptionQueue({
       storeId: sellerId,
       activeSubscriptionId: subscription._id,
@@ -510,16 +512,16 @@ const createInitialSubscription = async (sellerId) => {
 
     await queue.save();
 
-    // Ajouter à l'historique
+    const trialLabel = resolvedPlan === 'Starter' ? '2 mois' : '1 mois';
     const historyEntry = new SubscriptionHistory({
       storeId: sellerId,
       subscriptionId: subscription._id,
       actionType: 'created',
       actionDetails: {
         performedBy: 'system',
-        notes: 'Abonnement d\'essai Starter créé automatiquement (3 mois gratuits)',
+        notes: `Abonnement d'essai ${resolvedPlan} créé automatiquement (${trialLabel} gratuit)`,
         newPlan: {
-          planType: 'Starter',
+          planType: resolvedPlan,
           price: planConfig.price,
           commission: planConfig.commission,
           startDate,
@@ -534,7 +536,6 @@ const createInitialSubscription = async (sellerId) => {
 
     await historyEntry.save();
 
-    // Mettre à jour le vendeur
     await SellerRequest.findByIdAndUpdate(sellerId, {
       subscriptionId: subscription._id,
       subscriptionStatus: 'trial',
@@ -656,57 +657,65 @@ const createInitialSubscription = async (sellerId) => {
 
 
 
-const createFutureSubscriptionRequest = async (sellerId, planType, billingCycle = 'monthly', paymentMethod) => {
+const PLAN_RANK = { Starter: 1, Pro: 2, Business: 3 };
+
+const createFutureSubscriptionRequest = async (sellerId, planType, billingCycle = 'monthly', paymentMethod, upgradeMode = 'scheduled') => {
   try {
     // Récupérer ou créer la file d'attente
     let queue = await SubscriptionQueue.findOne({ storeId: sellerId });
-    
+
     if (!queue) {
-      // Si la file n'existe pas, la créer
       console.log(`Création d'une nouvelle file d'attente pour le vendeur ${sellerId}`);
-      
-      // Vérifier s'il y a un abonnement actif existant
-      const activeSubscription = await PricingPlan.findOne({ 
-        storeId: sellerId, 
-        status: { $in: ['active', 'trial'] } 
+      const activeSubscription = await PricingPlan.findOne({
+        storeId: sellerId,
+        status: { $in: ['active', 'trial'] }
       }).sort({ createdAt: -1 });
 
       queue = new SubscriptionQueue({
         storeId: sellerId,
         activeSubscriptionId: activeSubscription ? activeSubscription._id : null,
         queuedSubscriptions: [],
-        // accountStatus: activeSubscription ? activeSubscription.status : 'trial',
-        // accountStatus: activeSubscription ? activeSubscription.status : planType,
         lastUpdated: new Date()
       });
-
       await queue.save();
     }
 
-    // Calculer la date de début estimée
-    let estimatedStartDate = new Date();
+    // ── Déterminer si c'est un upgrade immédiat valide ─────────────────────
+    const isImmediateUpgrade = upgradeMode === 'immediate' && queue.activeSubscriptionId != null;
 
-    if (queue.activeSubscriptionId) {
-      const activeSubscription = await PricingPlan.findById(queue.activeSubscriptionId);
-      if (activeSubscription && activeSubscription.status !== 'expired') {
-        estimatedStartDate = new Date(activeSubscription.endDate);
+    if (isImmediateUpgrade) {
+      const activePlan = await PricingPlan.findById(queue.activeSubscriptionId);
+      if (!activePlan || ['expired', 'cancelled'].includes(activePlan.status)) {
+        // Plan actif inexistant ou expiré → traiter comme demande normale
+        upgradeMode = 'scheduled';
+      } else if ((PLAN_RANK[planType] || 0) <= (PLAN_RANK[activePlan.planType] || 0)) {
+        throw new Error(`L'upgrade immédiat n'est disponible que pour un plan supérieur (actuel: ${activePlan.planType})`);
       }
     }
 
-    // Si il y a des abonnements en file, prendre la fin du dernier
-    if (queue.queuedSubscriptions.length > 0) {
-      const lastQueued = await PricingPlan.findById(
-        queue.queuedSubscriptions[queue.queuedSubscriptions.length - 1].subscriptionId
-      );
-      if (lastQueued) {
-        estimatedStartDate = new Date(lastQueued.endDate);
+    const now = new Date();
+
+    // ── Calculer la date de début estimée ─────────────────────────────────
+    let estimatedStartDate = isImmediateUpgrade ? now : new Date();
+
+    if (!isImmediateUpgrade) {
+      if (queue.activeSubscriptionId) {
+        const activeSubscription = await PricingPlan.findById(queue.activeSubscriptionId);
+        if (activeSubscription && activeSubscription.status !== 'expired') {
+          estimatedStartDate = new Date(activeSubscription.endDate);
+        }
+      }
+      if (queue.queuedSubscriptions.length > 0) {
+        const lastQueued = await PricingPlan.findById(
+          queue.queuedSubscriptions[queue.queuedSubscriptions.length - 1].subscriptionId
+        );
+        if (lastQueued) estimatedStartDate = new Date(lastQueued.endDate);
       }
     }
 
     const planConfig = PLAN_DEFAULTS[planType];
     const amount = billingCycle === 'annual' ? planConfig.price.annual : planConfig.price.monthly;
 
-    // Calculer la date de fin
     const endDate = new Date(estimatedStartDate);
     const duration = billingCycle === 'annual' ? 12 : 1;
     endDate.setMonth(endDate.getMonth() + duration);
@@ -723,9 +732,9 @@ const createFutureSubscriptionRequest = async (sellerId, planType, billingCycle 
       billingCycle,
       queuePosition: queue.queuedSubscriptions.length + 1,
       invoiceNumber: `QUEUE-${Date.now()}-${sellerId.toString().slice(-6)}`,
-      createdBy: { role: 'seller' }
+      createdBy: { role: 'seller' },
+      isImmediateUpgrade: isImmediateUpgrade === true,
     });
-
     await futureSubscription.save();
 
     // Créer la demande de paiement
@@ -738,9 +747,9 @@ const createFutureSubscriptionRequest = async (sellerId, planType, billingCycle 
         recipientPhone: getPaymentPhone(paymentMethod)
       },
       linkedSubscriptionId: futureSubscription._id,
-      estimatedActivationDate: estimatedStartDate
+      estimatedActivationDate: estimatedStartDate,
+      isImmediateUpgrade: isImmediateUpgrade === true,
     });
-
     await paymentRequest.save();
 
     // Mettre à jour la file d'attente
@@ -750,7 +759,7 @@ const createFutureSubscriptionRequest = async (sellerId, planType, billingCycle 
       estimatedStartDate,
       status: 'pending_payment'
     });
-    queue.lastUpdated = new Date();
+    queue.lastUpdated = now;
     await queue.save();
 
     return {
@@ -760,6 +769,7 @@ const createFutureSubscriptionRequest = async (sellerId, planType, billingCycle 
         requestId: paymentRequest._id,
         amount,
         estimatedStartDate,
+        isImmediateUpgrade: isImmediateUpgrade === true,
         queuePosition: queue.queuedSubscriptions.length,
         paymentInstructions: {
           method: paymentMethod,
@@ -825,12 +835,18 @@ const validatePaymentAndPrepareActivation = async (requestId, adminId, isApprove
         'adminVerification.verificationNotes': notes
       });
 
-      // Vérifier si cet abonnement peut être activé immédiatement
-      await checkAndActivateNextSubscription(request.storeId._id);
+      // Upgrade immédiat : activer maintenant sans attendre l'expiration du plan actuel
+      if (request.isImmediateUpgrade) {
+        await forceActivateUpgrade(request.storeId._id, request.linkedSubscriptionId, adminId);
+      } else {
+        await checkAndActivateNextSubscription(request.storeId._id);
+      }
 
       return {
         success: true,
-        message: 'Paiement validé. L\'abonnement sera activé automatiquement.'
+        message: request.isImmediateUpgrade
+          ? 'Upgrade activé immédiatement. L\'ancien plan a été clôturé.'
+          : 'Paiement validé. L\'abonnement sera activé automatiquement.'
       };
 
     } else {
@@ -862,6 +878,86 @@ const validatePaymentAndPrepareActivation = async (requestId, adminId, isApprove
 
   } catch (error) {
     console.error('Erreur validation paiement:', error);
+    throw error;
+  }
+};
+
+/**
+ * Activer un upgrade immédiatement — clôture le plan actuel, active le nouveau maintenant.
+ * Appelé uniquement lorsque l'admin valide un paiement marqué isImmediateUpgrade=true.
+ */
+const forceActivateUpgrade = async (sellerId, newSubscriptionId, adminId) => {
+  try {
+    const now = new Date();
+    const queue = await SubscriptionQueue.findOne({ storeId: sellerId });
+    if (!queue) throw new Error('File d\'attente introuvable');
+
+    // Clôturer l'ancien plan actif immédiatement
+    if (queue.activeSubscriptionId) {
+      await PricingPlan.findByIdAndUpdate(queue.activeSubscriptionId, {
+        status: 'expired',
+        endDate: now,
+        $push: {
+          statusHistory: {
+            status: 'expired',
+            changedAt: now,
+            changedBy: { userId: adminId, role: 'admin' },
+            reason: 'Clôturé pour upgrade immédiat vers un plan supérieur'
+          }
+        }
+      });
+    }
+
+    // Activer le nouveau plan
+    const newSubscription = await PricingPlan.findById(newSubscriptionId);
+    if (!newSubscription) throw new Error('Nouvel abonnement introuvable');
+
+    const duration = newSubscription.billingCycle === 'annual' ? 12 : 1;
+    const newEndDate = new Date(now);
+    newEndDate.setMonth(newEndDate.getMonth() + duration);
+
+    newSubscription.status = 'active';
+    newSubscription.startDate = now;
+    newSubscription.endDate = newEndDate;
+    await newSubscription.save();
+
+    // Mettre à jour la file d'attente
+    queue.activeSubscriptionId = newSubscription._id;
+    queue.queuedSubscriptions = queue.queuedSubscriptions.filter(
+      q => q.subscriptionId.toString() !== newSubscription._id.toString()
+    );
+    queue.queuedSubscriptions.forEach((q, i) => { q.queuePosition = i + 1; });
+    queue.accountStatus = 'active';
+    queue.lastUpdated = now;
+    await queue.save();
+
+    // Mettre à jour le vendeur
+    await SellerRequest.findByIdAndUpdate(sellerId, {
+      subscriptionId: newSubscription._id,
+      subscriptionStatus: 'active',
+      isvalid: true,
+      suspensionReason: null,
+      suspensionDate: null,
+      reactivatedAt: now
+    });
+
+    // Historique
+    await new SubscriptionHistory({
+      storeId: sellerId,
+      subscriptionId: newSubscription._id,
+      actionType: 'upgraded',
+      actionDetails: {
+        performedBy: 'admin',
+        performedByAdmin: adminId,
+        notes: `Upgrade immédiat vers ${newSubscription.planType} — ancien plan clôturé`
+      },
+      periodStart: now,
+      periodEnd: newEndDate
+    }).save();
+
+    console.log(`Upgrade immédiat activé pour ${sellerId} → ${newSubscription.planType}`);
+  } catch (error) {
+    console.error('Erreur forceActivateUpgrade:', error);
     throw error;
   }
 };
@@ -1282,13 +1378,17 @@ const getSellerCompleteStatus = async (sellerId) => {
       ).sort({ createdAt: -1 }),
       SubscriptionHistory.find({ storeId: sellerId }).sort({ createdAt: -1 }).limit(10),
       Produit.countDocuments({
-      createdBy: sellerId,
-      isDeleted: false
-  })
+        createdBy: sellerId,
+        'shipping.isDeleted': { $ne: true }
+      })
     ]);
 
     if (!queue) {
-      return { status: 'no_subscription', message: 'Aucun abonnement trouvé' };
+      return {
+        status: 'no_subscription',
+        message: 'Aucun abonnement trouvé',
+        statusInfo: { status: 'no_subscription', canStartTrial: true, canCreateRequest: false }
+      };
     }
 
     const now = new Date();
@@ -1341,6 +1441,7 @@ const getSellerCompleteStatus = async (sellerId) => {
             : `${daysLeftInTrial} jours restants dans votre essai gratuit`,
           color: daysLeftInTrial <= 10 ? 'orange' : 'blue',
           canCreateRequest: daysLeftInTrial <= 10,
+          canUpgradeNow: true,
           actions: daysLeftInTrial <= 10
             ? ['view_features', 'upgrade_plan', 'choose_subscription']
             : ['view_features', 'upgrade_plan']
@@ -1371,6 +1472,7 @@ const getSellerCompleteStatus = async (sellerId) => {
           message: `Plan ${activeSubscription?.planType} - ${daysLeftInPlan} jours restants`,
           color: daysLeftInPlan <= 7 ? 'orange' : 'green',
           canCreateRequest: daysLeftInPlan < 10 ? true : false,
+          canUpgradeNow: true,
           actions: ['renew_plan', 'upgrade_plan', 'view_usage']
         };
         break;

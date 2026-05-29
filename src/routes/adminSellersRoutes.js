@@ -756,4 +756,76 @@ router.get('/subscriptions/export', requireAdmin, async (req, res) => {
   }
 });
 
+// ── Gestion modules & quota SMS par vendeur ───────────────────────────────────
+
+// GET /api/adminSeller/:sellerId/modules — état actuel des modules + quota SMS
+router.get('/:sellerId/modules', async (req, res) => {
+  try {
+    const seller = await SellerRequest.findById(req.params.sellerId)
+      .select('storeName modules smsQuota subscriptionStatus')
+      .lean();
+    if (!seller) return res.status(404).json({ status: 'error', message: 'Vendeur introuvable' });
+    return res.json({ status: 'success', data: seller });
+  } catch (err) {
+    return res.status(500).json({ status: 'error', message: err.message });
+  }
+});
+
+// PATCH /api/adminSeller/:sellerId/modules — activer/désactiver modules + fixer quota SMS
+// Body: { modules: { bilanJournalier: true, carnetCreances: false, ... }, smsQuota: { mensuel: 50 } }
+router.patch('/:sellerId/modules', async (req, res) => {
+  try {
+    const { modules, smsQuota } = req.body;
+    const update = {};
+
+    const MODULE_KEYS = ['bilanJournalier', 'alertesStock', 'performanceProduits', 'carnetCreances', 'rapportPeriodique'];
+    if (modules && typeof modules === 'object') {
+      for (const key of MODULE_KEYS) {
+        if (modules[key] !== undefined) {
+          update[`modules.${key}`] = Boolean(modules[key]);
+        }
+      }
+    }
+
+    if (smsQuota?.mensuel !== undefined) {
+      const newMensuel = Math.max(0, Number(smsQuota.mensuel));
+      update['smsQuota.mensuel'] = newMensuel;
+      // Reset du compteur si le quota change
+      update['smsQuota.utilise'] = 0;
+      update['smsQuota.resetDate'] = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1);
+    }
+
+    if (Object.keys(update).length === 0) {
+      return res.status(400).json({ status: 'error', message: 'Aucune mise à jour fournie' });
+    }
+
+    const seller = await SellerRequest.findByIdAndUpdate(
+      req.params.sellerId,
+      { $set: update },
+      { new: true }
+    ).select('storeName modules smsQuota');
+
+    if (!seller) return res.status(404).json({ status: 'error', message: 'Vendeur introuvable' });
+
+    return res.json({ status: 'success', data: seller });
+  } catch (err) {
+    return res.status(500).json({ status: 'error', message: err.message });
+  }
+});
+
+// POST /api/adminSeller/:sellerId/modules/reset-sms — remettre le compteur SMS à 0
+router.post('/:sellerId/modules/reset-sms', async (req, res) => {
+  try {
+    const seller = await SellerRequest.findByIdAndUpdate(
+      req.params.sellerId,
+      { $set: { 'smsQuota.utilise': 0, 'smsQuota.resetDate': new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1) } },
+      { new: true }
+    ).select('storeName smsQuota');
+    if (!seller) return res.status(404).json({ status: 'error', message: 'Vendeur introuvable' });
+    return res.json({ status: 'success', data: seller });
+  } catch (err) {
+    return res.status(500).json({ status: 'error', message: err.message });
+  }
+});
+
 module.exports = router;

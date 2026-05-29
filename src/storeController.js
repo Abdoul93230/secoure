@@ -1,5 +1,6 @@
 const { SellerRequest, Commande, Produit } = require("./Models");
 const { PricingPlan } = require("./Models");
+const SubscriptionQueue = require("./models/Abonnements/SubscriptionQueue");
 const SUBSCRIPTION_CONFIG = require('./config/subscriptionConfig');
 const jwt = require("jsonwebtoken");
 const privateKeSeller = require("./auth/clefSeller");
@@ -937,11 +938,23 @@ async function validerDemandeVendeur(req, res) {
       await suspendSellerProducts(demande._id, 'admin_suspension');
     } else {
       // Validation / réactivation du compte
-      const activePlan = await PricingPlan.findOne({
+      // 1. Chercher via PricingPlan (statut actif ou trial, non expiré)
+      let activePlan = await PricingPlan.findOne({
         storeId: demande._id,
         status: { $in: ['active', 'trial'] },
         endDate: { $gte: new Date() }
       }).sort({ createdAt: -1 });
+
+      // 2. Fallback : chercher via SubscriptionQueue.activeSubscriptionId
+      if (!activePlan) {
+        const queue = await SubscriptionQueue.findOne({ storeId: demande._id });
+        if (queue?.activeSubscriptionId) {
+          activePlan = await PricingPlan.findOne({
+            _id: queue.activeSubscriptionId,
+            status: { $in: ['active', 'trial'] }
+          });
+        }
+      }
 
       if (!activePlan) {
         return res.status(403).json({
