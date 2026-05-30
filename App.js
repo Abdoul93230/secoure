@@ -250,6 +250,81 @@ app.get('/api/modules/acces', authMiddleware.requireSeller, async (req, res) => 
   }
 });
 
+// GET /api/sync/heartbeat
+// Retourne le timestamp de dernière modification de chaque entité pour ce vendeur.
+// Ultra-léger : 4 requêtes MongoDB avec index → <30ms
+// Permet au mobile de savoir exactement ce qui a changé sans tout fetcher
+// GET /api/sync/heartbeat
+// Retourne le timestamp de dernière modification de chaque entité pour ce vendeur.
+// Ultra-léger : requêtes MongoDB avec index → <30ms
+// Bilan = MAX(dernière VenteDirecte POS, dernière Transaction marketplace)
+app.get('/api/sync/heartbeat', authMiddleware.requireSeller, async (req, res) => {
+  try {
+    const sellerId = req.user.id;
+    const sellerIdStr = String(sellerId);
+    const { Produit } = require('./src/Models');
+    const VenteDirecte = require('./src/models/VenteDirecte');
+    const Transaction = require('./src/models/transactionSchema');
+    const CreditClient = require('./src/models/CreditClient');
+
+    const [lastProduit, lastVentePOS, lastTxnMarket, lastCreance, lastCommande] = await Promise.all([
+      // Dernière modification produit du vendeur
+      Produit.findOne(
+        { Clefournisseur: sellerId, isDeleted: false },
+        { updatedAt: 1, createdAt: 1 }
+      ).sort({ updatedAt: -1 }).lean().catch(() => null),
+
+      // Dernière vente POS (caisse) du vendeur
+      VenteDirecte.findOne(
+        { sellerId: sellerIdStr },
+        { createdAt: 1 }
+      ).sort({ createdAt: -1 }).lean().catch(() => null),
+
+      // Dernière transaction marketplace (CREDIT_COMMANDE)
+      Transaction.findOne(
+        { sellerId: sellerIdStr, type: 'CREDIT_COMMANDE' },
+        { dateTransaction: 1 }
+      ).sort({ dateTransaction: -1 }).lean().catch(() => null),
+
+      // Dernière créance du vendeur
+      CreditClient.findOne(
+        { sellerId },
+        { updatedAt: 1 }
+      ).sort({ updatedAt: -1 }).lean().catch(() => null),
+
+      // Dernière commande marketplace (pour l'écran commandes)
+      // On utilise la transaction pour être cohérent avec le bilan
+      Transaction.findOne(
+        { sellerId: sellerIdStr, type: 'CREDIT_COMMANDE' },
+        { dateTransaction: 1 }
+      ).sort({ dateTransaction: -1 }).lean().catch(() => null),
+    ]);
+
+    // Bilan = MAX(POS, Marketplace) — car les deux alimentent le bilan
+    const bilanPOS    = lastVentePOS?.createdAt    ? new Date(lastVentePOS.createdAt).getTime()       : 0;
+    const bilanMarket = lastTxnMarket?.dateTransaction ? new Date(lastTxnMarket.dateTransaction).getTime() : 0;
+    const bilanTs     = Math.max(bilanPOS, bilanMarket) || null;
+
+    return res.json({
+      status: 'success',
+      data: {
+        bilan:     bilanTs,
+        commandes: lastCommande?.dateTransaction
+          ? new Date(lastCommande.dateTransaction).getTime() : null,
+        produits:  lastProduit?.updatedAt
+          ? new Date(lastProduit.updatedAt).getTime()
+          : lastProduit?.createdAt
+          ? new Date(lastProduit.createdAt).getTime() : null,
+        creances:  lastCreance?.updatedAt
+          ? new Date(lastCreance.updatedAt).getTime() : null,
+        serverTime: Date.now(),
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({ status: 'error', message: err.message });
+  }
+});
+
 app.use('/api/modules/bilan', authMiddleware.requireSeller, bilanRoutes);
 app.use('/api/modules/stock', authMiddleware.requireSeller, alertesRoutes);
 app.use('/api/modules/performance', authMiddleware.requireSeller, performanceRoutes);

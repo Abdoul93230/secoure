@@ -115,6 +115,18 @@ router.post('/vente', requirePosAccess, async (req, res) => {
 
     const venteCreee = await VenteDirecte.findOne({ sellerId }).sort({ createdAt: -1 });
 
+    // Notifie l'app mobile du vendeur que le bilan a changé
+    try {
+      const io = req.app?.get?.('io');
+      if (io) {
+        io.to(`seller:${sellerId}`).emit('bilan_updated', {
+          source: 'pos',
+          total,
+          createdAt: venteCreee.createdAt,
+        });
+      }
+    } catch (_) {}
+
     res.status(201).json({
       success: true,
       message: 'Vente enregistrée avec succès',
