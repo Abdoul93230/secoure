@@ -648,6 +648,25 @@ const createCommande = async (req, res) => {
       }
     }
 
+    // Notifier chaque vendeur concerné via Socket.io
+    try {
+      const io = req?.app?.get?.('io');
+      if (io) {
+        const { Produit } = require('./Models');
+        const produitIds = commande.nbrProduits.map(p => p.produit);
+        const produits = await Produit.find({ _id: { $in: produitIds } }, { Clefournisseur: 1 }).lean();
+        const sellerIds = [...new Set(produits.map(p => String(p.Clefournisseur)).filter(Boolean))];
+        sellerIds.forEach(sid => {
+          io.to(`seller:${sid}`).emit('new_order', {
+            commandeId: commande._id,
+            reference: commande.reference,
+            total: commande.prix,
+            date: commande.date || new Date(),
+          });
+        });
+      }
+    } catch (_) {}
+
     const message = "Commande créée avec succès et stock mis à jour.";
     return res.json({
       message,
