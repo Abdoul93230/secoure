@@ -288,6 +288,16 @@ class ProductService {
     const product = await Produit.findOne(filter);
     if (!product) return false;
 
+    // Tombstone — enregistre l'ID avant suppression physique
+    // Le heartbeat mobile lit cette collection pour nettoyer le cache local
+    try {
+      const { DeletedProduct } = require('../Models');
+      await DeletedProduct.create({
+        productId: product._id,
+        sellerId:  product.Clefournisseur,
+      });
+    } catch (_) {}
+
     // Supprimer les images de Cloudinary
     await this.deleteProductImages(product);
 

@@ -1721,6 +1721,20 @@ likeSchema.index({ user: 1, produit: 1 }, { unique: true });
 
 const Like = mongoose.model("Like", likeSchema);
 
+// ─── Tombstone produits supprimés physiquement ───────────────────────────────
+// Quand un produit est supprimé via deleteOne(), son ID est conservé ici
+// pour que le heartbeat puisse notifier l'app mobile de le retirer du cache
+const deletedProductSchema = new mongoose.Schema({
+  productId:   { type: mongoose.Schema.Types.ObjectId, required: true },
+  sellerId:    { type: mongoose.Schema.Types.ObjectId, required: true },
+  deletedAt:   { type: Date, default: Date.now },
+}, { collection: 'deleted_products' });
+deletedProductSchema.index({ sellerId: 1, deletedAt: -1 });
+// Auto-purge après 30 jours (TTL index) — le mobile aura eu le temps de sync
+deletedProductSchema.index({ deletedAt: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 });
+
+const DeletedProduct = mongoose.model("DeletedProduct", deletedProductSchema);
+
 module.exports = {
   User,
   Admin,
@@ -1746,4 +1760,5 @@ module.exports = {
   PricingPlan,
   Transaction,
   Like,
+  DeletedProduct,
 };

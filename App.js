@@ -267,8 +267,8 @@ app.get('/api/sync/heartbeat', authMiddleware.requireSeller, async (req, res) =>
     const Transaction = require('./src/models/transactionSchema');
     const CreditClient = require('./src/modules/carnetCreances/CreditClient');
 
-    const [lastProduit, lastVentePOS, lastTxnMarket, lastCreance, lastCommande] = await Promise.all([
-      // Dernière modification produit du vendeur
+    const [lastProduit, lastVentePOS, lastTxnMarket, lastCreance, lastCommande, deletedProduits] = await Promise.all([
+      // Dernière modification produit actif du vendeur
       Produit.findOne(
         { Clefournisseur: sellerId, isDeleted: false },
         { updatedAt: 1, createdAt: 1 }
@@ -298,25 +298,41 @@ app.get('/api/sync/heartbeat', authMiddleware.requireSeller, async (req, res) =>
         { sellerId: sellerIdStr, type: 'CREDIT_COMMANDE' },
         { dateTransaction: 1 }
       ).sort({ dateTransaction: -1 }).lean().catch(() => null),
+
+        // IDs supprimés physiquement (tombstone) OU via soft-delete (isDeleted:true)
+      // Les deux cas couverts
+      Promise.all([
+        Produit.find({ Clefournisseur: sellerId, isDeleted: true }, { _id: 1 }).lean().catch(() => []),
+        require('./src/Models').DeletedProduct
+          .find({ sellerId }, { productId: 1 }).lean().catch(() => []),
+      ]),
     ]);
 
-    // Bilan = MAX(POS, Marketplace) — car les deux alimentent le bilan
-    const bilanPOS    = lastVentePOS?.createdAt    ? new Date(lastVentePOS.createdAt).getTime()       : 0;
+    // Bilan = MAX(POS, Marketplace)
+    const bilanPOS    = lastVentePOS?.createdAt       ? new Date(lastVentePOS.createdAt).getTime()        : 0;
     const bilanMarket = lastTxnMarket?.dateTransaction ? new Date(lastTxnMarket.dateTransaction).getTime() : 0;
     const bilanTs     = Math.max(bilanPOS, bilanMarket) || null;
+
+    // IDs à supprimer du cache local (soft-delete + suppression physique)
+    const [softDeleted, hardDeleted] = deletedProduits || [[], []];
+    const deletedIds = [
+      ...(softDeleted || []).map(p => String(p._id)),
+      ...(hardDeleted || []).map(p => String(p.productId)),
+    ].filter((v, i, a) => a.indexOf(v) === i); // déduplique
 
     return res.json({
       status: 'success',
       data: {
-        bilan:     bilanTs,
-        commandes: lastCommande?.dateTransaction
+        bilan:      bilanTs,
+        commandes:  lastCommande?.dateTransaction
           ? new Date(lastCommande.dateTransaction).getTime() : null,
-        produits:  lastProduit?.updatedAt
+        produits:   lastProduit?.updatedAt
           ? new Date(lastProduit.updatedAt).getTime()
           : lastProduit?.createdAt
           ? new Date(lastProduit.createdAt).getTime() : null,
-        creances:  lastCreance?.updatedAt
+        creances:   lastCreance?.updatedAt
           ? new Date(lastCreance.updatedAt).getTime() : null,
+        deletedIds,   // ← IDs supprimés côté serveur
         serverTime: Date.now(),
       },
     });
