@@ -265,7 +265,7 @@ app.get('/api/sync/heartbeat', authMiddleware.requireSeller, async (req, res) =>
     const { Produit } = require('./src/Models');
     const VenteDirecte = require('./src/models/VenteDirecte');
     const Transaction = require('./src/models/transactionSchema');
-    const CreditClient = require('./src/models/CreditClient');
+    const CreditClient = require('./src/modules/carnetCreances/CreditClient');
 
     const [lastProduit, lastVentePOS, lastTxnMarket, lastCreance, lastCommande] = await Promise.all([
       // Dernière modification produit du vendeur
