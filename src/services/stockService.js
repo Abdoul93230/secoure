@@ -289,11 +289,11 @@ class StockService {
       throw new Error(`Stock insuffisant pour le produit ${product.name}. Disponible: ${currentStock}, Demandé: ${quantite}`);
     }
 
-    const newStock = currentStock - quantite;
+    const newStock = Math.max(0, currentStock - quantite);
     await Produit.findByIdAndUpdate(
       product._id,
       { $set: { quantite: newStock } },
-      { session, runValidators: true }
+      { session, runValidators: false }  // stock peut descendre à 0
     );
 
     console.log(`✅ Stock principal mis à jour: ${product.name} (${currentStock} → ${newStock})`);
@@ -340,12 +340,12 @@ class StockService {
         _id: product._id,
         'variants._id': variant._id
       },
-      { 
-        $set: { 
-          'variants.$.stock': newStock 
-        } 
+      {
+        $set: {
+          'variants.$.stock': Math.max(0, newStock)
+        }
       },
-      { session, runValidators: true }
+      { session, runValidators: false }  // stock peut descendre à 0
     );
 
     console.log(`✅ Stock variante mis à jour: ${product.name} - ${couleurs.join('/')}, ${tailles.join('/')} (${currentStock} → ${newStock})`);
