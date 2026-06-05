@@ -93,22 +93,21 @@ const getBilanToday = async (req, res) => {
 };
 
 // GET /history?days=7  OU  /history?from=YYYY-MM-DD&to=YYYY-MM-DD
+// Optimise : 2 pipelines agregation MongoDB en parallele (au lieu de N*2 requetes unitaires)
 const getBilanHistory = async (req, res) => {
   try {
     const sellerId = req.user.id;
 
-    // Calcul de la liste de jours à itérer
     let dates = [];
     if (req.query.from && req.query.to) {
       const start = new Date(req.query.from + 'T00:00:00');
       const end   = new Date(req.query.to   + 'T00:00:00');
       if (isNaN(start) || isNaN(end) || start > end)
         return res.status(400).json({ status: 'error', message: 'Dates invalides' });
-      // Max 90 jours pour éviter les abus
-      const maxDays = 90;
-      for (let d = new Date(start); d <= end && dates.length < maxDays; d.setDate(d.getDate() + 1)) {
+      for (let d = new Date(end); d >= start && dates.length < 90; d.setDate(d.getDate() - 1)) {
         dates.push(new Date(d));
       }
+      dates.reverse();
     } else {
       const days = Math.min(parseInt(req.query.days) || 7, 90);
       for (let i = days - 1; i >= 0; i--) {
@@ -118,20 +117,95 @@ const getBilanHistory = async (req, res) => {
       }
     }
 
-    const history = [];
-    for (const d of dates) {
-      const bilan = await aggregateBilan(sellerId, d, d);
-      history.push({
-        date:              d.toISOString().split('T')[0],
-        totalGeneral:      bilan.totalGeneral,
-        posTotal:          bilan.pos.total,
-        posVentes:         bilan.pos.ventes,
-        commandeTotal:     bilan.marketplace.total,
-        commandeCount:     bilan.marketplace.commandes,
-        mkArticlesVendus:  bilan.marketplace.articlesVendus,
-        articlesVendus:    bilan.articlesVendus,
-      });
-    }
+    const rangeStart = new Date(dates[0]);
+    rangeStart.setHours(0, 0, 0, 0);
+    const rangeEnd = new Date(dates[dates.length - 1]);
+    rangeEnd.setHours(23, 59, 59, 999);
+
+    const [posAgg, txnAgg] = await Promise.all([
+      VenteDirecte.aggregate([
+        {
+          $match: {
+            sellerId: String(sellerId),
+            statut: 'COMPLETEE',
+            createdAt: { $gte: rangeStart, $lte: rangeEnd },
+          },
+        },
+        {
+          $group: {
+            _id:         { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+            posTotal:    { $sum: '$total' },
+            posVentes:   { $sum: 1 },
+            posArticles: {
+              $sum: {
+                $sum: {
+                  $map: {
+                    input: { $ifNull: ['$lignes', []] },
+                    as:    'l',
+                    in:    { $ifNull: ['$$l.quantite', 1] },
+                  },
+                },
+              },
+            },
+          },
+        },
+      ]),
+      Transaction.aggregate([
+        {
+          $match: {
+            sellerId: String(sellerId),
+            type: 'CREDIT_COMMANDE',
+            statut: { $in: ['EN_ATTENTE', 'CONFIRME'] },
+            dateTransaction: { $gte: rangeStart, $lte: rangeEnd },
+          },
+        },
+        {
+          $group: {
+            _id:              { $dateToString: { format: '%Y-%m-%d', date: '$dateTransaction' } },
+            commandeTotal:    { $sum: '$montant' },
+            commandeIds:      { $addToSet: '$commandeId' },
+            mkArticlesVendus: {
+              $sum: {
+                $sum: {
+                  $map: {
+                    input: { $ifNull: ['$metadata.produits', []] },
+                    as:    'p',
+                    in:    { $ifNull: ['$$p.quantite', 1] },
+                  },
+                },
+              },
+            },
+          },
+        },
+      ]),
+    ]);
+
+    const posMap = {};
+    for (const row of posAgg) posMap[row._id] = row;
+    const txnMap = {};
+    for (const row of txnAgg) txnMap[row._id] = row;
+
+    const history = dates.map(d => {
+      const date             = d.toISOString().split('T')[0];
+      const pos              = posMap[date] || {};
+      const txn              = txnMap[date] || {};
+      const posTotal         = pos.posTotal          || 0;
+      const posVentes        = pos.posVentes         || 0;
+      const posArticles      = pos.posArticles       || 0;
+      const commandeTotal    = txn.commandeTotal     || 0;
+      const commandeCount    = (txn.commandeIds      || []).length;
+      const mkArticlesVendus = txn.mkArticlesVendus  || 0;
+      return {
+        date,
+        totalGeneral:     posTotal + commandeTotal,
+        posTotal,
+        posVentes,
+        commandeTotal,
+        commandeCount,
+        mkArticlesVendus,
+        articlesVendus:   posArticles + mkArticlesVendus,
+      };
+    });
 
     return res.json({ status: 'success', data: history });
   } catch (err) {
