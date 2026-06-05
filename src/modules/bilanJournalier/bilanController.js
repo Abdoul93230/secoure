@@ -48,6 +48,8 @@ async function aggregateBilan(sellerId, startDate, endDate) {
   const commandeTotal = txns.reduce((s, t) => s + (t.montant || 0), 0);
   const commandeCount = new Set(txns.map(t => String(t.commandeId))).size;
 
+  let mkArticlesVendus = 0;
+  const mkProdMap = {};
   for (const txn of txns) {
     for (const p of txn.metadata?.produits || []) {
       const key = (p.nom || 'produit').toLowerCase().trim();
@@ -56,6 +58,8 @@ async function aggregateBilan(sellerId, startDate, endDate) {
       }
       prodMap[key].quantite += p.quantite || 1;
       prodMap[key].total += p.montant || 0;
+      // Compteur marketplace uniquement
+      mkArticlesVendus += p.quantite || 1;
     }
   }
 
@@ -63,12 +67,13 @@ async function aggregateBilan(sellerId, startDate, endDate) {
     .sort((a, b) => b.quantite - a.quantite)
     .slice(0, 5);
 
+  // articlesVendus total = POS + marketplace
   const articlesVendus = Object.values(prodMap).reduce((sum, p) => sum + p.quantite, 0);
 
   return {
     periode: { start: start.toISOString(), end: end.toISOString() },
     pos: { total: posTotal, ventes: posCount, modePaiement },
-    marketplace: { total: commandeTotal, commandes: commandeCount },
+    marketplace: { total: commandeTotal, commandes: commandeCount, articlesVendus: mkArticlesVendus },
     totalGeneral: posTotal + commandeTotal,
     articlesVendus,
     topProduits,
@@ -99,13 +104,14 @@ const getBilanHistory = async (req, res) => {
       d.setDate(d.getDate() - i);
       const bilan = await aggregateBilan(sellerId, d, d);
       history.push({
-        date:           d.toISOString().split('T')[0],
-        totalGeneral:   bilan.totalGeneral,
-        posTotal:       bilan.pos.total,
-        posVentes:      bilan.pos.ventes,
-        commandeTotal:  bilan.marketplace.total,
-        commandeCount:  bilan.marketplace.commandes,
-        articlesVendus: bilan.articlesVendus,
+        date:              d.toISOString().split('T')[0],
+        totalGeneral:      bilan.totalGeneral,
+        posTotal:          bilan.pos.total,
+        posVentes:         bilan.pos.ventes,
+        commandeTotal:     bilan.marketplace.total,
+        commandeCount:     bilan.marketplace.commandes,
+        mkArticlesVendus:  bilan.marketplace.articlesVendus,
+        articlesVendus:    bilan.articlesVendus,
       });
     }
 
