@@ -63,6 +63,7 @@ router.post('/vente', requirePosAccess, async (req, res) => {
       modePaiement,    // ESPECES | MOBILE_MONEY | AUTRE
       montantRecu = 0,
       telephoneClient,
+      referenceOffline, // référence pré-générée côté mobile (vente offline)
     } = req.body;
 
     if (!sellerId || !lignes?.length || !modePaiement) {
@@ -100,6 +101,8 @@ router.post('/vente', requirePosAccess, async (req, res) => {
         commission: 0,
         montantNet: total,
         statut: 'COMPLETEE',
+        // Référence pré-générée offline — respectée par le pre('validate') qui ne l'écrase pas si déjà définie
+        ...(referenceOffline ? { reference: referenceOffline } : {}),
       });
       await vente.save({ session });
 
