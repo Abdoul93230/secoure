@@ -100,8 +100,9 @@ const getBilanHistory = async (req, res) => {
       const bilan = await aggregateBilan(sellerId, d, d);
       history.push({
         date: d.toISOString().split('T')[0],
-        totalGeneral: bilan.totalGeneral,
-        posTotal: bilan.pos.total,
+        totalGeneral:  bilan.totalGeneral,
+        posTotal:      bilan.pos.total,
+        posVentes:     bilan.pos.ventes,
         commandeTotal: bilan.marketplace.total,
         articlesVendus: bilan.articlesVendus,
       });
