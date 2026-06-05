@@ -92,16 +92,34 @@ const getBilanToday = async (req, res) => {
   }
 };
 
-// GET /history?days=7
+// GET /history?days=7  OU  /history?from=YYYY-MM-DD&to=YYYY-MM-DD
 const getBilanHistory = async (req, res) => {
   try {
     const sellerId = req.user.id;
-    const days = Math.min(parseInt(req.query.days) || 7, 90);
+
+    // Calcul de la liste de jours à itérer
+    let dates = [];
+    if (req.query.from && req.query.to) {
+      const start = new Date(req.query.from + 'T00:00:00');
+      const end   = new Date(req.query.to   + 'T00:00:00');
+      if (isNaN(start) || isNaN(end) || start > end)
+        return res.status(400).json({ status: 'error', message: 'Dates invalides' });
+      // Max 90 jours pour éviter les abus
+      const maxDays = 90;
+      for (let d = new Date(start); d <= end && dates.length < maxDays; d.setDate(d.getDate() + 1)) {
+        dates.push(new Date(d));
+      }
+    } else {
+      const days = Math.min(parseInt(req.query.days) || 7, 90);
+      for (let i = days - 1; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        dates.push(new Date(d));
+      }
+    }
 
     const history = [];
-    for (let i = days - 1; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
+    for (const d of dates) {
       const bilan = await aggregateBilan(sellerId, d, d);
       history.push({
         date:              d.toISOString().split('T')[0],
