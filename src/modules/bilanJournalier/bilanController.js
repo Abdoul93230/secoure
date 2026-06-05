@@ -17,6 +17,12 @@ async function aggregateBilan(sellerId, startDate, endDate) {
   const posTotal = posVentes.reduce((sum, v) => sum + (v.total || 0), 0);
   const posCount = posVentes.length;
 
+  const modePaiement = { ESPECES: 0, MOBILE_MONEY: 0, AUTRE: 0 };
+  for (const vente of posVentes) {
+    const mode = vente.modePaiement || 'AUTRE';
+    modePaiement[mode] = (modePaiement[mode] || 0) + (vente.total || 0);
+  }
+
   const prodMap = {};
   for (const vente of posVentes) {
     for (const ligne of vente.lignes || []) {
@@ -61,7 +67,7 @@ async function aggregateBilan(sellerId, startDate, endDate) {
 
   return {
     periode: { start: start.toISOString(), end: end.toISOString() },
-    pos: { total: posTotal, ventes: posCount },
+    pos: { total: posTotal, ventes: posCount, modePaiement },
     marketplace: { total: commandeTotal, commandes: commandeCount },
     totalGeneral: posTotal + commandeTotal,
     articlesVendus,
