@@ -63,11 +63,27 @@ router.get('/seller/:sellerId/check-updates', async (req, res) => {
 router.get('/seller/:sellerId/retraits', async (req, res) => {
   try {
     const sellerId = req.params.sellerId;
-    const retraits = await Retrait.find({ sellerId })
-      .sort({ datedemande: -1 })
-      .limit(20);
-    
-    res.json({ success: true, data: retraits });
+    const page  = parseInt(req.query.page)  || 1;
+    const limit = parseInt(req.query.limit) || 5;
+    const skip  = (page - 1) * limit;
+
+    const query = { sellerId };
+    if (req.query.dateStart || req.query.dateEnd) {
+      query.datedemande = {};
+      if (req.query.dateStart) query.datedemande.$gte = new Date(req.query.dateStart);
+      if (req.query.dateEnd)   query.datedemande.$lte = new Date(req.query.dateEnd);
+    }
+
+    const [retraits, total] = await Promise.all([
+      Retrait.find(query).sort({ datedemande: -1 }).skip(skip).limit(limit),
+      Retrait.countDocuments(query),
+    ]);
+
+    res.json({
+      success: true,
+      data: retraits,
+      pagination: { page, limit, total, pages: Math.ceil(total / limit) },
+    });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
