@@ -70,18 +70,9 @@ class FinancialService {
     };
   }
 
-  // Calculer les frais de retrait
+  // Pas de frais de retrait — le montant demandé est intégralement versé
   static calculerFraisRetrait(montant, methode) {
-    switch (methode) {
-      case 'MOBILE_MONEY':
-        return Math.max(Math.round(montant * 0.02), 500);
-      case 'VIREMENT_BANCAIRE':
-        return 1000;
-      case 'ESPECES':
-        return 0;
-      default:
-        return 0;
-    }
+    return 0;
   }
 
   // NOUVELLE FONCTION: Créer les transactions initiales quand commande prise par livreur
@@ -711,9 +702,8 @@ class FinancialService {
           throw new Error('Vous avez déjà une demande de retrait en attente');
         }
 
-        // Calculer les frais
-        const fraisRetrait = this.calculerFraisRetrait(montantDemande, methodeRetrait);
-        const montantAccorde = montantDemande - fraisRetrait;
+        const fraisRetrait = 0;
+        const montantAccorde = montantDemande;
 
         // Créer la demande de retrait
         const retrait = new Retrait({
@@ -796,8 +786,8 @@ class FinancialService {
             type: 'RETRAIT',
             statut: 'CONFIRME',
             montant: -retrait.montantDemande,
-            montantNet: -retrait.montantAccorde,
-            commission: retrait.fraisRetrait,
+            montantNet: -retrait.montantDemande,
+            commission: 0,
             description: `Retrait ${retrait.methodeRetrait} - ${retrait.reference}`,
             dateConfirmation: new Date(),
             creeParAdmin: true,
