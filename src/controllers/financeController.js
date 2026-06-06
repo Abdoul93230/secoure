@@ -190,7 +190,12 @@ async function getSellerOrdersWithFinancialInfo(sellerId, options = {}) {
     // Taux de commission réel du seller (depuis SUBSCRIPTION_CONFIG, source de vérité)
     const tauxCommission = await FinancialService.obtenirTauxCommission(sellerId);
 
+    const dateFilter = {};
+    if (options.dateStart) dateFilter.$gte = new Date(options.dateStart);
+    if (options.dateEnd)   dateFilter.$lte = new Date(options.dateEnd);
+
     const pipeline = [
+      ...(Object.keys(dateFilter).length ? [{ $match: { date: dateFilter } }] : []),
       { $unwind: "$nbrProduits" },
       {
         $lookup: {
@@ -361,10 +366,12 @@ const seller_orders_with_financial = async (req, res) => {
     
     // 🔥 NOUVEAU: Récupérer les paramètres de pagination depuis la query
     const options = {
-      page: req.query.page || 1,
-      limit: req.query.limit || 10,
-      status: req.query.status, // Optionnel: filtre par statut
-      search: req.query.search  // Optionnel: recherche
+      page:      req.query.page      || 1,
+      limit:     req.query.limit     || 10,
+      status:    req.query.status,
+      search:    req.query.search,
+      dateStart: req.query.dateStart,
+      dateEnd:   req.query.dateEnd,
     };
     
     const [sellerOrdersResult, financialSummary] = await Promise.all([
