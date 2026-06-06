@@ -213,20 +213,42 @@ router.get('/historique/:sellerId', requirePosAccess, async (req, res) => {
     if (req.query.dateStart)    query.createdAt = { $gte: new Date(req.query.dateStart) };
     if (req.query.dateEnd)      query.createdAt = { ...query.createdAt, $lte: new Date(req.query.dateEnd) };
 
-    const [ventes, total] = await Promise.all([
+    const baseQuery = { sellerId };
+    if (req.query.dateStart || req.query.dateEnd) {
+      baseQuery.createdAt = query.createdAt;
+    }
+
+    const [ventes, total, statsAgg, topArticlesAgg, annulCount] = await Promise.all([
       VenteDirecte.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit),
       VenteDirecte.countDocuments(query),
+      VenteDirecte.aggregate([
+        { $match: { ...baseQuery, statut: 'COMPLETEE' } },
+        { $group: {
+          _id: null,
+          totalCA:       { $sum: '$total' },
+          nombreVentes:  { $sum: 1 },
+          totalEspeces:  { $sum: { $cond: [{ $eq: ['$modePaiement', 'ESPECES'] },      '$total', 0] } },
+          totalMobile:   { $sum: { $cond: [{ $eq: ['$modePaiement', 'MOBILE_MONEY'] }, '$total', 0] } },
+          panierMoyen:   { $avg: '$total' },
+        }},
+      ]),
+      VenteDirecte.aggregate([
+        { $match: { ...baseQuery, statut: 'COMPLETEE' } },
+        { $unwind: '$lignes' },
+        { $group: {
+          _id:   '$lignes.nom',
+          image: { $first: '$lignes.image' },
+          qte:   { $sum: '$lignes.quantite' },
+          ca:    { $sum: '$lignes.sousTotal' },
+        }},
+        { $sort: { ca: -1 } },
+        { $limit: 5 },
+        { $project: { _id: 0, nom: '$_id', image: 1, qte: 1, ca: 1 } },
+      ]),
+      VenteDirecte.countDocuments({ ...baseQuery, statut: 'ANNULEE' }),
     ]);
 
-    const stats = await VenteDirecte.aggregate([
-      { $match: { ...query, statut: 'COMPLETEE' } },
-      { $group: {
-        _id: null,
-        totalCA: { $sum: '$total' },
-        nombreVentes: { $sum: 1 },
-      }},
-    ]);
-
+    const s = statsAgg[0] || {};
     res.json({
       success: true,
       data: {
@@ -237,7 +259,15 @@ router.get('/historique/:sellerId', requirePosAccess, async (req, res) => {
           hasNext: page < Math.ceil(total / limit),
           hasPrev: page > 1,
         },
-        stats: stats[0] || { totalCA: 0, nombreVentes: 0 },
+        stats: {
+          totalCA:       s.totalCA      || 0,
+          nombreVentes:  s.nombreVentes || 0,
+          totalEspeces:  s.totalEspeces || 0,
+          totalMobile:   s.totalMobile  || 0,
+          panierMoyen:   s.panierMoyen  ? Math.round(s.panierMoyen) : 0,
+          nombreAnnulations: annulCount || 0,
+          topArticles:   topArticlesAgg,
+        },
       },
     });
   } catch (err) {
