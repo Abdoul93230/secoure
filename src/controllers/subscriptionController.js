@@ -1515,54 +1515,91 @@ const getSellerCompleteStatus = async (sellerId) => {
         break;
     }
 
+    // Helper : construit l'objet paymentDetails normalisé depuis un SubscriptionRequest
+    const buildPaymentDetails = (paymentRequest) => {
+      const sp = paymentRequest.submittedProof; // fallback ancienne structure
+      return {
+        method: paymentRequest.paymentDetails?.method,
+        amount: paymentRequest.paymentDetails?.amount,
+        recipientPhone: paymentRequest.paymentDetails?.recipientPhone,
+        paymentDeadline: paymentRequest.paymentDetails?.paymentDeadline,
+        transferCode: paymentRequest.paymentDetails?.transferCode || sp?.transferCode || null,
+        senderPhone: paymentRequest.paymentDetails?.senderPhone || sp?.senderPhone || null,
+        receiptUrl: paymentRequest.paymentDetails?.receiptFile || sp?.receiptUrl || null,
+        rejectionReason: paymentRequest.adminVerification?.rejectionReason || paymentRequest.paymentDetails?.rejectionReason || null,
+        verificationStatus: paymentRequest.status,
+        verifiedAt: paymentRequest.adminVerification?.verifiedAt || null
+      };
+    };
+
     // Informations sur la file d'attente avec détails de paiement
+    const nextSubscriptionsFromQueue = await Promise.all(
+      queue.queuedSubscriptions.map(async (q) => {
+        const [sub, paymentRequest] = await Promise.all([
+          PricingPlan.findById(q.subscriptionId),
+          SubscriptionRequest.findOne({
+            storeId: sellerId,
+            linkedSubscriptionId: q.subscriptionId,
+            status: { $in: ['pending_payment', 'payment_submitted', 'rejected', 'payment_verified', 'cancelled'] }
+          }).sort({ createdAt: -1 })
+        ]);
+
+        const result = {
+          planType: sub?.planType,
+          estimatedStartDate: q.estimatedStartDate,
+          status: paymentRequest?.status || q.status,
+          queuePosition: q.queuePosition,
+          subscriptionId: q.subscriptionId,
+          createdAt: paymentRequest?.createdAt,
+          updatedAt: paymentRequest?.updatedAt,
+          requestDate: paymentRequest?.requestDate,
+          cancelledAt: paymentRequest?.cancelledAt || null,
+          archivedPlan: paymentRequest?.archivedPlan || null
+        };
+
+        if (paymentRequest) {
+          result.paymentRequestId = paymentRequest._id;
+          result.paymentDetails = buildPaymentDetails(paymentRequest);
+        }
+
+        return result;
+      })
+    );
+
+    // Demande rejetée récente non visible dans la file (retirée lors du rejet)
+    // On la remonte séparément pour que le vendeur puisse voir la raison et resoumettre
+    const alreadyHasRejected = nextSubscriptionsFromQueue.some(s => s.status === 'rejected');
+    let rejectedEntry = null;
+    if (!alreadyHasRejected) {
+      const rejectedRequest = await SubscriptionRequest.findOne({
+        storeId: sellerId,
+        status: 'rejected'
+      }).sort({ updatedAt: -1 });
+
+      if (rejectedRequest) {
+        rejectedEntry = {
+          planType: rejectedRequest.requestedPlan?.planType || rejectedRequest.planType,
+          billingCycle: rejectedRequest.requestedPlan?.billingCycle || rejectedRequest.billingCycle || 'monthly',
+          estimatedStartDate: null,
+          status: 'rejected',
+          queuePosition: null,
+          subscriptionId: rejectedRequest.linkedSubscriptionId,
+          paymentRequestId: rejectedRequest._id,
+          createdAt: rejectedRequest.createdAt,
+          updatedAt: rejectedRequest.updatedAt,
+          requestDate: rejectedRequest.requestDate,
+          cancelledAt: null,
+          archivedPlan: null,
+          paymentDetails: buildPaymentDetails(rejectedRequest)
+        };
+      }
+    }
+
     const queueInfo = {
       hasQueuedSubscriptions: queue.queuedSubscriptions.length > 0,
-      nextSubscriptions: await Promise.all(
-        queue.queuedSubscriptions.map(async (q) => {
-          const [sub, paymentRequest] = await Promise.all([
-            PricingPlan.findById(q.subscriptionId),
-            SubscriptionRequest.findOne({
-              storeId: sellerId,
-              linkedSubscriptionId: q.subscriptionId,
-              status: { $in: ['pending_payment', 'payment_submitted', 'rejected', 'payment_verified', 'cancelled'] }
-            }).sort({ createdAt: -1 })
-          ]);
-
-          const result = {
-            planType: sub?.planType,
-            estimatedStartDate: q.estimatedStartDate,
-            status: paymentRequest?.status || q.status,
-            queuePosition: q.queuePosition,
-            subscriptionId: q.subscriptionId,
-            createdAt: paymentRequest?.createdAt,
-            updatedAt: paymentRequest?.updatedAt,
-            requestDate: paymentRequest?.requestDate,
-            cancelledAt: paymentRequest?.cancelledAt || null,
-            archivedPlan: paymentRequest?.archivedPlan || null
-          };
-
-          if (paymentRequest) {
-            result.paymentRequestId = paymentRequest._id;
-            // Fallback ancienne structure (submittedProof) pour les records avant le fix
-            const sp = paymentRequest.submittedProof;
-            result.paymentDetails = {
-              method: paymentRequest.paymentDetails?.method,
-              amount: paymentRequest.paymentDetails?.amount,
-              recipientPhone: paymentRequest.paymentDetails?.recipientPhone,
-              paymentDeadline: paymentRequest.paymentDetails?.paymentDeadline,
-              transferCode: paymentRequest.paymentDetails?.transferCode || sp?.transferCode || null,
-              senderPhone: paymentRequest.paymentDetails?.senderPhone || sp?.senderPhone || null,
-              receiptUrl: paymentRequest.paymentDetails?.receiptFile || sp?.receiptUrl || null,
-              rejectionReason: paymentRequest.adminVerification?.rejectionReason || paymentRequest.paymentDetails?.rejectionReason || null,
-              verificationStatus: paymentRequest.status,
-              verifiedAt: paymentRequest.adminVerification?.verifiedAt || null
-            };
-          }
-
-          return result;
-        })
-      )
+      nextSubscriptions: rejectedEntry
+        ? [rejectedEntry, ...nextSubscriptionsFromQueue]
+        : nextSubscriptionsFromQueue
     };
 
     return {
