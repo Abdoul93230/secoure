@@ -487,7 +487,7 @@ const assertPlanCompatible = async (storeId, planType) => {
   if (productCount > maxProducts) {
     throw new Error(
       `Incompatible : le vendeur a ${productCount} produit(s) actif(s) mais le plan ${planType} est limité à ${maxProducts}. ` +
-      `Demandez-lui de réduire son catalogue avant d'activer ce plan.`
+      `Choisissez un plan supérieur adapté à son catalogue.`
     );
   }
 };
