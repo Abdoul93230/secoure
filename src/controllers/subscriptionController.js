@@ -1566,9 +1566,18 @@ const getSellerCompleteStatus = async (sellerId) => {
           }).sort({ createdAt: -1 })
         ]);
 
+        // estimatedStartDate n'est pertinente que si ce slot est schedulé derrière un
+        // abonnement actif encore valide. Si isImmediateUpgrade ou pas d'actif → démarrage
+        // dès validation admin → on n'affiche rien.
+        const isImmediate = paymentRequest?.isImmediateUpgrade || sub?.isImmediateUpgrade;
+        const hasActiveAhead = !isImmediate && !!activeSubscription &&
+          !['expired', 'cancelled'].includes(activeSubscription.status);
+        const shownStartDate = hasActiveAhead ? q.estimatedStartDate : null;
+
         const result = {
           planType: sub?.planType,
-          estimatedStartDate: q.estimatedStartDate,
+          billingCycle: sub?.billingCycle || paymentRequest?.requestedPlan?.billingCycle || null,
+          estimatedStartDate: shownStartDate,
           status: paymentRequest?.status || q.status,
           queuePosition: q.queuePosition,
           subscriptionId: q.subscriptionId,
@@ -1599,21 +1608,16 @@ const getSellerCompleteStatus = async (sellerId) => {
         status: { $in: ['rejected', 'pending_payment', 'payment_submitted', 'payment_verified'] }
       }).sort({ updatedAt: -1 });
 
-      // Ne remonter le rejet que si TOUTES ces conditions sont vraies :
+      // Ne remonter le rejet que si :
       // 1. c'est bien la dernière demande (pas de demande active/soumise plus récente)
       // 2. le rejet date de moins de 7 jours
-      // 3. le compte n'a pas d'abonnement actif/trial en cours
-      // 4. le statut du compte est bloquant (suspended ou no_subscription)
+      // (fonctionne que le compte soit actif ou non — couvre le cas upgrade rejeté)
       const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-      const hasActiveSubscription = !!activeSubscription;
-      const accountIsBlocked = ['suspended', 'no_subscription'].includes(statusInfo?.status);
       const hasQueuedRequests = nextSubscriptionsFromQueue.length > 0;
 
       const rejectedRequest = (
         lastRequest?.status === 'rejected' &&
         new Date(lastRequest.updatedAt) > sevenDaysAgo &&
-        !hasActiveSubscription &&
-        accountIsBlocked &&
         !hasQueuedRequests
       ) ? lastRequest : null;
 
