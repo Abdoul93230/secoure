@@ -685,23 +685,19 @@ router.put('/submit-payment/:requestId', requireSeller, upload.single('receipt')
 
     // Mettre à jour la demande avec la nouvelle preuve
     const updateData = {
-      status: 'payment_submitted',
-      submittedProof: {
-        transferCode: transferCode.trim(),
-        senderPhone: senderPhone || '',
-        receiptUrl: receiptUrl,
-        submittedAt: new Date(),
-        isUpdate: isUpdate
-      },
-      updatedAt: new Date()
+      $set: {
+        status: 'payment_submitted',
+        'paymentDetails.transferCode': transferCode.trim(),
+        'paymentDetails.senderPhone': senderPhone || '',
+        'paymentDetails.receiptFile': receiptUrl,
+        'paymentDetails.submittedAt': new Date(),
+        updatedAt: new Date(),
+      }
     };
 
-    // Si c'était rejeté, nettoyer les infos de rejet
+    // Si c'était rejeté, effacer la raison de rejet
     if (request.status === 'rejected') {
-      updateData.$unset = {
-        'adminVerification.rejectionReason': 1
-      };
-      updateData['adminVerification.status'] = 'payment_submitted';
+      updateData.$unset = { 'adminVerification.rejectionReason': 1, 'paymentDetails.rejectionReason': 1 };
     }
 
     await SubscriptionRequest.findByIdAndUpdate(requestId, updateData);
