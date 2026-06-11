@@ -1544,15 +1544,17 @@ const getSellerCompleteStatus = async (sellerId) => {
 
           if (paymentRequest) {
             result.paymentRequestId = paymentRequest._id;
+            // Fallback ancienne structure (submittedProof) pour les records avant le fix
+            const sp = paymentRequest.submittedProof;
             result.paymentDetails = {
               method: paymentRequest.paymentDetails?.method,
               amount: paymentRequest.paymentDetails?.amount,
               recipientPhone: paymentRequest.paymentDetails?.recipientPhone,
               paymentDeadline: paymentRequest.paymentDetails?.paymentDeadline,
-              transferCode: paymentRequest.paymentDetails?.transferCode,
-              senderPhone: paymentRequest.paymentDetails?.senderPhone,
-              receiptUrl: paymentRequest.paymentDetails?.receiptFile,
-              rejectionReason: paymentRequest.adminVerification?.rejectionReason || null,
+              transferCode: paymentRequest.paymentDetails?.transferCode || sp?.transferCode || null,
+              senderPhone: paymentRequest.paymentDetails?.senderPhone || sp?.senderPhone || null,
+              receiptUrl: paymentRequest.paymentDetails?.receiptFile || sp?.receiptUrl || null,
+              rejectionReason: paymentRequest.adminVerification?.rejectionReason || paymentRequest.paymentDetails?.rejectionReason || null,
               verificationStatus: paymentRequest.status,
               verifiedAt: paymentRequest.adminVerification?.verifiedAt || null
             };
