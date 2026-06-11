@@ -1567,14 +1567,22 @@ const getSellerCompleteStatus = async (sellerId) => {
     );
 
     // Demande rejetée récente non visible dans la file (retirée lors du rejet)
-    // On la remonte séparément pour que le vendeur puisse voir la raison et resoumettre
+    // On la remonte UNIQUEMENT si c'est la DERNIÈRE demande du vendeur (pas de demande active plus récente)
     const alreadyHasRejected = nextSubscriptionsFromQueue.some(s => s.status === 'rejected');
     let rejectedEntry = null;
     if (!alreadyHasRejected) {
-      const rejectedRequest = await SubscriptionRequest.findOne({
+      // Chercher la dernière demande toutes statuts confondus (max 30 jours pour les rejets)
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const lastRequest = await SubscriptionRequest.findOne({
         storeId: sellerId,
-        status: 'rejected'
+        status: { $in: ['rejected', 'pending_payment', 'payment_submitted', 'payment_verified'] }
       }).sort({ updatedAt: -1 });
+
+      // Ne remonter que si c'est bien un rejet récent (pas de demande active plus récente, pas trop vieux)
+      const rejectedRequest = (
+        lastRequest?.status === 'rejected' &&
+        new Date(lastRequest.updatedAt) > thirtyDaysAgo
+      ) ? lastRequest : null;
 
       if (rejectedRequest) {
         rejectedEntry = {
