@@ -16,7 +16,10 @@ const isRouteExempt = (req) => {
     'complete-status',
     'create-future-request',
     'activate-with-code',
-    '/submit-payment',
+    'submit-payment',
+    'payment-history',
+    'start-trial',
+    'cancel-request',
   ];
 
   // Vérifier si le path contient l'un des chemins exempts
