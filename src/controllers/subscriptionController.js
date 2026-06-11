@@ -1571,17 +1571,28 @@ const getSellerCompleteStatus = async (sellerId) => {
     const alreadyHasRejected = nextSubscriptionsFromQueue.some(s => s.status === 'rejected');
     let rejectedEntry = null;
     if (!alreadyHasRejected) {
-      // Chercher la dernière demande toutes statuts confondus (max 30 jours pour les rejets)
-      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      // Chercher la dernière demande toutes statuts confondus
       const lastRequest = await SubscriptionRequest.findOne({
         storeId: sellerId,
         status: { $in: ['rejected', 'pending_payment', 'payment_submitted', 'payment_verified'] }
       }).sort({ updatedAt: -1 });
 
-      // Ne remonter que si c'est bien un rejet récent (pas de demande active plus récente, pas trop vieux)
+      // Ne remonter le rejet que si TOUTES ces conditions sont vraies :
+      // 1. c'est bien la dernière demande (pas de demande active/soumise plus récente)
+      // 2. le rejet date de moins de 7 jours
+      // 3. le compte n'a pas d'abonnement actif/trial en cours
+      // 4. le statut du compte est bloquant (suspended ou no_subscription)
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const hasActiveSubscription = !!activeSubscription;
+      const accountIsBlocked = ['suspended', 'no_subscription'].includes(statusInfo?.status);
+      const hasQueuedRequests = nextSubscriptionsFromQueue.length > 0;
+
       const rejectedRequest = (
         lastRequest?.status === 'rejected' &&
-        new Date(lastRequest.updatedAt) > thirtyDaysAgo
+        new Date(lastRequest.updatedAt) > sevenDaysAgo &&
+        !hasActiveSubscription &&
+        accountIsBlocked &&
+        !hasQueuedRequests
       ) ? lastRequest : null;
 
       if (rejectedRequest) {
