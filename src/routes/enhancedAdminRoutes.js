@@ -577,10 +577,10 @@ router.put('/verify-payment/:requestId', requireAdmin, async (req, res) => {
     });
 
   } catch (error) {
-    res.status(500).json({
+    const isBusinessError = error.message?.startsWith('Incompatible');
+    res.status(isBusinessError ? 400 : 500).json({
       status: 'error',
-      message: 'Erreur lors de la vérification',
-      error: error.message
+      message: error.message || 'Erreur lors de la vérification'
     });
   }
 });
@@ -643,10 +643,10 @@ router.post('/create-reactivation-code/:sellerId', requireAdmin, async (req, res
     });
 
   } catch (error) {
-    res.status(500).json({
-      status: 'error', 
-      message: 'Erreur lors de la création du code',
-      error: error.message
+    const isBusinessError = error.message?.startsWith('Incompatible');
+    res.status(isBusinessError ? 400 : 500).json({
+      status: 'error',
+      message: error.message || 'Erreur lors de la création du code'
     });
   }
 });
@@ -890,11 +890,10 @@ router.post('/create-manual-renewal', requireAdmin, async (req, res) => {
 
   } catch (error) {
     console.log({error});
-    
-    res.status(500).json({
+    const isBusinessError = error.message?.startsWith('Incompatible');
+    res.status(isBusinessError ? 400 : 500).json({
       status: 'error',
-      message: 'Erreur lors de la création du renouvellement',
-      error: error.message
+      message: error.message || 'Erreur lors de la création du renouvellement'
     });
   }
 });
