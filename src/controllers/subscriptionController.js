@@ -473,6 +473,26 @@ const PLAN_DEFAULTS = {
 };
 
 /**
+ * Vérifie que le vendeur n'a pas plus de produits que la limite du plan cible.
+ * Lance une erreur explicite si incompatible (utilisé avant toute activation admin).
+ */
+const assertPlanCompatible = async (storeId, planType) => {
+  const cfg = SUBSCRIPTION_CONFIG.getPlan(planType);
+  const maxProducts = cfg?.productLimit ?? -1;
+  if (maxProducts === -1) return; // illimité → toujours ok
+  const productCount = await Produit.countDocuments({
+    createdBy: storeId,
+    'shipping.isDeleted': { $ne: true }
+  });
+  if (productCount > maxProducts) {
+    throw new Error(
+      `Incompatible : le vendeur a ${productCount} produit(s) actif(s) mais le plan ${planType} est limité à ${maxProducts}. ` +
+      `Demandez-lui de réduire son catalogue avant d'activer ce plan.`
+    );
+  }
+};
+
+/**
  * Créer l'abonnement d'essai initial lors de l'inscription.
  * Starter → 2 mois gratuits. Pro / Business → 1 mois gratuit.
  */
@@ -800,6 +820,8 @@ const validatePaymentAndPrepareActivation = async (requestId, adminId, isApprove
 // console.log({isApproved});
 
     if (isApproved) {
+      await assertPlanCompatible(request.storeId._id, request.requestedPlan.planType);
+
       // Mettre à jour l'abonnement comme prêt à être activé
       await PricingPlan.findByIdAndUpdate(request.linkedSubscriptionId, {
         status: 'pending_activation',
@@ -1815,5 +1837,6 @@ module.exports = {
   getSellerCompleteStatus,
   getAdvancedSubscriptionStats,
   setupUniversalCronJobs,
+  assertPlanCompatible,
   PLAN_DEFAULTS
 };

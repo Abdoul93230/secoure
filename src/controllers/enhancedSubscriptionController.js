@@ -1,4 +1,5 @@
-const { SellerRequest, PricingPlan } = require("../Models");
+const { SellerRequest, PricingPlan, Produit } = require("../Models");
+const { assertPlanCompatible } = require('./subscriptionController');
 const SubscriptionHistory = require("../models/Abonnements/SubscriptionHistory");
 const SubscriptionRequest = require("../models/Abonnements/SubscriptionRequest");
 const SubscriptionQueue = require("../models/Abonnements/SubscriptionQueue");
@@ -173,6 +174,8 @@ const createManualRenewal = async (storeId, planType, billingCycle = 'monthly', 
     if (!seller) {
       throw new Error('Vendeur non trouvé');
     }
+
+    await assertPlanCompatible(storeId, planType);
 
     const planDefaults = PLAN_DEFAULTS[planType];
     const amount = billingCycle === 'annual' ? planDefaults.price.annual : planDefaults.price.monthly;

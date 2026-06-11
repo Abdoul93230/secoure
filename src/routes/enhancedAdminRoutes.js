@@ -360,7 +360,8 @@ const {
   validatePaymentAndPrepareActivation,
   getAdvancedSubscriptionStats,
   getSellerCompleteStatus,
-  checkAndActivateNextSubscription
+  checkAndActivateNextSubscription,
+  assertPlanCompatible
 } = require('../controllers/subscriptionController');
 const { SellerRequest,PricingPlan } = require('../Models');
 const SubscriptionQueue = require('../models/Abonnements/SubscriptionQueue');
@@ -601,6 +602,9 @@ router.post('/create-reactivation-code/:sellerId', requireAdmin, async (req, res
         message: 'Ce vendeur n\'est pas suspendu'
       });
     }
+
+    // Vérifier compatibilité produits
+    await assertPlanCompatible(sellerId, planType);
 
     // Générer un code unique
     const reactivationCode = require('crypto').randomBytes(4).toString('hex').toUpperCase();
