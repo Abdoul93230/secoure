@@ -626,13 +626,9 @@ router.put('/submit-payment/:requestId', requireSeller, upload.single('receipt')
       });
     }
 
-    // Si c'est une mise à jour et qu'il y a un ancien reçu, le supprimer de Cloudinary
-    const isUpdate = request.paymentDetails && request.paymentDetails.receiptFile;
-    let oldReceiptUrl = null;
-    
-    if (isUpdate) {
-      oldReceiptUrl = request.paymentDetails.receiptFile;
-    }
+    // Récupérer l'ancien reçu — nouvelle structure (paymentDetails.receiptFile) ou ancienne (submittedProof.receiptUrl)
+    const oldReceiptUrl = request.paymentDetails?.receiptFile || request.submittedProof?.receiptUrl || null;
+    const isUpdate = !!oldReceiptUrl;
 
     // Upload du nouveau reçu si fourni
     if (req.file) {
