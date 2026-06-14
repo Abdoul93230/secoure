@@ -19,7 +19,7 @@ const authLimiter = rateLimit({
   message: { success: false, message: "Trop de tentatives. Veuillez réessayer dans 15 minutes." },
 });
 
-// Rate limiter dédié OTP/reset — 5 demandes d'envoi max par 15 min par IP
+// Rate limiter OTP email — 5 demandes max par 15 min par IP
 const otpLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 5,
@@ -27,6 +27,16 @@ const otpLimiter = rateLimit({
   legacyHeaders: false,
   skipSuccessfulRequests: false,
   message: { success: false, message: "Trop de demandes de code. Veuillez réessayer dans 15 minutes." },
+});
+
+// Rate limiter SMS très strict — 3 requêtes max par heure par IP (SMS = coût réel)
+const smsOtpLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 3,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: false,
+  message: { success: false, message: "Trop de demandes SMS. Utilisez votre email ou réessayez dans 1 heure.", suggestEmail: true },
 });
 
 // Authentication — protégés par rate limit strict
@@ -76,7 +86,12 @@ router.post('/forgot_password', otpLimiter, forgotPassword.forgot_password);
 router.post('/forgotPassword', otpLimiter, forgotPassword.forgot_password);
 router.post('/reset_password', otpLimiter, forgotPassword.reset_password);
 // Vendeur : reset par email OU par SMS (même endpoint, champ email ou phone)
-router.post('/forgotPassword_seller', otpLimiter, forgotPassword.forgot_password_seller);
+// forgotPassword_seller : limiter SMS si phone présent, sinon limiter email
+const sellerForgotLimiter = (req, res, next) => {
+  const isSms = !!req.body.phone && !req.body.email;
+  return isSms ? smsOtpLimiter(req, res, next) : otpLimiter(req, res, next);
+};
+router.post('/forgotPassword_seller', sellerForgotLimiter, forgotPassword.forgot_password_seller);
 router.post('/reset_password_seller', otpLimiter, forgotPassword.reset_password_seller);
 
 module.exports = router;

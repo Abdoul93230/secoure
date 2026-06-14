@@ -3,11 +3,16 @@ const bcrypt = require("bcrypt");
 const { User, SellerRequest } = require("../Models");
 const lafricaSms = require("../services/lafricaMobileSmsService");
 
-const OTP_EXPIRY_MS   = 10 * 60 * 1000; // 10 minutes
-const OTP_COOLDOWN_MS = 60 * 1000;       // 60 secondes entre deux envois
-const MAX_VERIFY_ATTEMPTS = 5;           // tentatives max de vérification
+const OTP_EXPIRY_MS        = 10 * 60 * 1000;  // 10 min
+const OTP_COOLDOWN_EMAIL_MS = 60 * 1000;        // 60s entre deux envois email
+const OTP_COOLDOWN_SMS_MS   = 120 * 1000;       // 120s entre deux envois SMS
+const MAX_VERIFY_ATTEMPTS   = 5;
+const SMS_MAX_PER_WINDOW    = 2;                // max 2 SMS par numéro sur 24h
+const SMS_WINDOW_MS         = 24 * 60 * 60 * 1000; // fenêtre 24h
+// Préfixes autorisés pour SMS (Niger + Bénin uniquement — coût élevé)
+const SMS_ALLOWED_PREFIXES  = ['+227', '+229'];
 
-// Stockage en mémoire : email/phone → { otp, expiresAt, attempts, lastSentAt }
+// Stockage : key → { otp, expiresAt, sentAt, attempts, smsCount, smsWindowStart }
 const otpStore = new Map();
 
 const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString();
@@ -81,22 +86,30 @@ const forgot_password = async (req, res) => {
   if (!email) return res.status(400).json({ message: "Email requis" });
 
   try {
-    const user = await User.findOne({ email: email.toLowerCase().trim() });
-    // Réponse générique pour éviter l'énumération d'utilisateurs
+    const key = email.toLowerCase().trim();
+
+    // 1. Validation format
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(key)) {
+      return res.status(400).json({ message: "Adresse email invalide." });
+    }
+
+    // 2. Vérification existence AVANT cooldown
+    const user = await User.findOne({ email: key }).select("_id").lean();
     if (!user) return res.status(200).json({ message: "Si cet email existe, un code vous a été envoyé" });
 
-    const prev = otpStore.get(email);
-    if (prev && Date.now() - prev.sentAt < OTP_COOLDOWN_MS) {
-      const wait = Math.ceil((OTP_COOLDOWN_MS - (Date.now() - prev.sentAt)) / 1000);
+    // 3. Cooldown
+    const prev = otpStore.get(key);
+    if (prev && Date.now() - prev.sentAt < OTP_COOLDOWN_EMAIL_MS) {
+      const wait = Math.ceil((OTP_COOLDOWN_EMAIL_MS - (Date.now() - prev.sentAt)) / 1000);
       return res.status(429).json({ message: `Veuillez attendre ${wait} seconde(s) avant de renvoyer.` });
     }
 
     const otp = generateOtp();
-    otpStore.set(email, { otp, expiresAt: Date.now() + OTP_EXPIRY_MS, sentAt: Date.now(), attempts: 0 });
+    otpStore.set(key, { otp, expiresAt: Date.now() + OTP_EXPIRY_MS, sentAt: Date.now(), attempts: 0 });
 
     await getTransporter().sendMail({
       from: `"IhamBaobab" <${process.env.EMAIL_USER || process.env.MAIL_USER}>`,
-      to: email,
+      to: key,
       subject: "Code de récupération de mot de passe — IhamBaobab",
       html: buildHtml(otp),
     });
@@ -134,52 +147,108 @@ const forgot_password_seller = async (req, res) => {
   if (!email && !phone) return res.status(400).json({ message: "Email ou téléphone requis" });
 
   try {
-    let seller = null;
-    let key = null;
-    let sendMethod = null;
+    const sendMethod = email ? "email" : "sms";
+    const key        = email
+      ? email.toLowerCase().trim()
+      : phone.replace(/\s+/g, "").trim();
 
-    if (email) {
-      seller = await SellerRequest.findOne({ email: email.toLowerCase().trim() });
-      key = email.toLowerCase().trim();
-      sendMethod = "email";
+    // ── ÉTAPE 1 : validation du format ───────────────────────────────────
+    if (sendMethod === "email") {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(key)) {
+        return res.status(400).json({ message: "Adresse email invalide." });
+      }
     } else {
-      const normalized = phone.replace(/\s+/g, "").trim();
-      seller = await SellerRequest.findOne({ phone: normalized });
-      key = normalized;
-      sendMethod = "sms";
+      if (!/^\+\d{8,15}$/.test(key)) {
+        return res.status(400).json({ message: "Numéro de téléphone invalide (format international requis)." });
+      }
+      // Préfixe pays autorisé — vérification avant toute lookup BDD
+      if (!SMS_ALLOWED_PREFIXES.some(p => key.startsWith(p))) {
+        return res.status(403).json({
+          message: "Réinitialisation par SMS disponible uniquement pour les numéros Niger (+227) et Bénin (+229). Utilisez votre email.",
+          suggestEmail: true,
+        });
+      }
     }
 
-    // Réponse générique anti-énumération
+    // ── ÉTAPE 2 : vérification existence du compte ───────────────────────
+    // On vérifie AVANT tout cooldown ou quota pour ne pas consumer de ressources
+    // sur des identifiants inexistants. Réponse générique anti-énumération.
+    const query  = sendMethod === "email" ? { email: key } : { phone: key };
+    const seller = await SellerRequest.findOne(query).select("_id").lean();
     if (!seller) {
       return res.status(200).json({ message: "Si ce compte existe, un code vous a été envoyé" });
     }
 
-    const prev = otpStore.get(key);
-    if (prev && Date.now() - prev.sentAt < OTP_COOLDOWN_MS) {
-      const wait = Math.ceil((OTP_COOLDOWN_MS - (Date.now() - prev.sentAt)) / 1000);
-      return res.status(429).json({ message: `Veuillez attendre ${wait} seconde(s) avant de renvoyer.` });
+    // ── ÉTAPE 3 : garde-fous anti-abus (compte vérifié existant) ─────────
+    if (sendMethod === "sms") {
+      const prev = otpStore.get(key);
+      if (prev) {
+        // Quota 24h par numéro
+        const windowAge = Date.now() - (prev.smsWindowStart || prev.sentAt);
+        const inWindow  = windowAge < SMS_WINDOW_MS;
+        const count     = inWindow ? (prev.smsCount || 1) : 0;
+        if (inWindow && count >= SMS_MAX_PER_WINDOW) {
+          const resetIn = Math.ceil((SMS_WINDOW_MS - windowAge) / 3600000);
+          return res.status(429).json({
+            message: `Quota SMS atteint (${SMS_MAX_PER_WINDOW} SMS/24h). Réessayez dans ~${resetIn}h ou utilisez votre email.`,
+            suggestEmail: true,
+            quotaExceeded: true,
+          });
+        }
+        // Cooldown 120s entre deux SMS
+        if (Date.now() - prev.sentAt < OTP_COOLDOWN_SMS_MS) {
+          const wait = Math.ceil((OTP_COOLDOWN_SMS_MS - (Date.now() - prev.sentAt)) / 1000);
+          return res.status(429).json({ message: `Veuillez attendre ${wait} seconde(s) avant de renvoyer.` });
+        }
+      }
+    } else {
+      // Cooldown 60s email
+      const prev = otpStore.get(key);
+      if (prev && Date.now() - prev.sentAt < OTP_COOLDOWN_EMAIL_MS) {
+        const wait = Math.ceil((OTP_COOLDOWN_EMAIL_MS - (Date.now() - prev.sentAt)) / 1000);
+        return res.status(429).json({ message: `Veuillez attendre ${wait} seconde(s) avant de renvoyer.` });
+      }
     }
 
-    const otp = generateOtp();
-    otpStore.set(key, { otp, expiresAt: Date.now() + OTP_EXPIRY_MS, sentAt: Date.now(), attempts: 0 });
+    const otp  = generateOtp();
+    const prev = otpStore.get(key);
+
+    // Conserver le compteur SMS et la fenêtre 24h
+    const smsWindowStart = sendMethod === "sms"
+      ? (prev && prev.smsWindowStart && (Date.now() - prev.smsWindowStart) < SMS_WINDOW_MS
+          ? prev.smsWindowStart
+          : Date.now())
+      : undefined;
+    const smsCount = sendMethod === "sms"
+      ? ((prev && prev.smsWindowStart && (Date.now() - prev.smsWindowStart) < SMS_WINDOW_MS)
+          ? (prev.smsCount || 1) + 1
+          : 1)
+      : undefined;
+
+    otpStore.set(key, {
+      otp,
+      expiresAt:      Date.now() + OTP_EXPIRY_MS,
+      sentAt:         Date.now(),
+      attempts:       0,
+      ...(sendMethod === "sms" && { smsCount, smsWindowStart }),
+    });
 
     if (sendMethod === "email") {
       await getTransporter().sendMail({
-        from: `"IhamBaobab" <${process.env.EMAIL_USER || process.env.MAIL_USER}>`,
-        to: email,
+        from:    `"IhamBaobab" <${process.env.EMAIL_USER || process.env.MAIL_USER}>`,
+        to:      email,
         subject: "Code de récupération de mot de passe — IhamBaobab Vendeurs",
-        html: buildHtml(otp),
+        html:    buildHtml(otp),
       });
     } else {
-      const smsText = `Votre code IhamBaobab est ${otp}. Il expire dans 10 minutes. Ne le partagez jamais.`;
+      const smsText = `IhamBaobab: votre code est ${otp}. Expire dans 10 min. Ne partagez jamais ce code.`;
       await lafricaSms.sendSms({ to: key, text: smsText });
     }
 
     return res.status(200).json({
-      message: sendMethod === "sms"
-        ? "Code OTP envoyé par SMS avec succès"
-        : "Code OTP envoyé par e-mail avec succès",
-      method: sendMethod,
+      message:    sendMethod === "sms" ? "Code OTP envoyé par SMS" : "Code OTP envoyé par e-mail",
+      method:     sendMethod,
+      ...(sendMethod === "sms" && { smsRemaining: SMS_MAX_PER_WINDOW - (smsCount ?? 1) }),
     });
   } catch (error) {
     console.error("forgot_password_seller error:", error);
