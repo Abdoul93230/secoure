@@ -67,7 +67,6 @@ const createSeller = async (req, res) => {
       region,
       city,
       address,
-      postalCode,
       businessPhone,
       whatsapp,
       facebook,
@@ -85,13 +84,10 @@ const createSeller = async (req, res) => {
       userName2: "Le prénom est requis",
       phone: "Le numéro de téléphone est requis",
       storeName: "Le nom de la boutique est requis",
-      storeDescription: "La description de la boutique est requise",
       category: "La catégorie est requise",
       storeType: "Le type de boutique est requis",
       region: "La région est requise",
       city: "La ville est requise",
-      address: "L'adresse est requise",
-      businessPhone: "Le téléphone professionnel est requis",
       password: "Le mot de passe est requis",
     };
 
@@ -334,7 +330,6 @@ const createSeller = async (req, res) => {
       region,
       city,
       address,
-      postalCode,
       businessPhone,
       whatsapp,
       facebook,
@@ -469,7 +464,6 @@ const updateSeller = async (req, res) => {
       region,
       city,
       address,
-      postalCode,
       businessPhone,
       whatsapp,
       facebook,
@@ -498,7 +492,6 @@ const updateSeller = async (req, res) => {
     if (region !== undefined) updateData.region = region;
     if (city !== undefined) updateData.city = city;
     if (address !== undefined) updateData.address = address;
-    if (postalCode !== undefined) updateData.postalCode = postalCode;
     if (businessPhone !== undefined) updateData.businessPhone = businessPhone;
     if (whatsapp !== undefined) updateData.whatsapp = whatsapp;
     if (facebook !== undefined) updateData.facebook = facebook;

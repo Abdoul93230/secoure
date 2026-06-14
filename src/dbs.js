@@ -6,6 +6,7 @@ const FinancialService = require('./services/FinancialService');
 const { confirmerTransactionsLivrees, tacheDeblocage, tacheNettoyage } = require("./controllers/financeController");
 const financialLogger = require('./utils/financialLogger');
 const { setupUniversalCronJobs } = require("./controllers/subscriptionController");
+const { setupEnhancedCronJobs } = require("./controllers/enhancedSubscriptionController");
 const syncPlanCommissions = require('./utils/syncPlanCommissions');
 
 const MONGODB_URI= process.env.MONGODB_URI
@@ -104,8 +105,9 @@ mongoose
     // Démarrer la tâche planifiée
     job.start();
     cleanupJob.start();
-    setupUniversalCronJobs()
-    
+    setupUniversalCronJobs();
+    setupEnhancedCronJobs();
+
     console.log("✅ Tâches automatiques démarrées:");
     console.log("   - Confirmation/déblocage: toutes les 30 minutes");
     console.log("   - Nettoyage: tous les jours à 2h");

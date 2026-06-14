@@ -1284,14 +1284,11 @@ const sellerRequestSchema = new mongoose.Schema(
     },
     address: {
       type: String,
-      required: true,
     },
-    postalCode: String,
 
     // Contact et réseaux sociaux
     businessPhone: {
       type: String,
-      required: true,
     },
     whatsapp: String,
     facebook: String,

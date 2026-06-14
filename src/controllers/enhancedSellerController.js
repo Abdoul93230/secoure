@@ -260,7 +260,7 @@ const createSellerWithSubscription = async (req, res) => {
     // Validation des données (votre logique existante)
     let {
       email, emailp, name, userName2, phone, storeName, storeDescription,
-      category, storeType, region, city, address, postalCode, businessPhone,
+      category, storeType, region, city, address,
       whatsapp, facebook, instagram, website, openingHours, minimumOrder, password,
       planType
     } = req.body;
@@ -274,12 +274,10 @@ const createSellerWithSubscription = async (req, res) => {
       userName2: "Le prénom est requis",
       phone: "Le numéro de téléphone est requis",
       storeName: "Le nom de la boutique est requis",
-      storeDescription: "La description de la boutique est requise",
       category: "La catégorie est requise",
       storeType: "Le type de boutique est requis",
       region: "La région est requise",
       city: "La ville est requise",
-      address: "L'adresse est requise",
       password: "Le mot de passe est requis",
     };
 
@@ -373,8 +371,6 @@ const createSellerWithSubscription = async (req, res) => {
       region,
       city,
       address,
-      postalCode,
-      businessPhone,
       whatsapp,
       facebook,
       instagram,

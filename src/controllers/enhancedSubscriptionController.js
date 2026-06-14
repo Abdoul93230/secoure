@@ -44,6 +44,22 @@ const generateReactivationCode = () => {
 };
 
 /**
+ * Supprimer un reçu Cloudinary depuis son URL stockée
+ */
+const deleteCloudinaryReceipt = async (receiptUrl) => {
+  if (!receiptUrl) return;
+  try {
+    const cloudinary = require('../cloudinary');
+    const matches = receiptUrl.match(/\/payment-receipts\/([^.]+)/);
+    if (matches && matches[1]) {
+      await cloudinary.uploader.destroy(`payment-receipts/${matches[1]}`);
+    }
+  } catch (err) {
+    console.warn('⚠️ Erreur suppression reçu Cloudinary:', err.message);
+  }
+};
+
+/**
  * Nettoyer le PricingPlan lié à une demande non finalisée
  */
 const cleanupLinkedQueuedSubscription = async (request) => {
@@ -80,6 +96,11 @@ const cleanupLinkedQueuedSubscription = async (request) => {
         lastUpdated: new Date()
       }
     );
+
+    // Supprimer le reçu Cloudinary s'il existe
+    const receiptUrl = request.paymentDetails?.receiptFile || request.submittedProof?.receiptUrl;
+    await deleteCloudinaryReceipt(receiptUrl);
+
   } catch (error) {
     console.error('Erreur nettoyage abonnement lié:', error);
   }
@@ -439,22 +460,8 @@ const cancelSubscriptionRequest = async (requestId, storeId) => {
       throw new Error('Cette demande ne peut pas être annulée');
     }
 
+    // cleanupLinkedQueuedSubscription supprime aussi le reçu Cloudinary
     await cleanupLinkedQueuedSubscription(request);
-
-    // Si il y a un fichier reçu, le supprimer de Cloudinary
-    if (request.paymentDetails?.receiptFile) {
-      try {
-        const cloudinary = require('cloudinary').v2;
-        const matches = request.paymentDetails.receiptFile.match(/\/payment-receipts\/([^\.]+)/);
-        if (matches && matches[1]) {
-          const publicId = `payment-receipts/${matches[1]}`;
-          await cloudinary.uploader.destroy(publicId);
-          console.log('✅ DEBUG - Fichier supprimé lors de l\'annulation:', publicId);
-        }
-      } catch (error) {
-        console.error('⚠️ Erreur suppression fichier lors annulation:', error.message);
-      }
-    }
 
     // Marquer comme annulée
     await SubscriptionRequest.findByIdAndUpdate(requestId, {
