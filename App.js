@@ -56,6 +56,10 @@ const port = 8083;
 const app = express();
 const server = http.createServer(app);
 
+// Render (et la plupart des hébergeurs cloud) font passer les requêtes par un reverse proxy.
+// Sans ça, express-rate-limit voit l'IP du proxy au lieu de l'IP du client réel → ValidationError.
+app.set('trust proxy', 1);
+
 // Absorb abrupt client disconnections (ECONNRESET) at the TCP level
 server.on("connection", (socket) => {
   socket.on("error", (err) => {
