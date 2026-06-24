@@ -7,7 +7,7 @@ const Retrait = require('../models/retraitSchema');
 const Transaction = require('../models/transactionSchema');
 const Portefeuille = require('../models/portefeuilleSchema');
 const { Commande } = require('../Models');
-const { getSellerDashboard, getHistoriqueTransactions, seller_orders_with_financial, demanderRetrait } = require('../controllers/financeController');
+const { getSellerDashboard, getHistoriqueTransactions, seller_orders_with_financial, demanderRetrait, getSellerOrdersWithFinancialInfo } = require('../controllers/financeController');
 
 // Dashboard financier du seller
 router.get('/seller/:sellerId/dashboard', getSellerDashboard);
@@ -261,6 +261,82 @@ router.get('/seller/:sellerId/evolution', async (req, res) => {
     res.json({ success: true, data });
   } catch (error) {
     console.error('❌ Erreur évolution portefeuille:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ─── Bundle prefetch : toutes les sections financières en une seule requête ───
+// GET /api/financial/seller/:sellerId/prefetch-bundle
+// Query: periodes=7,30,90,365  limit=20  page=1
+// Retourne dashboard + txs + orders + retraits pour chaque période en une passe.
+// Usage : le mobile l'appelle une seule fois au démarrage pour précacher toutes les données.
+router.get('/seller/:sellerId/prefetch-bundle', async (req, res) => {
+  try {
+    const { sellerId } = req.params;
+    const periodesParam = req.query.periodes || '7,30,90,365';
+    const periodes = periodesParam.split(',').map(Number).filter(n => n > 0 && n <= 365);
+    const limit = Math.min(parseInt(req.query.limit) || 20, 50);
+    const page  = parseInt(req.query.page) || 1;
+
+    if (!periodes.length) {
+      return res.status(400).json({ success: false, message: 'periodes invalides' });
+    }
+
+    const now = new Date();
+
+    // Pour chaque période, on lance dashboard + txs + orders + retraits en parallèle
+    const results = await Promise.allSettled(
+      periodes.map(async (p) => {
+        const start = new Date(now);
+        start.setDate(start.getDate() - (p - 1));
+        start.setHours(0, 0, 0, 0);
+        const dateOpts = { dateStart: start.toISOString(), dateEnd: now.toISOString() };
+
+        const [dashRes, txRes, ordRes, retRes] = await Promise.allSettled([
+          // Dashboard (soldes, stats globales)
+          FinancialService.getStatistiquesFinancieres(sellerId, p),
+          // Transactions
+          (async () => {
+            const query = { sellerId, dateTransaction: { $gte: start, $lte: now } };
+            const [transactions, total] = await Promise.all([
+              Transaction.find(query)
+                .populate('commandeId', 'reference date')
+                .populate('retraitId', 'reference methodeRetrait')
+                .sort({ dateTransaction: -1 })
+                .skip((page - 1) * limit)
+                .limit(limit),
+              Transaction.countDocuments(query),
+            ]);
+            return { transactions, pagination: { page, limit, total, pages: Math.ceil(total / limit) } };
+          })(),
+          // Commandes financières
+          getSellerOrdersWithFinancialInfo(sellerId, { page, limit, ...dateOpts }),
+          // Retraits
+          (async () => {
+            const query = { sellerId, datedemande: { $gte: start, $lte: now } };
+            const [retraits, total] = await Promise.all([
+              Retrait.find(query).sort({ datedemande: -1 }).skip((page - 1) * limit).limit(limit),
+              Retrait.countDocuments(query),
+            ]);
+            return { retraits, pagination: { page, limit, total, pages: Math.ceil(total / limit) } };
+          })(),
+        ]);
+
+        return {
+          periode: p,
+          dashboard:    dashRes.status === 'fulfilled'  ? dashRes.value  : null,
+          transactions: txRes.status  === 'fulfilled'   ? txRes.value    : null,
+          orders:       ordRes.status === 'fulfilled'   ? ordRes.value   : null,
+          retraits:     retRes.status === 'fulfilled'   ? retRes.value   : null,
+        };
+      })
+    );
+
+    const data = results.map(r => r.status === 'fulfilled' ? r.value : null).filter(Boolean);
+
+    res.json({ success: true, data, meta: { periodes, limit, page } });
+  } catch (error) {
+    console.error('❌ Erreur prefetch-bundle:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
