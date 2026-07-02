@@ -2185,6 +2185,40 @@ const saveSellerPushToken = async (req, res) => {
   }
 };
 
+// ─── Notifications vendeur ────────────────────────────────────────────────────
+const { SellerNotification } = require('./Models');
+
+const getSellerNotifications = async (req, res) => {
+  const { sellerId } = req.params;
+  const limit  = Math.min(parseInt(req.query.limit)  || 50, 100);
+  const before = req.query.before; // cursor pagination — ISO date
+  try {
+    const query = { sellerId };
+    if (before) query.createdAt = { $lt: new Date(before) };
+    const notifs = await SellerNotification
+      .find(query)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+    return res.json({ success: true, notifications: notifs });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+const markSellerNotificationsRead = async (req, res) => {
+  const { sellerId } = req.params;
+  const { ids } = req.body; // tableau d'_id, ou absent = tout marquer
+  try {
+    const query = { sellerId, readAt: null };
+    if (ids?.length) query._id = { $in: ids };
+    await SellerNotification.updateMany(query, { $set: { readAt: new Date() } });
+    return res.json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 module.exports = {
   createSeller,
   deleteSeller,
@@ -2213,4 +2247,6 @@ module.exports = {
   getSellerInfo,
   getPricingPlanById,
   saveSellerPushToken,
+  getSellerNotifications,
+  markSellerNotificationsRead,
 };

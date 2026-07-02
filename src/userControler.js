@@ -669,7 +669,7 @@ const createCommande = async (req, res) => {
         });
       }
 
-      // Push Expo vers l'app mobile du vendeur
+      // Push Expo + sauvegarde DB vers l'app mobile du vendeur
       if (sellerIds.length > 0) {
         const sellers = await SellerRequest.find(
           { _id: { $in: sellerIds } },
@@ -677,7 +677,7 @@ const createCommande = async (req, res) => {
         ).lean();
         const allTokens = sellers.flatMap(s => s.expoPushTokens || []);
         const montantFormate = Number(commande.prix || 0).toLocaleString('fr-FR');
-        await sendExpoPushToSellers(allTokens, {
+        await sendExpoPushToSellers(sellerIds, allTokens, {
           title: 'Nouvelle commande !',
           body: `Réf ${commande.reference} — ${montantFormate} ₣`,
           data: {

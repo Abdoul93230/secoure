@@ -73,4 +73,8 @@ router.get('/pricing-plan/:planId', sellerController.getPricingPlanById);
 // Push notifications — enregistrement du token Expo
 router.post('/seller-push-token', middelware.authSeller, sellerController.saveSellerPushToken);
 
+// Notifications vendeur — historique + mark-read
+router.get('/seller-notifications/:sellerId',  middelware.authSeller, sellerController.getSellerNotifications);
+router.put('/seller-notifications/:sellerId/read', middelware.authSeller, sellerController.markSellerNotificationsRead);
+
 module.exports = router;

@@ -1337,6 +1337,20 @@ const sellerRequestSchema = new mongoose.Schema(
 
 const SellerRequest = mongoose.model("SellerRequest", sellerRequestSchema);
 
+// ─── Notifications vendeur ────────────────────────────────────────────────────
+const sellerNotificationSchema = new mongoose.Schema({
+  sellerId:  { type: mongoose.Schema.Types.ObjectId, ref: 'SellerRequest', required: true, index: true },
+  type:      { type: String, required: true },  // 'new_order', ...
+  title:     { type: String, required: true },
+  body:      { type: String, required: true },
+  data:      { type: mongoose.Schema.Types.Mixed, default: {} },
+  readAt:    { type: Date, default: null },
+}, { timestamps: true });
+
+sellerNotificationSchema.index({ sellerId: 1, createdAt: -1 });
+
+const SellerNotification = mongoose.model('SellerNotification', sellerNotificationSchema);
+
 // Schéma pour les plans tarifaires
 // Schéma pour les plans tarifaires
 // const pricingPlanSchema = new mongoose.Schema({
