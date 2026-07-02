@@ -1326,10 +1326,11 @@ const sellerRequestSchema = new mongoose.Schema(
     },
     // Quota SMS pour le module CarnetCreances
     smsQuota: {
-      mensuel:   { type: Number, default: 0 },   // nb max par mois alloué par l'admin
-      utilise:   { type: Number, default: 0 },   // consommé ce mois-ci
-      resetDate: { type: Date, default: null },   // date du prochain reset
+      mensuel:   { type: Number, default: 0 },
+      utilise:   { type: Number, default: 0 },
+      resetDate: { type: Date, default: null },
     },
+    expoPushTokens: { type: [String], default: [] },
   },
   { strict: false }
 );

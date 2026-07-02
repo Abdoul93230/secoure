@@ -648,14 +648,17 @@ const createCommande = async (req, res) => {
       }
     }
 
-    // Notifier chaque vendeur concerné via Socket.io
+    // Notifier chaque vendeur concerné via Socket.io + Expo Push
     try {
       const io = req?.app?.get?.('io');
+      const { Produit, SellerRequest } = require('./Models');
+      const { sendExpoPushToSellers } = require('./utils/expoNotifications');
+
+      const produitIds = commande.nbrProduits.map(p => p.produit);
+      const produits = await Produit.find({ _id: { $in: produitIds } }, { Clefournisseur: 1 }).lean();
+      const sellerIds = [...new Set(produits.map(p => String(p.Clefournisseur)).filter(Boolean))];
+
       if (io) {
-        const { Produit } = require('./Models');
-        const produitIds = commande.nbrProduits.map(p => p.produit);
-        const produits = await Produit.find({ _id: { $in: produitIds } }, { Clefournisseur: 1 }).lean();
-        const sellerIds = [...new Set(produits.map(p => String(p.Clefournisseur)).filter(Boolean))];
         sellerIds.forEach(sid => {
           io.to(`seller:${sid}`).emit('new_order', {
             commandeId: commande._id,
@@ -663,6 +666,26 @@ const createCommande = async (req, res) => {
             total: commande.prix,
             date: commande.date || new Date(),
           });
+        });
+      }
+
+      // Push Expo vers l'app mobile du vendeur
+      if (sellerIds.length > 0) {
+        const sellers = await SellerRequest.find(
+          { _id: { $in: sellerIds } },
+          { expoPushTokens: 1 }
+        ).lean();
+        const allTokens = sellers.flatMap(s => s.expoPushTokens || []);
+        const montantFormate = Number(commande.prix || 0).toLocaleString('fr-FR');
+        await sendExpoPushToSellers(allTokens, {
+          title: 'Nouvelle commande !',
+          body: `Réf ${commande.reference} — ${montantFormate} ₣`,
+          data: {
+            type: 'new_order',
+            orderId: String(commande._id),
+            reference: commande.reference,
+            montant: commande.prix,
+          },
         });
       }
     } catch (_) {}

@@ -2164,6 +2164,27 @@ const getPricingPlanById = async (req, res) => {
   }
 };
 
+const { Expo } = require('expo-server-sdk');
+
+const saveSellerPushToken = async (req, res) => {
+  const { sellerId, pushToken } = req.body;
+  if (!sellerId || !pushToken) {
+    return res.status(400).json({ success: false, message: 'sellerId et pushToken requis' });
+  }
+  if (!Expo.isExpoPushToken(pushToken)) {
+    return res.status(400).json({ success: false, message: 'Token Expo invalide' });
+  }
+  try {
+    await SellerRequest.updateOne(
+      { _id: sellerId },
+      { $addToSet: { expoPushTokens: pushToken } }
+    );
+    return res.json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 module.exports = {
   createSeller,
   deleteSeller,
@@ -2189,7 +2210,7 @@ module.exports = {
   getSellerByName,
   getSellerClients,
   getSellerByNameClients,
-  // 🎯 NOUVEAU: Méthodes pour le système de commission
   getSellerInfo,
-  getPricingPlanById
+  getPricingPlanById,
+  saveSellerPushToken,
 };
