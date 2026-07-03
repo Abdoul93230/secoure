@@ -80,7 +80,7 @@ class SubscriptionCronJobs {
       const now = new Date();
       const in7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
       const in1Day = new Date(now.getTime() + 1 * 24 * 60 * 60 * 1000);
-      const gracePeriodEnd = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 7 jours de grâce
+      const gracePeriodEnd = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000); // 48h de grâce
 
       // 1. Envoyer rappels d'expiration dans 7 jours
       const expiringSoon = await PricingPlan.find({
@@ -148,8 +148,7 @@ class SubscriptionCronJobs {
    */
   static async moveToGracePeriod(subscription) {
     try {
-      const gracePeriodEnd = new Date();
-      gracePeriodEnd.setDate(gracePeriodEnd.getDate() + 7); // 7 jours de grâce
+      const gracePeriodEnd = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000); // 48h de grâce
 
       // Mettre à jour l'abonnement
       await PricingPlan.findByIdAndUpdate(subscription._id, {
@@ -187,7 +186,7 @@ class SubscriptionCronJobs {
             billingCycle: subscription.billingCycle
           },
           gracePeriodEnd,
-          notes: 'Abonnement expiré - période de grâce de 7 jours accordée'
+          notes: 'Abonnement expiré - période de grâce de 48h accordée'
         },
         periodStart: subscription.startDate,
         periodEnd: subscription.endDate
@@ -370,7 +369,7 @@ class SubscriptionCronJobs {
                   <li>Votre boutique sera suspendue temporairement</li>
                   <li>Vos clients ne pourront plus passer de commandes</li>
                   <li>Vous perdrez l'accès aux fonctionnalités premium</li>
-                  <li>Période de grâce de 7 jours pour récupérer vos données</li>
+                  <li>Période de grâce de 48h pour récupérer vos données</li>
                 </ul>
               </div>
               
@@ -433,7 +432,7 @@ class SubscriptionCronJobs {
               <div style="background: #d4edda; border: 1px solid #c3e6cb; border-radius: 8px; padding: 20px; margin: 20px 0;">
                 <h3 style="color: #155724; margin-top: 0;">✅ Période de grâce accordée</h3>
                 <p style="color: #155724; margin: 0;">
-                  Nous vous accordons <strong>7 jours supplémentaires</strong> pour renouveler votre abonnement 
+                  Nous vous accordons <strong>48 heures</strong> pour renouveler votre abonnement
                   sans perdre vos données. Votre boutique reste temporairement accessible.
                 </p>
               </div>
@@ -575,11 +574,11 @@ class SubscriptionCronJobs {
     cron.schedule('0 3 * * 0', async () => {
       console.log('🧹 Nettoyage hebdomadaire...');
       await this.cleanupOldData();
+    });
 
     // Exécution immédiate au démarrage
     this.enforceActiveSellerSubscriptionConsistency().catch((error) => {
       console.error('❌ Erreur audit cohérence au démarrage:', error);
-    });
     });
 
     // Vérification d'urgence quotidienne à minuit

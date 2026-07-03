@@ -20,9 +20,18 @@ async function sendExpoPushToSellers(sellerIds, tokens, { title, body, data = {}
 
   if (!tokens || tokens.length === 0) return;
 
+  const isOrderNotif = data.type === 'new_order';
   const messages = tokens
     .filter(t => Expo.isExpoPushToken(t))
-    .map(token => ({ to: token, sound: 'default', title, body, data }));
+    .map(token => ({
+      to: token,
+      sound: isOrderNotif ? 'order_chime' : 'default',
+      channelId: isOrderNotif ? 'orders' : 'default',
+      title,
+      body,
+      data,
+      priority: isOrderNotif ? 'high' : 'default',
+    }));
 
   if (messages.length === 0) return;
 

@@ -655,15 +655,28 @@ const createCommande = async (req, res) => {
       const { sendExpoPushToSellers } = require('./utils/expoNotifications');
 
       const produitIds = commande.nbrProduits.map(p => p.produit);
-      const produits = await Produit.find({ _id: { $in: produitIds } }, { Clefournisseur: 1 }).lean();
+      const produits = await Produit.find({ _id: { $in: produitIds } }, { Clefournisseur: 1, name: 1, image1: 1, pictures: 1 }).lean();
       const sellerIds = [...new Set(produits.map(p => String(p.Clefournisseur)).filter(Boolean))];
+
+      // Images des 3 premiers produits pour la notification (max 3 URLs)
+      const productImages = produits
+        .slice(0, 3)
+        .map(p => p.image1 || (p.pictures && p.pictures[0]) || null)
+        .filter(Boolean);
+
+      // Nombre total d'articles commandés
+      const totalArticles = commande.nbrProduits.reduce((s, p) => s + (p.quantite || 1), 0);
+
+      // Montant sans frais de livraison
+      const montantProduits = commande.prixTotal || (commande.prix - (commande.fraisLivraison || 0));
+      const montantFormate = Number(montantProduits || 0).toLocaleString('fr-FR');
 
       if (io) {
         sellerIds.forEach(sid => {
           io.to(`seller:${sid}`).emit('new_order', {
             commandeId: commande._id,
             reference: commande.reference,
-            total: commande.prix,
+            total: montantProduits,
             date: commande.date || new Date(),
           });
         });
@@ -676,15 +689,17 @@ const createCommande = async (req, res) => {
           { expoPushTokens: 1 }
         ).lean();
         const allTokens = sellers.flatMap(s => s.expoPushTokens || []);
-        const montantFormate = Number(commande.prix || 0).toLocaleString('fr-FR');
+        const articleLabel = totalArticles > 1 ? `${totalArticles} articles` : `1 article`;
         await sendExpoPushToSellers(sellerIds, allTokens, {
-          title: 'Nouvelle commande !',
-          body: `Réf ${commande.reference} — ${montantFormate} ₣`,
+          title: '🛍️ Nouvelle commande !',
+          body: `${articleLabel} — ${montantFormate} ₣ · Réf ${commande.reference}`,
           data: {
             type: 'new_order',
             orderId: String(commande._id),
             reference: commande.reference,
-            montant: commande.prix,
+            montant: montantProduits,
+            totalArticles,
+            productImages,
           },
         });
       }

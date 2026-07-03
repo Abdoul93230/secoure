@@ -52,7 +52,7 @@ const authMiddleware = require('./src/middleware/auth');
 const CronJobs = require('./src/utils/cronJobs');
 
 
-const port = 8083;
+const port = 8084;
 const app = express();
 const server = http.createServer(app);
 

@@ -7,7 +7,7 @@ const { SellerRequest } = require('../Models');
 function requireModuleAccess(moduleKey) {
   return async (req, res, next) => {
     try {
-      const sellerId = req.user?.id;
+      const sellerId = req.seller?._id || req.seller?.id || req.user?.id;
       if (!sellerId) {
         return res.status(401).json({ status: 'error', message: 'Non authentifié' });
       }

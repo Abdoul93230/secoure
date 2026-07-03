@@ -835,7 +835,7 @@ router.get('/system-performance', requireAdmin, async (req, res) => {
           completedActivations: conversionFunnel[3],
           trialToActiveRate: conversionFunnel[0] > 0 ? ((conversionFunnel[1] / conversionFunnel[0]) * 100).toFixed(1) : 0
         },
-        revenue: revenueeTrends
+        revenue: revenueTrends
       }
     });
 

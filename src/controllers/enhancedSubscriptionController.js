@@ -279,35 +279,47 @@ const createManualRenewal = async (storeId, planType, billingCycle = 'monthly', 
  */
 const activateWithCode = async (storeId, reactivationCode) => {
   try {
-    // Trouver l'historique avec ce code
-    const historyEntry = await SubscriptionHistory.findOne({
+    const now = new Date();
+    let subscription = null;
+    let historyEntry = null;
+
+    // 1. Chercher d'abord dans SubscriptionHistory (flux createManualRenewal)
+    historyEntry = await SubscriptionHistory.findOne({
       storeId,
       'reactivationCode.code': reactivationCode,
       'reactivationCode.used': false,
-      'reactivationCode.expiresAt': { $gt: new Date() }
+      'reactivationCode.expiresAt': { $gt: now }
     });
 
-    if (!historyEntry) {
+    if (historyEntry) {
+      subscription = await PricingPlan.findByIdAndUpdate(
+        historyEntry.subscriptionId,
+        { status: 'active', activatedAt: now },
+        { new: true }
+      );
+      historyEntry.reactivationCode.used = true;
+      historyEntry.reactivationCode.usedAt = now;
+      await historyEntry.save();
+    } else {
+      // 2. Fallback : chercher directement dans PricingPlan (flux create-reactivation-code admin)
+      subscription = await PricingPlan.findOneAndUpdate(
+        {
+          storeId,
+          'reactivationCode.code': reactivationCode,
+          'reactivationCode.used': false,
+          'reactivationCode.expiresAt': { $gt: now }
+        },
+        { status: 'active', activatedAt: now, 'reactivationCode.used': true, 'reactivationCode.usedAt': now },
+        { new: true }
+      );
+    }
+
+    if (!subscription) {
       return {
         success: false,
         message: 'Code invalide ou expiré'
       };
     }
-
-    // Activer l'abonnement
-    const subscription = await PricingPlan.findByIdAndUpdate(
-      historyEntry.subscriptionId,
-      { 
-        status: 'active',
-        activatedAt: new Date()
-      },
-      { new: true }
-    );
-
-    // Marquer le code comme utilisé
-    historyEntry.reactivationCode.used = true;
-    historyEntry.reactivationCode.usedAt = new Date();
-    await historyEntry.save();
 
     // Réactiver le vendeur
     await SellerRequest.findByIdAndUpdate(storeId, {

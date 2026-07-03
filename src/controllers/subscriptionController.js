@@ -1021,13 +1021,16 @@ const checkAndActivateNextSubscription = async (sellerId) => {
             });
           }
 
-          // Activer le nouveau
-          nextSubscription.status = 'active';
-          nextSubscription.startDate = now;
-          // Recalculer la date de fin à partir de maintenant
-          const newEndDate = new Date(now);
+          // Activer le nouveau — startDate = expiration exacte du plan précédent (pas now)
+          // pour ne pas offrir ni retirer des heures selon le moment où le cron tourne
+          const startDate = currentSubscription?.endDate
+            ? new Date(currentSubscription.endDate)
+            : now;
+          const newEndDate = new Date(startDate);
           const duration = nextSubscription.billingCycle === 'annual' ? 12 : 1;
           newEndDate.setMonth(newEndDate.getMonth() + duration);
+          nextSubscription.status = 'active';
+          nextSubscription.startDate = startDate;
           nextSubscription.endDate = newEndDate;
 
           await nextSubscription.save();
