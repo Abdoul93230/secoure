@@ -7,6 +7,7 @@ const userController = require('../userControler');
 const AdminController = require('../auth/AdminController');
 const forgotPassword = require('../auth/forgotPassword');
 const quickAuthController = require('../auth/quickAuthController');
+const registerOtp = require('../auth/registerOtp');
 const { SellerRequest } = require('../Models');
 
 // Rate limiter strict pour les endpoints sensibles (login)
@@ -64,6 +65,15 @@ router.post('/auth/check-seller-unique', async (req, res) => {
     return res.status(500).json({ error: 'Erreur serveur' });
   }
 });
+
+// OTP d'inscription vendeur
+const regOtpLimiter = (req, res, next) => {
+  const isSms = req.body.method === 'phone';
+  return isSms ? smsOtpLimiter(req, res, next) : otpLimiter(req, res, next);
+};
+router.post('/auth/register-otp/send',   regOtpLimiter, registerOtp.sendOtp);
+router.post('/auth/register-otp/resend', regOtpLimiter, registerOtp.resendOtp);
+router.post('/auth/register-otp/verify', otpLimiter,    registerOtp.verifyOtp);
 
 // QuickAuth (phone/email first flow)
 router.post('/auth/check-phone', quickAuthController.checkPhone);

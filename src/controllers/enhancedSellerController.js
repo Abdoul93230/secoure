@@ -5,6 +5,17 @@ const jwt = require("jsonwebtoken");
 const privateKeSeller = require("../auth/clefSeller");
 const fs = require("fs");
 
+// ─── Validation du verifiedToken émis par registerOtp ────────────────────────
+const validateVerifiedToken = (token) => {
+  try {
+    const payload = jwt.verify(token, privateKeSeller);
+    if (payload.purpose !== 'register_verified') return null;
+    return payload; // { identifier, method, purpose }
+  } catch {
+    return null;
+  }
+};
+
 // Configuration Cloudinary (déjà présente dans votre code)
 const cloudinary = require('../cloudinary');
 
@@ -257,70 +268,80 @@ const cloudinary = require('../cloudinary');
 // };
 const createSellerWithSubscription = async (req, res) => {
   try {
-    // Validation des données (votre logique existante)
     let {
       email, emailp, name, userName2, phone, storeName, storeDescription,
       category, storeType, region, city, address,
       whatsapp, facebook, instagram, website, openingHours, minimumOrder, password,
-      planType
+      planType, verifiedToken,
     } = req.body;
-    // Valider le plan choisi ; Starter par défaut
-    const resolvedPlanType = ['Starter', 'Pro', 'Business'].includes(planType) ? planType : 'Starter';
 
-    // Validations requises (votre code existant)
-    const requiredFields = {
-      email: "L'email est requis",
-      name: "Le nom est requis", 
-      userName2: "Le prénom est requis",
-      phone: "Le numéro de téléphone est requis",
-      storeName: "Le nom de la boutique est requis",
-      category: "La catégorie est requise",
-      storeType: "Le type de boutique est requis",
-      region: "La région est requise",
-      city: "La ville est requise",
-      password: "Le mot de passe est requis",
-    };
-
-    const missingFields = Object.entries(requiredFields)
-      .filter(([field]) => !req.body[field])
-      .map(([field, message]) => ({ field, message }));
-
-    if (missingFields.length > 0) {
+    // ── 1. Valider le verifiedToken OTP ──────────────────────────────────────
+    if (!verifiedToken) {
       return res.status(400).json({
         status: "error",
-        code: "MISSING_FIELDS",
-        errors: missingFields,
+        code: "MISSING_VERIFIED_TOKEN",
+        message: "Vérification OTP requise avant la création du compte.",
+      });
+    }
+    const verified = validateVerifiedToken(verifiedToken);
+    if (!verified) {
+      return res.status(401).json({
+        status: "error",
+        code: "INVALID_VERIFIED_TOKEN",
+        message: "Le token de vérification est invalide ou expiré. Recommencez la vérification OTP.",
       });
     }
 
-    // Vérifications d'unicité (votre code existant)
-    const existingSeller = await SellerRequest.findOne({
-      $or: [{ email }, { phone }, { storeName }],
-    });
+    // L'identifiant vérifié est celui du token — pas ce que le client envoie
+    if (verified.method === 'email') {
+      email = verified.identifier;
+    } else {
+      phone = verified.identifier;
+    }
+
+    // ── 2. Champs obligatoires ────────────────────────────────────────────────
+    const resolvedPlanType = ['Starter', 'Pro', 'Business'].includes(planType) ? planType : 'Starter';
+
+    const required = { name: "Le nom est requis", userName2: "Le prénom est requis",
+      storeName: "Le nom de la boutique est requis", category: "La catégorie est requise",
+      storeType: "Le type de boutique est requis", region: "La région est requise",
+      city: "La ville est requise", password: "Le mot de passe est requis" };
+
+    // email OU phone doit être présent (l'un des deux peut être absent)
+    if (!email && !phone) {
+      return res.status(400).json({ status: "error", code: "MISSING_FIELDS",
+        errors: [{ field: "identifier", message: "Email ou téléphone requis." }] });
+    }
+
+    const missingFields = Object.entries(required)
+      .filter(([f]) => !req.body[f] && !{ name, userName2, storeName, category, storeType, region, city, password }[f])
+      .map(([f, m]) => ({ field: f, message: m }));
+
+    if (missingFields.length > 0) {
+      return res.status(400).json({ status: "error", code: "MISSING_FIELDS", errors: missingFields });
+    }
+
+    // ── 3. Unicité ────────────────────────────────────────────────────────────
+    const orClauses = [{ storeName }];
+    if (email) orClauses.push({ email });
+    if (phone) orClauses.push({ phone });
+    const existingSeller = await SellerRequest.findOne({ $or: orClauses });
 
     if (existingSeller) {
-      return res.status(409).json({
-        status: "error",
-        code: "DUPLICATE_ENTRY",
-        error: {
-          field: existingSeller.email === email ? "email" :
-                existingSeller.phone === phone ? "phone" : "storeName",
-          message: existingSeller.email === email ? "Cette adresse e-mail est déjà utilisée" :
-                  existingSeller.phone === phone ? "Ce numero de telephone est déjà utilisée" :
-                  "Ce nom de boutique est déjà utilisé",
-        },
-      });
+      const field = email && existingSeller.email === email ? "email"
+        : phone && existingSeller.phone === phone ? "phone" : "storeName";
+      const msg = field === "email" ? "Cette adresse e-mail est déjà utilisée"
+        : field === "phone" ? "Ce numéro de téléphone est déjà utilisé"
+        : "Ce nom de boutique est déjà utilisé";
+      return res.status(409).json({ status: "error", code: "DUPLICATE_ENTRY", error: { field, message: msg } });
     }
 
-    // Validation des fichiers (votre code existant)
+    // ── 4. Pièce d'identité obligatoire ──────────────────────────────────────
     if (!req.files?.ownerIdentity) {
       return res.status(400).json({
         status: "error",
-        code: "MISSING_FILES", 
-        error: {
-          field: "ownerIdentity",
-          message: "La pièce d'identité est requise",
-        },
+        code: "MISSING_FILES",
+        error: { field: "ownerIdentity", message: "La pièce d'identité est requise" },
       });
     }
 
@@ -358,11 +379,11 @@ const createSellerWithSubscription = async (req, res) => {
 
     // Création du vendeur
     const newSeller = new SellerRequest({
-      email,
-      emailp: emailp?.length !== 0 ? emailp : null,
+      ...(email && { email }),
+      ...(phone && { phone }),
+      emailp: emailp?.length ? emailp : null,
       name,
-      userName2, 
-      phone,
+      userName2,
       password: hashedPassword,
       storeName,
       storeDescription,
@@ -379,11 +400,10 @@ const createSellerWithSubscription = async (req, res) => {
       minimumOrder,
       ownerIdentity: ownerIdentityUrl,
       logo: logoUrl,
-      // États initiaux
       subscriptionStatus: 'trial',
       isvalid: false,
       onboardingCompleted: false,
-      accountCreatedAt: new Date()
+      accountCreatedAt: new Date(),
     });
 
     const savedSeller = await newSeller.save();

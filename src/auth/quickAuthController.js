@@ -545,6 +545,7 @@ const requestPasswordResetOtp = async (req, res) => {
         retId: `pwdreset-${Date.now()}`,
       });
     } catch (smsError) {
+      console.error('[SMS password-reset] code:', smsError.code, '| status:', smsError.status, '| body:', JSON.stringify(smsError.providerBody ?? smsError.message));
       return res.status(502).json({
         success: false,
         message: "Impossible d'envoyer le code OTP de reinitialisation",
@@ -567,6 +568,7 @@ const requestPasswordResetOtp = async (req, res) => {
 
     return res.status(200).json(response);
   } catch (error) {
+    console.log({error});
     return res.status(500).json({
       success: false,
       message: "Erreur lors de la demande OTP de reinitialisation",
