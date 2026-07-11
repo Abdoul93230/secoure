@@ -564,7 +564,9 @@ const bulkCreate = handleAsyncError(async (req, res) => {
     });
 
     const { Produit } = require('./Models');
+    console.log('[bulk-create] tentative insertion:', docs.map(d => ({ name: d.name, barcode: d.barcode || null })));
     const result = await Produit.insertMany(docs, { ordered: false });
+    console.log('[bulk-create] insérés:', result.length, '/', docs.length);
 
     // Produits ignorés à cause du quota (coupés avant insertMany)
     const quotaCut = capped.slice(effectiveProducts.length);
