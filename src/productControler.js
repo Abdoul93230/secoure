@@ -564,20 +564,34 @@ const bulkCreate = handleAsyncError(async (req, res) => {
     });
 
     const { Produit } = require('./Models');
-    console.log('[bulk-create] tentative insertion:', docs.map(d => ({ name: d.name, barcode: d.barcode || null })));
     const result = await Produit.insertMany(docs, { ordered: false });
-    console.log('[bulk-create] insérés:', result.length, '/', docs.length);
 
-    // Produits ignorés à cause du quota (coupés avant insertMany)
+    const failedProducts = [];
+
+    // Cas 1 : produits coupés par quota avant insertion
     const quotaCut = capped.slice(effectiveProducts.length);
-    const failedProducts = quotaCut.map(p => ({
+    quotaCut.forEach(p => failedProducts.push({
       nom: p.nom || p.name || 'Produit inconnu',
       reason: `Quota atteint — vous avez ${currentCount + result.length}/${productLimit} produits`,
     }));
 
-    res.status(201).json({
+    // Cas 2 : Mongoose (ordered:false) a inséré partiellement sans lever d'exception
+    // On détecte les docs non-insérés en comparant par nom
+    if (result.length < docs.length) {
+      const insertedNames = new Set(result.map(r => r.name));
+      docs.forEach(d => {
+        if (!insertedNames.has(d.name)) {
+          failedProducts.push({
+            nom: d.name,
+            reason: 'Doublon détecté — un produit avec ce nom existe déjà dans votre boutique',
+          });
+        }
+      });
+    }
+
+    res.status(failedProducts.length > 0 ? 207 : 201).json({
       success: true,
-      message: `${result.length} produit(s) importé(s) avec succès`,
+      message: `${result.length} produit(s) importé(s)${failedProducts.length > 0 ? `, ${failedProducts.length} en erreur` : ' avec succès'}`,
       created: result.length,
       errors: failedProducts.length,
       failedProducts: failedProducts.length > 0 ? failedProducts : undefined,
