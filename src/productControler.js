@@ -566,11 +566,19 @@ const bulkCreate = handleAsyncError(async (req, res) => {
     const { Produit } = require('./Models');
     const result = await Produit.insertMany(docs, { ordered: false });
 
+    // Produits ignorés à cause du quota (coupés avant insertMany)
+    const quotaCut = capped.slice(effectiveProducts.length);
+    const failedProducts = quotaCut.map(p => ({
+      nom: p.nom || p.name || 'Produit inconnu',
+      reason: `Quota atteint — vous avez ${currentCount + result.length}/${productLimit} produits`,
+    }));
+
     res.status(201).json({
       success: true,
       message: `${result.length} produit(s) importé(s) avec succès`,
       created: result.length,
-      errors: products.length - result.length
+      errors: failedProducts.length,
+      failedProducts: failedProducts.length > 0 ? failedProducts : undefined,
     });
   } catch (error) {
     const inserted = error.insertedDocs?.length || 0;
@@ -581,8 +589,9 @@ const bulkCreate = handleAsyncError(async (req, res) => {
       let reason = 'Erreur inconnue';
       const msg = e.errmsg || e.message || '';
       if (e.code === 11000 || msg.includes('E11000')) {
-        const field = msg.match(/index:\s*(\w+)_1/)?.[1] || msg.match(/dup key:.*?"([^"]+)"/)?.[1] || 'champ';
-        reason = `Doublon détecté — "${field}" existe déjà`;
+        if (msg.includes('barcode')) reason = 'Doublon détecté — ce barcode existe déjà';
+        else if (msg.includes('name')) reason = 'Doublon détecté — un produit avec ce nom existe déjà';
+        else reason = 'Doublon détecté — ce produit existe déjà';
       } else if (msg.includes('validation')) {
         reason = 'Données invalides';
       } else if (msg) {
