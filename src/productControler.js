@@ -574,12 +574,29 @@ const bulkCreate = handleAsyncError(async (req, res) => {
     });
   } catch (error) {
     const inserted = error.insertedDocs?.length || 0;
+
+    const failedProducts = error.writeErrors?.map(e => {
+      const doc = docs[e.index];
+      const nom = doc?.name || `Produit ${(e.index ?? 0) + 1}`;
+      let reason = 'Erreur inconnue';
+      const msg = e.errmsg || e.message || '';
+      if (e.code === 11000 || msg.includes('E11000')) {
+        const field = msg.match(/index:\s*(\w+)_1/)?.[1] || msg.match(/dup key:.*?"([^"]+)"/)?.[1] || 'champ';
+        reason = `Doublon détecté — "${field}" existe déjà`;
+      } else if (msg.includes('validation')) {
+        reason = 'Données invalides';
+      } else if (msg) {
+        reason = msg.length > 80 ? msg.slice(0, 80) + '…' : msg;
+      }
+      return { nom, reason };
+    }) || [{ nom: 'Inconnu', reason: error.message || 'Erreur serveur' }];
+
     res.status(207).json({
       success: false,
-      message: `Import partiel : ${inserted} produit(s) créé(s)`,
+      message: `Import partiel : ${inserted} produit(s) créé(s), ${failedProducts.length} en erreur`,
       created: inserted,
-      errors: error.writeErrors?.length || 0,
-      details: error.writeErrors?.map(e => e.errmsg) || [error.message]
+      errors: failedProducts.length,
+      failedProducts,
     });
   }
 });
