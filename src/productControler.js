@@ -564,7 +564,6 @@ const bulkCreate = handleAsyncError(async (req, res) => {
     });
 
     const { Produit } = require('./Models');
-    const result = await Produit.insertMany(docs, { ordered: false });
 
     const failedProducts = [];
 
@@ -572,22 +571,37 @@ const bulkCreate = handleAsyncError(async (req, res) => {
     const quotaCut = capped.slice(effectiveProducts.length);
     quotaCut.forEach(p => failedProducts.push({
       nom: p.nom || p.name || 'Produit inconnu',
-      reason: `Quota atteint — vous avez ${currentCount + result.length}/${productLimit} produits`,
+      reason: `Quota atteint — vous avez ${currentCount}/${productLimit} produits`,
     }));
 
-    // Cas 2 : Mongoose (ordered:false) a inséré partiellement sans lever d'exception
-    // On détecte les docs non-insérés en comparant par nom
-    if (result.length < docs.length) {
-      const insertedNames = new Set(result.map(r => r.name));
-      docs.forEach(d => {
-        if (!insertedNames.has(d.name)) {
-          failedProducts.push({
-            nom: d.name,
-            reason: 'Doublon détecté — un produit avec ce nom existe déjà dans votre boutique',
-          });
-        }
+    // Cas 2 : pre-check doublons — évite d'insérer un nom qui existe déjà chez ce vendeur
+    const allNames = docs.map(d => d.name);
+    const existingNames = await Produit.distinct('name', {
+      Clefournisseur: sellerId,
+      isDeleted: false,
+      name: { $in: allNames },
+    });
+    const existingSet = new Set(existingNames);
+
+    const docsToInsert = docs.filter(d => {
+      if (existingSet.has(d.name)) {
+        failedProducts.push({ nom: d.name, reason: 'Doublon — un produit avec ce nom existe déjà dans votre boutique' });
+        return false;
+      }
+      return true;
+    });
+
+    if (docsToInsert.length === 0) {
+      return res.status(207).json({
+        success: false,
+        message: `Aucun produit inséré — tous sont des doublons ou le quota est atteint`,
+        created: 0,
+        errors: failedProducts.length,
+        failedProducts,
       });
     }
+
+    const result = await Produit.insertMany(docsToInsert, { ordered: false });
 
     res.status(failedProducts.length > 0 ? 207 : 201).json({
       success: true,

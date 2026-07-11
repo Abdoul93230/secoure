@@ -531,10 +531,6 @@ produitSchema.index({ isPublished: 1, isDeleted: 1, createdAt: -1 });
 produitSchema.index({ ClefType: 1, isDeleted: 1, isPublished: 1 });
 produitSchema.index({ name: 'text', description: 'text' }); // full-text search
 
-// Anti-doublon : barcode unique par vendeur (sparse = ignoré si barcode null)
-produitSchema.index({ Clefournisseur: 1, barcode: 1 }, { unique: true, sparse: true });
-// Anti-doublon : même nom exact chez le même vendeur interdit
-produitSchema.index({ Clefournisseur: 1, name: 1 }, { unique: true });
 
 const Produit = mongoose.model("Produit", produitSchema);
 ////////////////////////////////////////////////////////////////////////////////required message///////////////////////////
