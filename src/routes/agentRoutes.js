@@ -35,6 +35,48 @@ async function getSellerPlanType(sellerId) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// POST /api/agents/verify
+// Pré-vérification (public) : vérifie boutique + agent SANS le PIN
+// Retourne le nom de l'agent et de la boutique pour confirmation à l'écran
+// ─────────────────────────────────────────────────────────────────────────────
+router.post('/verify', async (req, res) => {
+  try {
+    const { storePhone, phone } = req.body;
+    if (!storePhone || !phone) {
+      return res.status(400).json({ success: false, message: 'storePhone et phone requis' });
+    }
+
+    const seller = await SellerRequest.findOne({ phone: storePhone }).select('_id storeName').lean();
+    if (!seller) {
+      return res.status(404).json({ success: false, message: 'Aucune boutique trouvée pour ce numéro' });
+    }
+
+    const planType = await getSellerPlanType(String(seller._id));
+    if (!['Pro', 'Business'].includes(planType)) {
+      return res.status(403).json({ success: false, message: 'Cette boutique ne dispose pas de l\'espace caissier' });
+    }
+
+    const agent = await SellerAgent.findOne({ storeId: seller._id, phone }).select('name isActive').lean();
+    if (!agent) {
+      return res.status(404).json({ success: false, message: 'Numéro de téléphone non reconnu dans cette boutique' });
+    }
+    if (!agent.isActive) {
+      return res.status(403).json({ success: false, message: 'Ce compte agent est désactivé' });
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        agentName:  agent.name,
+        storeName:  seller.storeName,
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // POST /api/agents/login
 // Login agent (public) : phone + PIN → token agent JWT
 // ─────────────────────────────────────────────────────────────────────────────

@@ -1021,11 +1021,12 @@ const checkAndActivateNextSubscription = async (sellerId) => {
             });
           }
 
-          // Activer le nouveau — startDate = expiration exacte du plan précédent (pas now)
-          // pour ne pas offrir ni retirer des heures selon le moment où le cron tourne
-          const startDate = currentSubscription?.endDate
-            ? new Date(currentSubscription.endDate)
-            : now;
+          // Activer le nouveau :
+          // - Si le plan précédent est encore valide (futur endDate) → enchaîne sans gap
+          // - Si le plan précédent est déjà expiré (endDate dans le passé) → part de maintenant
+          //   pour ne pas offrir un plan tronqué à cause du délai paiement → validation admin
+          const prevEndDate = currentSubscription?.endDate ? new Date(currentSubscription.endDate) : null;
+          const startDate = prevEndDate && prevEndDate > now ? prevEndDate : now;
           const newEndDate = new Date(startDate);
           const duration = nextSubscription.billingCycle === 'annual' ? 12 : 1;
           newEndDate.setMonth(newEndDate.getMonth() + duration);
