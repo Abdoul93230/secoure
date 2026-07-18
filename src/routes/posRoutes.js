@@ -5,7 +5,7 @@ const jwt = require('jsonwebtoken');
 const VenteDirecte = require('../models/VenteDirecte');
 const StockService = require('../services/stockService');
 const SUBSCRIPTION_CONFIG = require('../config/subscriptionConfig');
-const { AGENT_PRIVATE_KEY } = require('../middleware/auth');
+const { AGENT_PRIVATE_KEY, requireAgent } = require('../middleware/auth');
 
 // Plans autorisés à utiliser la caisse POS
 const POS_ALLOWED_PLANS = ['Pro', 'Business'];
@@ -388,6 +388,98 @@ router.get('/access-check/:sellerId', async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/pos/agent/historique
+// Historique des ventes de l'agent connecté — paginé, filtrable par statut
+// ─────────────────────────────────────────────────────────────────────────────
+router.get('/agent/historique', requireAgent, async (req, res) => {
+  try {
+    const agentId   = req.agent.id;
+    const sellerId  = req.agent.storeId;
+
+    const page  = parseInt(req.query.page)  || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip  = (page - 1) * limit;
+
+    const query = { sellerId, agentId };
+    if (req.query.statut) query.statut = req.query.statut;
+
+    const [ventes, total] = await Promise.all([
+      VenteDirecte.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit),
+      VenteDirecte.countDocuments(query),
+    ]);
+
+    const pages   = Math.ceil(total / limit);
+    const hasNext = page < pages;
+
+    res.json({
+      success: true,
+      data: {
+        ventes,
+        pagination: { page, limit, total, pages, hasNext },
+      },
+    });
+  } catch (err) {
+    console.error('❌ Erreur historique agent POS:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/pos/agent/annuler/:reference
+// Annulation d'une vente par l'agent — ownership vérifié + délai 24h
+// ─────────────────────────────────────────────────────────────────────────────
+router.post('/agent/annuler/:reference', requireAgent, async (req, res) => {
+  const session = await mongoose.startSession();
+  try {
+    const vente = await VenteDirecte.findOne({ reference: req.params.reference });
+    if (!vente) return res.status(404).json({ success: false, message: 'Vente introuvable' });
+
+    // Vérification ownership agent
+    if (String(vente.agentId) !== String(req.agent.id)) {
+      return res.status(403).json({ success: false, message: 'Vous ne pouvez annuler que vos propres ventes' });
+    }
+
+    // Vérification appartenance à la boutique de l'agent
+    if (String(vente.sellerId) !== String(req.agent.storeId)) {
+      return res.status(403).json({ success: false, message: 'Vente non associée à votre boutique' });
+    }
+
+    // Vérification statut
+    if (vente.statut === 'ANNULEE') {
+      return res.status(400).json({ success: false, message: 'Vente déjà annulée' });
+    }
+
+    // Vérification délai 24h
+    const delai24h = 24 * 60 * 60 * 1000;
+    if (Date.now() - new Date(vente.createdAt).getTime() > delai24h) {
+      return res.status(403).json({ success: false, message: 'Annulation impossible après 24h' });
+    }
+
+    await session.withTransaction(async () => {
+      // 1. Marquer annulée
+      vente.statut = 'ANNULEE';
+      await vente.save({ session });
+
+      // 2. Remettre le stock sur la bonne variante
+      const nbrProduitsFormat = vente.lignes.map(l => ({
+        produit:  l.produitId,
+        quantite: l.quantite,
+        couleurs: l.couleurs || [],
+        tailles:  l.tailles  || [],
+      }));
+      await StockService.incrementStock(nbrProduitsFormat, { session, isRestoration: true });
+    });
+
+    res.json({ success: true, message: 'Vente annulée avec succès' });
+  } catch (err) {
+    console.error('❌ Erreur annulation agent POS:', err);
+    res.status(500).json({ success: false, message: err.message });
+  } finally {
+    session.endSession();
   }
 });
 
