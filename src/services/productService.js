@@ -262,7 +262,24 @@ class ProductService {
     if (!updates || !Array.isArray(updates) || updates.length === 0) {
       return { modifiedCount: 0 };
     }
-    
+
+    // Vérifications vendeur — mêmes garde-fous que prepareAdvancedUpdateData
+    if (sellerId) {
+      const seller = await SellerRequest.findById(sellerId);
+      if (!seller) throw new Error("Vendeur non trouvé");
+      if (!seller.isvalid) throw new Error("Votre compte vendeur n'est plus actif");
+
+      const activeSubscription = await PricingPlan.findOne({
+        storeId: sellerId,
+        status: { $in: ['active', 'trial'] },
+        endDate: { $gte: new Date() },
+      }).sort({ createdAt: -1 });
+
+      if (!activeSubscription) {
+        throw new Error("Vous n'avez pas d'abonnement actif. Impossible de modifier les produits");
+      }
+    }
+
     const bulkOps = updates.map(update => {
       const filter = { _id: update.id };
       if (sellerId) {

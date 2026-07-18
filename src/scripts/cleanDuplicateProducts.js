@@ -1,6 +1,7 @@
 /**
- * Script one-shot : supprime les doublons de produits (même vendeur + même nom)
- * Garde le plus récent, supprime les autres.
+ * Script one-shot :
+ * 1. Supprime les index uniques parasites sur produits
+ * 2. Supprime les doublons (même vendeur + même nom), garde le plus récent
  * Usage : node src/scripts/cleanDuplicateProducts.js
  */
 require('dotenv').config();
@@ -11,9 +12,30 @@ async function main() {
   await mongoose.connect(uri);
   console.log('Connecté à MongoDB');
 
+  const db = mongoose.connection.db;
+  const collection = db.collection('produits');
+
+  // 1. Supprimer les index uniques parasites qu'on avait créés par erreur
+  const indexes = await collection.indexes();
+  const toDropNames = indexes
+    .filter(idx => idx.unique && (
+      JSON.stringify(idx.key).includes('name') ||
+      JSON.stringify(idx.key).includes('barcode')
+    ))
+    .map(idx => idx.name);
+
+  if (toDropNames.length > 0) {
+    for (const name of toDropNames) {
+      await collection.dropIndex(name);
+      console.log(`Index supprimé : ${name}`);
+    }
+  } else {
+    console.log('Aucun index unique parasite trouvé.');
+  }
+
+  // 2. Nettoyer les doublons (même vendeur + même nom)
   const Produit = mongoose.model('Produit', new mongoose.Schema({}, { strict: false }), 'produits');
 
-  // Trouve tous les groupes (vendeur + nom) avec plus d'un doc
   const duplicates = await Produit.aggregate([
     { $match: { isDeleted: { $ne: true } } },
     { $group: {
@@ -24,13 +46,12 @@ async function main() {
     { $match: { count: { $gt: 1 } } },
   ]);
 
-  console.log(`Groupes avec doublons trouvés : ${duplicates.length}`);
+  console.log(`\nGroupes avec doublons : ${duplicates.length}`);
 
   let totalDeleted = 0;
   for (const group of duplicates) {
-    // Garde le premier (_id le plus récent = ObjectId le plus grand), supprime le reste
     const sorted = group.ids.sort((a, b) => b.toString().localeCompare(a.toString()));
-    const toDelete = sorted.slice(1); // tous sauf le plus récent
+    const toDelete = sorted.slice(1);
     await Produit.deleteMany({ _id: { $in: toDelete } });
     console.log(`  "${group._id.name}" — supprimé ${toDelete.length} doublon(s)`);
     totalDeleted += toDelete.length;

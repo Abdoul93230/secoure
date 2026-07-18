@@ -567,25 +567,40 @@ const bulkCreate = handleAsyncError(async (req, res) => {
 
     const failedProducts = [];
 
-    // Cas 1 : produits coupés par quota avant insertion
-    const quotaCut = capped.slice(effectiveProducts.length);
-    quotaCut.forEach(p => failedProducts.push({
+    // Cas 1 : produits coupés par quota
+    capped.slice(effectiveProducts.length).forEach(p => failedProducts.push({
       nom: p.nom || p.name || 'Produit inconnu',
       reason: `Quota atteint — vous avez ${currentCount}/${productLimit} produits`,
     }));
 
-    // Cas 2 : pre-check doublons — évite d'insérer un nom qui existe déjà chez ce vendeur
+    // Cas 2 : pre-check noms en double dans la boutique
     const allNames = docs.map(d => d.name);
-    const existingNames = await Produit.distinct('name', {
-      Clefournisseur: sellerId,
+    const existingByName = await Produit.distinct('name', {
+      Clefournisseur: { $in: [sellerId, require('mongoose').Types.ObjectId.isValid(sellerId) ? new (require('mongoose').Types.ObjectId)(sellerId) : null] },
       isDeleted: false,
       name: { $in: allNames },
     });
-    const existingSet = new Set(existingNames);
+    const existingNamesSet = new Set(existingByName.map(n => n.toLowerCase()));
+
+    // Cas 3 : pre-check barcodes en double dans la boutique
+    const allBarcodes = docs.map(d => d.barcode).filter(Boolean);
+    let existingBarcodesSet = new Set();
+    if (allBarcodes.length > 0) {
+      const existingByBarcode = await Produit.find({
+        Clefournisseur: { $in: [sellerId, require('mongoose').Types.ObjectId.isValid(sellerId) ? new (require('mongoose').Types.ObjectId)(sellerId) : null] },
+        isDeleted: false,
+        barcode: { $in: allBarcodes },
+      }).select('barcode name').lean();
+      existingByBarcode.forEach(p => existingBarcodesSet.add(p.barcode));
+    }
 
     const docsToInsert = docs.filter(d => {
-      if (existingSet.has(d.name)) {
+      if (existingNamesSet.has(d.name.toLowerCase())) {
         failedProducts.push({ nom: d.name, reason: 'Doublon — un produit avec ce nom existe déjà dans votre boutique' });
+        return false;
+      }
+      if (d.barcode && existingBarcodesSet.has(d.barcode)) {
+        failedProducts.push({ nom: d.name, reason: `Doublon — le barcode "${d.barcode}" est déjà utilisé dans votre boutique` });
         return false;
       }
       return true;
@@ -602,6 +617,16 @@ const bulkCreate = handleAsyncError(async (req, res) => {
     }
 
     const result = await Produit.insertMany(docsToInsert, { ordered: false });
+
+    // Filet de sécurité : si insertMany a quand même rejeté des docs silencieusement
+    if (result.length < docsToInsert.length) {
+      const insertedNames = new Set(result.map(r => r.name));
+      docsToInsert.forEach(d => {
+        if (!insertedNames.has(d.name)) {
+          failedProducts.push({ nom: d.name, reason: 'Rejeté par la base de données (doublon ou données invalides)' });
+        }
+      });
+    }
 
     res.status(failedProducts.length > 0 ? 207 : 201).json({
       success: true,

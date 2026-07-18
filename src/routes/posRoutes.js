@@ -1,17 +1,51 @@
 const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
+const jwt = require('jsonwebtoken');
 const VenteDirecte = require('../models/VenteDirecte');
 const StockService = require('../services/stockService');
 const SUBSCRIPTION_CONFIG = require('../config/subscriptionConfig');
+const { AGENT_PRIVATE_KEY } = require('../middleware/auth');
 
 // Plans autorisés à utiliser la caisse POS
 const POS_ALLOWED_PLANS = ['Pro', 'Business'];
 
+// ─── Middleware : extrait sellerId depuis token seller OU token agent ─────────
+// Pour les ventes : un caissier agent peut vendre au nom de la boutique.
+// req.resolvedSellerId est toujours l'ID de la boutique propriétaire.
+async function extractPosSeller(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ success: false, message: "Token d'authentification requis" });
+  }
+  const token = authHeader.substring(7);
+
+  // 1. Essayer token agent
+  try {
+    const decoded = jwt.verify(token, AGENT_PRIVATE_KEY);
+    if (decoded.role === 'agent') {
+      const { SellerAgent } = require('../Models');
+      const agent = await SellerAgent.findById(decoded.agentId).lean();
+      if (!agent || !agent.isActive) {
+        return res.status(403).json({ success: false, message: 'Ce compte agent est désactivé' });
+      }
+      req.resolvedSellerId = String(agent.storeId);
+      req.agentId          = String(agent._id);
+      req.isAgent          = true;
+      return next();
+    }
+  } catch (_) { /* pas un token agent */ }
+
+  // 2. Seller classique — sellerId vient du body (comportement existant)
+  req.isAgent = false;
+  return next();
+}
+
 // ─── Middleware : vérifier que le seller a un plan Pro ou Business ─────────────
 async function requirePosAccess(req, res, next) {
   try {
-    const sellerId = req.body.sellerId || req.params.sellerId;
+    // Si token agent → sellerId déjà résolu, sinon vient du body/params
+    const sellerId = req.resolvedSellerId || req.body.sellerId || req.params.sellerId;
     if (!sellerId) return res.status(400).json({ success: false, message: 'sellerId manquant' });
 
     const { SellerRequest, PricingPlan } = require('../Models');
@@ -53,11 +87,10 @@ async function requirePosAccess(req, res, next) {
 // Crée une vente directe (caisse physique) — Pro & Business uniquement
 // 0% commission POS : le revenu de la plateforme vient de l'abonnement
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/vente', requirePosAccess, async (req, res) => {
+router.post('/vente', extractPosSeller, requirePosAccess, async (req, res) => {
   const session = await mongoose.startSession();
   try {
     const {
-      sellerId,
       lignes,          // [{ produitId, nom, image, prixUnitaire, quantite, varianteLabel, couleurs, tailles }]
       remise = 0,
       modePaiement,    // ESPECES | MOBILE_MONEY | AUTRE
@@ -65,6 +98,9 @@ router.post('/vente', requirePosAccess, async (req, res) => {
       telephoneClient,
       referenceOffline, // référence pré-générée côté mobile (vente offline)
     } = req.body;
+
+    // Si token agent → sellerId = storeId de l'agent, sinon vient du body
+    const sellerId = req.resolvedSellerId || req.body.sellerId;
 
     if (!sellerId || !lignes?.length || !modePaiement) {
       return res.status(400).json({ success: false, message: 'Données manquantes' });
@@ -103,6 +139,8 @@ router.post('/vente', requirePosAccess, async (req, res) => {
         statut: 'COMPLETEE',
         // Référence pré-générée offline — respectée par le pre('validate') qui ne l'écrase pas si déjà définie
         ...(referenceOffline ? { reference: referenceOffline } : {}),
+        // Traçabilité agent
+        ...(req.agentId ? { agentId: req.agentId } : {}),
       });
       await vente.save({ session });
 

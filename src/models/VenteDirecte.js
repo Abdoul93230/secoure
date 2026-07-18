@@ -55,6 +55,9 @@ const venteDirecteSchema = new mongoose.Schema({
   commission:   { type: Number, default: 0 },
   montantNet:   { type: Number, default: 0 },
 
+  // Agent caissier qui a réalisé la vente (null si le seller lui-même)
+  agentId: { type: mongoose.Schema.Types.ObjectId, ref: 'SellerAgent', default: null },
+
 }, { timestamps: true });
 
 // Référence unique : POS-{sellerId(6 chars)}-{timestamp}-{random}

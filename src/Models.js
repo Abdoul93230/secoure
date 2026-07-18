@@ -1711,6 +1711,54 @@ deletedProductSchema.index({ deletedAt: 1 }, { expireAfterSeconds: 30 * 24 * 60 
 
 const DeletedProduct = mongoose.model("DeletedProduct", deletedProductSchema);
 
+// ─── Agents caissier ─────────────────────────────────────────────────────────
+// Un agent appartient à un seller (storeId), peut uniquement utiliser la caisse POS.
+// Authentification : phone + PIN (4 chiffres, hashé bcrypt).
+// Quota par plan : Starter=0, Pro=2, Business=6 agents actifs max.
+const sellerAgentSchema = new mongoose.Schema({
+  storeId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'SellerRequest',
+    required: true,
+    index: true,
+  },
+  name: {
+    type: String,
+    required: true,
+    minlength: [2, 'Le nom doit contenir au moins 2 caractères'],
+  },
+  phone: {
+    type: String,
+    required: true,
+    validate: {
+      validator: (v) => /^\+[1-9]\d{7,14}$/.test(v),
+      message: 'Format de numéro invalide',
+    },
+  },
+  pin: {
+    type: String,
+    required: true, // stocké hashé (bcrypt)
+  },
+  role: {
+    type: String,
+    enum: ['caissier'],
+    default: 'caissier',
+  },
+  isActive: {
+    type: Boolean,
+    default: true,
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now,
+  },
+}, { strict: false });
+
+// Index composite : un seul numéro par boutique
+sellerAgentSchema.index({ storeId: 1, phone: 1 }, { unique: true });
+
+const SellerAgent = mongoose.model('SellerAgent', sellerAgentSchema);
+
 module.exports = {
   User,
   Admin,
@@ -1737,4 +1785,5 @@ module.exports = {
   Transaction,
   Like,
   DeletedProduct,
+  SellerAgent,
 };

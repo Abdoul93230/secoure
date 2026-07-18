@@ -37,7 +37,8 @@ const sellerSubscriptionRoutes = require('./src/routes/sellerSubscriptionRoutes'
 const promoCodeRoutes = require('./src/routes/promoCodeRoutes');
 const gamificationRoutes = require('./src/routes/gamificationRoutes');
 const newsletterRoutes = require('./src/routes/newsletterRoutes');
-const posRoutes = require('./src/routes/posRoutes');
+const posRoutes   = require('./src/routes/posRoutes');
+const agentRoutes = require('./src/routes/agentRoutes');
 
 // Modules métier
 const bilanRoutes = require('./src/modules/bilanJournalier/bilanRoutes');
@@ -239,6 +240,9 @@ app.use('/api/promocodes', promoCodeRoutes);
 app.use('/api/gamification', gamificationRoutes);
 app.use('/api/newsletter', newsletterRoutes);
 app.use('/api/pos', posRoutes);
+// Login agent : public (pas de requireSeller)
+// Gestion agents : protégée par requireSeller
+app.use('/api/agents', agentRoutes);
 
 // Modules métier (tous protégés par requireSeller)
 const { SellerRequest } = require('./src/Models');

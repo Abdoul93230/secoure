@@ -29,11 +29,15 @@ const isRouteExempt = (req) => {
   );
 };
 
+// Clef dédiée aux agents (séparée de celle des sellers)
+const AGENT_PRIVATE_KEY = process.env.AGENT_JWT_SECRET || 'AGENT_PRIVATe_KEY_ihambaobab';
+
 // Configuration des secrets JWT
 const JWT_SECRETS = {
   user: USER_PRIVATE_KEY,
   seller: SELLER_PRIVATe_KEY,
   admin: ADMIN_PRIVATe_KEY,
+  agent: AGENT_PRIVATE_KEY,
   default: process.env.JWT_SECRET || 'default_secret'
 };
 
@@ -200,6 +204,40 @@ const requireAdminOrSeller = [extractToken, (req, res, next) => {
   next();
 }];
 
+// Middleware pour les agents caissier uniquement
+// Vérifie le token agent (JWT signé avec AGENT_PRIVATE_KEY)
+// Injecte req.agent = { id, storeId, role, name }
+const requireAgent = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ success: false, message: "Token d'authentification requis" });
+  }
+
+  const token = authHeader.substring(7);
+  try {
+    const decoded = jwt.verify(token, AGENT_PRIVATE_KEY);
+    if (decoded.role !== 'agent') {
+      return res.status(403).json({ success: false, message: 'Accès réservé aux agents' });
+    }
+
+    const { SellerAgent } = require('../Models');
+    const agent = await SellerAgent.findById(decoded.agentId).lean();
+    if (!agent || !agent.isActive) {
+      return res.status(403).json({ success: false, message: 'Compte agent inactif ou introuvable' });
+    }
+
+    req.agent = {
+      id:      String(agent._id),
+      storeId: String(agent.storeId),
+      role:    'agent',
+      name:    agent.name,
+    };
+    next();
+  } catch (err) {
+    return res.status(401).json({ success: false, message: 'Token agent invalide ou expiré' });
+  }
+};
+
 // Middleware optionnel (pour les routes publiques qui peuvent bénéficier de l'auth)
 const optionalAuth = async (req, res, next) => {
   const authHeader = req.headers.authorization;
@@ -304,9 +342,11 @@ module.exports = {
   requireValidSeller,
   requireAdminOrSeller,
   requireOwnership,
+  requireAgent,
   optionalAuth,
   generateToken,
   verifyToken,
   logAuth,
-  JWT_SECRETS // Export pour les tests si nécessaire
+  JWT_SECRETS,
+  AGENT_PRIVATE_KEY,
 };
