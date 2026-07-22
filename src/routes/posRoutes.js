@@ -409,6 +409,10 @@ router.get('/agent/historique', requireAgent, async (req, res) => {
     if (req.query.dateStart) baseQuery.createdAt = { $gte: new Date(req.query.dateStart) };
     if (req.query.dateEnd)   baseQuery.createdAt = { ...baseQuery.createdAt, $lte: new Date(req.query.dateEnd) };
 
+    console.log('[historique-agent] agentId:', agentId, '| sellerId:', sellerId);
+    console.log('[historique-agent] dateStart:', req.query.dateStart, '| dateEnd:', req.query.dateEnd);
+    console.log('[historique-agent] baseQuery:', JSON.stringify(baseQuery));
+
     const query = { ...baseQuery };
     if (req.query.statut) query.statut = req.query.statut;
 
@@ -416,6 +420,8 @@ router.get('/agent/historique', requireAgent, async (req, res) => {
       VenteDirecte.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit),
       VenteDirecte.countDocuments(query),
     ]);
+
+    console.log('[historique-agent] find total:', total, '| ventes count:', ventes.length);
 
     const pages   = Math.ceil(total / limit);
     const hasNext = page < pages;
@@ -451,6 +457,8 @@ router.get('/agent/historique', requireAgent, async (req, res) => {
         VenteDirecte.countDocuments({ ...baseQuery, statut: 'ANNULEE' }),
       ]);
       const s = statsAgg[0] || {};
+      console.log('[historique-agent] statsAgg raw:', JSON.stringify(statsAgg));
+      console.log('[historique-agent] annulCount:', annulCount);
       stats = {
         totalCA:           s.totalCA      || 0,
         nombreVentes:      s.nombreVentes || 0,
@@ -460,6 +468,7 @@ router.get('/agent/historique', requireAgent, async (req, res) => {
         nombreAnnulations: annulCount     || 0,
         topArticles:       topArticlesAgg,
       };
+      console.log('[historique-agent] stats calculées:', JSON.stringify(stats));
     }
 
     res.json({
