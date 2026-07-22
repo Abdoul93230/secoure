@@ -398,8 +398,9 @@ router.get('/access-check/:sellerId', async (req, res) => {
 router.get('/agent/historique', requireAgent, async (req, res) => {
   try {
     const { Types } = mongoose;
-    const agentId  = Types.ObjectId.isValid(req.agent.id)      ? new Types.ObjectId(req.agent.id)      : req.agent.id;
-    const sellerId = Types.ObjectId.isValid(req.agent.storeId) ? new Types.ObjectId(req.agent.storeId) : req.agent.storeId;
+    // sellerId est stocké comme String dans VenteDirecte — ne pas convertir en ObjectId
+    const agentId  = Types.ObjectId.isValid(req.agent.id) ? new Types.ObjectId(req.agent.id) : req.agent.id;
+    const sellerId = String(req.agent.storeId);
 
     const page  = parseInt(req.query.page)  || 1;
     const limit = parseInt(req.query.limit) || 20;
@@ -543,8 +544,8 @@ router.post('/agent/annuler/:reference', requireAgent, async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/seller/agents-stats', requireSeller, async (req, res) => {
   try {
-    const { Types } = mongoose;
-    const sellerId = Types.ObjectId.isValid(req.user.id) ? new Types.ObjectId(req.user.id) : req.user.id;
+    // sellerId est stocké comme String dans VenteDirecte — ne pas convertir en ObjectId
+    const sellerId = String(req.user.id);
 
     const baseQuery = { sellerId };
     if (req.query.dateStart) baseQuery.createdAt = { $gte: new Date(req.query.dateStart) };
