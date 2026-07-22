@@ -5,7 +5,7 @@ const jwt = require('jsonwebtoken');
 const VenteDirecte = require('../models/VenteDirecte');
 const StockService = require('../services/stockService');
 const SUBSCRIPTION_CONFIG = require('../config/subscriptionConfig');
-const { AGENT_PRIVATE_KEY, requireAgent } = require('../middleware/auth');
+const { AGENT_PRIVATE_KEY, requireAgent, requireSeller } = require('../middleware/auth');
 
 // Plans autorisés à utiliser la caisse POS
 const POS_ALLOWED_PLANS = ['Pro', 'Business'];
@@ -397,14 +397,18 @@ router.get('/access-check/:sellerId', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/agent/historique', requireAgent, async (req, res) => {
   try {
-    const agentId   = req.agent.id;
-    const sellerId  = req.agent.storeId;
+    const agentId  = req.agent.id;
+    const sellerId = req.agent.storeId;
 
     const page  = parseInt(req.query.page)  || 1;
     const limit = parseInt(req.query.limit) || 20;
     const skip  = (page - 1) * limit;
 
-    const query = { sellerId, agentId };
+    const baseQuery = { sellerId, agentId };
+    if (req.query.dateStart) baseQuery.createdAt = { $gte: new Date(req.query.dateStart) };
+    if (req.query.dateEnd)   baseQuery.createdAt = { ...baseQuery.createdAt, $lte: new Date(req.query.dateEnd) };
+
+    const query = { ...baseQuery };
     if (req.query.statut) query.statut = req.query.statut;
 
     const [ventes, total] = await Promise.all([
@@ -415,12 +419,51 @@ router.get('/agent/historique', requireAgent, async (req, res) => {
     const pages   = Math.ceil(total / limit);
     const hasNext = page < pages;
 
+    // Stats calculées sur toute la période (page 1 seulement — même pattern que /historique/:sellerId)
+    let stats = null;
+    if (page === 1) {
+      const [statsAgg, topArticlesAgg, annulCount] = await Promise.all([
+        VenteDirecte.aggregate([
+          { $match: { ...baseQuery, statut: 'COMPLETEE' } },
+          { $group: {
+            _id: null,
+            totalCA:      { $sum: '$total' },
+            nombreVentes: { $sum: 1 },
+            totalEspeces: { $sum: { $cond: [{ $eq: ['$modePaiement', 'ESPECES'] },      '$total', 0] } },
+            totalMobile:  { $sum: { $cond: [{ $eq: ['$modePaiement', 'MOBILE_MONEY'] }, '$total', 0] } },
+            panierMoyen:  { $avg: '$total' },
+          }},
+        ]),
+        VenteDirecte.aggregate([
+          { $match: { ...baseQuery, statut: 'COMPLETEE' } },
+          { $unwind: '$lignes' },
+          { $group: {
+            _id:   '$lignes.nom',
+            image: { $first: '$lignes.image' },
+            qte:   { $sum: '$lignes.quantite' },
+            ca:    { $sum: '$lignes.sousTotal' },
+          }},
+          { $sort: { ca: -1 } },
+          { $limit: 5 },
+          { $project: { _id: 0, nom: '$_id', image: 1, qte: 1, ca: 1 } },
+        ]),
+        VenteDirecte.countDocuments({ ...baseQuery, statut: 'ANNULEE' }),
+      ]);
+      const s = statsAgg[0] || {};
+      stats = {
+        totalCA:           s.totalCA      || 0,
+        nombreVentes:      s.nombreVentes || 0,
+        totalEspeces:      s.totalEspeces || 0,
+        totalMobile:       s.totalMobile  || 0,
+        panierMoyen:       s.panierMoyen  ? Math.round(s.panierMoyen) : 0,
+        nombreAnnulations: annulCount     || 0,
+        topArticles:       topArticlesAgg,
+      };
+    }
+
     res.json({
       success: true,
-      data: {
-        ventes,
-        pagination: { page, limit, total, pages, hasNext },
-      },
+      data: { ventes, pagination: { page, limit, total, pages, hasNext }, stats },
     });
   } catch (err) {
     console.error('❌ Erreur historique agent POS:', err);
@@ -480,6 +523,102 @@ router.post('/agent/annuler/:reference', requireAgent, async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   } finally {
     session.endSession();
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/pos/seller/agents-stats
+// Performances de tous les agents de la boutique — visible par le seller
+// Query params : dateStart, dateEnd (ISO strings)
+// ─────────────────────────────────────────────────────────────────────────────
+router.get('/seller/agents-stats', requireSeller, async (req, res) => {
+  try {
+    const sellerId = req.user.id;
+
+    const baseQuery = { sellerId };
+    if (req.query.dateStart) baseQuery.createdAt = { $gte: new Date(req.query.dateStart) };
+    if (req.query.dateEnd)   baseQuery.createdAt = { ...baseQuery.createdAt, $lte: new Date(req.query.dateEnd) };
+
+    // Stats globales boutique POS
+    const [globalStats, agentStats, topArticles] = await Promise.all([
+      VenteDirecte.aggregate([
+        { $match: { ...baseQuery, statut: 'COMPLETEE' } },
+        { $group: {
+          _id: null,
+          totalCA:      { $sum: '$total' },
+          nombreVentes: { $sum: 1 },
+          totalEspeces: { $sum: { $cond: [{ $eq: ['$modePaiement', 'ESPECES'] },      '$total', 0] } },
+          totalMobile:  { $sum: { $cond: [{ $eq: ['$modePaiement', 'MOBILE_MONEY'] }, '$total', 0] } },
+          panierMoyen:  { $avg: '$total' },
+        }},
+      ]),
+      // Stats par agent
+      VenteDirecte.aggregate([
+        { $match: { ...baseQuery, agentId: { $exists: true, $ne: null } } },
+        { $group: {
+          _id:           '$agentId',
+          totalCA:       { $sum: { $cond: [{ $eq: ['$statut', 'COMPLETEE'] }, '$total', 0] } },
+          nombreVentes:  { $sum: { $cond: [{ $eq: ['$statut', 'COMPLETEE'] }, 1, 0] } },
+          nombreAnnul:   { $sum: { $cond: [{ $eq: ['$statut', 'ANNULEE']   }, 1, 0] } },
+          panierMoyen:   { $avg: { $cond: [{ $eq: ['$statut', 'COMPLETEE'] }, '$total', null] } },
+          totalEspeces:  { $sum: { $cond: [{ $and: [{ $eq: ['$statut', 'COMPLETEE'] }, { $eq: ['$modePaiement', 'ESPECES'] }] },      '$total', 0] } },
+          totalMobile:   { $sum: { $cond: [{ $and: [{ $eq: ['$statut', 'COMPLETEE'] }, { $eq: ['$modePaiement', 'MOBILE_MONEY'] }] }, '$total', 0] } },
+          derniereVente: { $max: '$createdAt' },
+        }},
+      ]),
+      // Top 5 articles toute boutique
+      VenteDirecte.aggregate([
+        { $match: { ...baseQuery, statut: 'COMPLETEE' } },
+        { $unwind: '$lignes' },
+        { $group: { _id: '$lignes.nom', image: { $first: '$lignes.image' }, qte: { $sum: '$lignes.quantite' }, ca: { $sum: '$lignes.sousTotal' } } },
+        { $sort: { ca: -1 } }, { $limit: 5 },
+        { $project: { _id: 0, nom: '$_id', image: 1, qte: 1, ca: 1 } },
+      ]),
+    ]);
+
+    // Récupère les infos des agents (nom, téléphone) depuis SellerAgent
+    const { SellerAgent } = require('../Models');
+    const agentIds = agentStats.map(a => a._id).filter(Boolean);
+    const agents = agentIds.length
+      ? await SellerAgent.find({ _id: { $in: agentIds } }).select('name phone isActive').lean()
+      : [];
+    const agentMap = Object.fromEntries(agents.map(a => [String(a._id), a]));
+
+    const agentsFormatted = agentStats.map(a => ({
+      agentId:      String(a._id),
+      nom:          agentMap[String(a._id)]?.name  || 'Agent inconnu',
+      telephone:    agentMap[String(a._id)]?.phone || '',
+      isActive:     agentMap[String(a._id)]?.isActive ?? false,
+      totalCA:      a.totalCA      || 0,
+      nombreVentes: a.nombreVentes || 0,
+      nombreAnnul:  a.nombreAnnul  || 0,
+      panierMoyen:  a.panierMoyen  ? Math.round(a.panierMoyen) : 0,
+      totalEspeces: a.totalEspeces || 0,
+      totalMobile:  a.totalMobile  || 0,
+      derniereVente: a.derniereVente || null,
+    })).sort((a, b) => b.totalCA - a.totalCA); // tri par CA décroissant
+
+    const annulCount = await VenteDirecte.countDocuments({ ...baseQuery, statut: 'ANNULEE' });
+    const g = globalStats[0] || {};
+
+    res.json({
+      success: true,
+      data: {
+        global: {
+          totalCA:           g.totalCA      || 0,
+          nombreVentes:      g.nombreVentes || 0,
+          totalEspeces:      g.totalEspeces || 0,
+          totalMobile:       g.totalMobile  || 0,
+          panierMoyen:       g.panierMoyen  ? Math.round(g.panierMoyen) : 0,
+          nombreAnnulations: annulCount     || 0,
+          topArticles,
+        },
+        agents: agentsFormatted,
+      },
+    });
+  } catch (err) {
+    console.error('❌ Erreur agents-stats POS:', err);
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
