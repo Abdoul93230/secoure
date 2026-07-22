@@ -410,66 +410,67 @@ router.get('/agent/historique', requireAgent, async (req, res) => {
     if (req.query.dateStart) baseQuery.createdAt = { $gte: new Date(req.query.dateStart) };
     if (req.query.dateEnd)   baseQuery.createdAt = { ...baseQuery.createdAt, $lte: new Date(req.query.dateEnd) };
 
-    console.log('[historique-agent] agentId:', agentId, '| sellerId:', sellerId);
-    console.log('[historique-agent] dateStart:', req.query.dateStart, '| dateEnd:', req.query.dateEnd);
-    console.log('[historique-agent] baseQuery:', JSON.stringify(baseQuery));
-
     const query = { ...baseQuery };
     if (req.query.statut) query.statut = req.query.statut;
 
-    const [ventes, total] = await Promise.all([
-      VenteDirecte.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit),
+    // Ventes paginées + total en parallèle avec les stats (page 1 seulement)
+    const [ventes, total, facetResult] = await Promise.all([
+      VenteDirecte.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
       VenteDirecte.countDocuments(query),
+      page === 1
+        ? VenteDirecte.aggregate([
+            { $match: baseQuery },
+            { $facet: {
+              completees: [
+                { $match: { statut: 'COMPLETEE' } },
+                { $group: {
+                  _id:          null,
+                  totalCA:      { $sum: '$total' },
+                  nombreVentes: { $sum: 1 },
+                  totalEspeces: { $sum: { $cond: [{ $eq: ['$modePaiement', 'ESPECES'] },      '$total', 0] } },
+                  totalMobile:  { $sum: { $cond: [{ $eq: ['$modePaiement', 'MOBILE_MONEY'] }, '$total', 0] } },
+                  panierMoyen:  { $avg: '$total' },
+                }},
+              ],
+              topArticles: [
+                { $match: { statut: 'COMPLETEE' } },
+                { $unwind: '$lignes' },
+                { $group: {
+                  _id:   '$lignes.nom',
+                  image: { $first: '$lignes.image' },
+                  qte:   { $sum: '$lignes.quantite' },
+                  ca:    { $sum: '$lignes.sousTotal' },
+                }},
+                { $sort: { ca: -1 } },
+                { $limit: 5 },
+                { $project: { _id: 0, nom: '$_id', image: 1, qte: 1, ca: 1 } },
+              ],
+              annulees: [
+                { $match: { statut: 'ANNULEE' } },
+                { $count: 'count' },
+              ],
+            }},
+          ])
+        : Promise.resolve(null),
     ]);
-
-    console.log('[historique-agent] find total:', total, '| ventes count:', ventes.length);
 
     const pages   = Math.ceil(total / limit);
     const hasNext = page < pages;
 
-    // Stats calculées sur toute la période (page 1 seulement — même pattern que /historique/:sellerId)
     let stats = null;
-    if (page === 1) {
-      const [statsAgg, topArticlesAgg, annulCount] = await Promise.all([
-        VenteDirecte.aggregate([
-          { $match: { ...baseQuery, statut: 'COMPLETEE' } },
-          { $group: {
-            _id: null,
-            totalCA:      { $sum: '$total' },
-            nombreVentes: { $sum: 1 },
-            totalEspeces: { $sum: { $cond: [{ $eq: ['$modePaiement', 'ESPECES'] },      '$total', 0] } },
-            totalMobile:  { $sum: { $cond: [{ $eq: ['$modePaiement', 'MOBILE_MONEY'] }, '$total', 0] } },
-            panierMoyen:  { $avg: '$total' },
-          }},
-        ]),
-        VenteDirecte.aggregate([
-          { $match: { ...baseQuery, statut: 'COMPLETEE' } },
-          { $unwind: '$lignes' },
-          { $group: {
-            _id:   '$lignes.nom',
-            image: { $first: '$lignes.image' },
-            qte:   { $sum: '$lignes.quantite' },
-            ca:    { $sum: '$lignes.sousTotal' },
-          }},
-          { $sort: { ca: -1 } },
-          { $limit: 5 },
-          { $project: { _id: 0, nom: '$_id', image: 1, qte: 1, ca: 1 } },
-        ]),
-        VenteDirecte.countDocuments({ ...baseQuery, statut: 'ANNULEE' }),
-      ]);
-      const s = statsAgg[0] || {};
-      console.log('[historique-agent] statsAgg raw:', JSON.stringify(statsAgg));
-      console.log('[historique-agent] annulCount:', annulCount);
+    if (page === 1 && facetResult) {
+      const f  = facetResult[0] || {};
+      const s  = (f.completees || [])[0] || {};
+      const annulCount = (f.annulees || [])[0]?.count || 0;
       stats = {
         totalCA:           s.totalCA      || 0,
         nombreVentes:      s.nombreVentes || 0,
         totalEspeces:      s.totalEspeces || 0,
         totalMobile:       s.totalMobile  || 0,
         panierMoyen:       s.panierMoyen  ? Math.round(s.panierMoyen) : 0,
-        nombreAnnulations: annulCount     || 0,
-        topArticles:       topArticlesAgg,
+        nombreAnnulations: annulCount,
+        topArticles:       f.topArticles  || [],
       };
-      console.log('[historique-agent] stats calculées:', JSON.stringify(stats));
     }
 
     res.json({
