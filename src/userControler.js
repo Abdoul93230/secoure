@@ -2253,6 +2253,18 @@ const updateCommanderef = async (req, res) => {
       return res.status(400).json({ message: `Statut de paiement invalide: ${data.statusPayment}` });
     }
 
+    // ── Fallback: si la commande n'existe pas, créer plutôt que mettre à jour ──
+    const existingCheck = await Commande.findOne({ reference: data.oldReference }).lean();
+    if (!existingCheck) {
+      console.warn(`⚠️ Commande introuvable (ref: "${data.oldReference}") — bascule vers createCommande`);
+      session._sessionClosed = true;
+      await session.endSession();
+      // Utiliser la nouvelle référence comme référence de la commande créée
+      if (data.newReference) data.reference = data.newReference;
+      return createCommande(req, res);
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     // ── Security: recalculate amounts from DB ─────────────────────────────────
     let serverSubtotal, serverShipping, serverShippingByStore, serverProd;
     try {
@@ -2296,11 +2308,11 @@ const updateCommanderef = async (req, res) => {
         statusPayment,
       } = req.body;
 
-      // Vérifier que la commande existe avec l'ancienne référence
+      // La commande a déjà été vérifiée avant la transaction — on re-fetch dans la session
       const commande = await Commande.findOne({ reference: oldReference }).session(session);
       if (!commande) {
-        console.error("Commande non trouvée pour la référence:", oldReference);
-        throw new Error("Commande non trouvée");
+        // Cas de race condition extrêmement rare : la commande a disparu entre le check et la transaction
+        throw new Error("Commande introuvable (race condition)");
       }
 
       // Sauvegarder l'ancien état des produits pour la gestion du stock
@@ -2528,7 +2540,7 @@ const updateCommanderef = async (req, res) => {
       error: error.message,
     });
   } finally {
-    await session.endSession();
+    if (!session._sessionClosed) await session.endSession();
   }
 };
 
