@@ -635,4 +635,105 @@ router.get('/seller/agents-stats', requireSeller, async (req, res) => {
   }
 });
 
+// GET /api/pos/seller/agents-stats/all-periods
+// Toutes les périodes en un seul appel — agents fetched une fois, agrégations en parallèle
+router.get('/seller/agents-stats/all-periods', requireSeller, async (req, res) => {
+  try {
+    const sellerId = String(req.user.id);
+    const { SellerAgent } = require('../Models');
+
+    const PERIODS = { '1': 1, '7': 7, '30': 30, '90': 90 };
+
+    // Agents fetched une seule fois
+    const buildRange = (days) => {
+      const end   = new Date(); end.setHours(23, 59, 59, 999);
+      const start = new Date(); start.setDate(start.getDate() - (days - 1)); start.setHours(0, 0, 0, 0);
+      return { $gte: start, $lte: end };
+    };
+
+    const computePeriod = async (days) => {
+      const createdAt   = buildRange(days);
+      const baseQuery   = { sellerId, createdAt };
+
+      const [globalStats, agentStats, topArticles, annulCount] = await Promise.all([
+        VenteDirecte.aggregate([
+          { $match: { ...baseQuery, statut: 'COMPLETEE' } },
+          { $group: { _id: null, totalCA: { $sum: '$total' }, nombreVentes: { $sum: 1 },
+              totalEspeces: { $sum: { $cond: [{ $eq: ['$modePaiement', 'ESPECES'] },      '$total', 0] } },
+              totalMobile:  { $sum: { $cond: [{ $eq: ['$modePaiement', 'MOBILE_MONEY'] }, '$total', 0] } },
+              panierMoyen:  { $avg: '$total' } } },
+        ]),
+        VenteDirecte.aggregate([
+          { $match: { ...baseQuery, agentId: { $exists: true, $ne: null } } },
+          { $group: { _id: '$agentId',
+              totalCA:       { $sum: { $cond: [{ $eq: ['$statut', 'COMPLETEE'] }, '$total', 0] } },
+              nombreVentes:  { $sum: { $cond: [{ $eq: ['$statut', 'COMPLETEE'] }, 1, 0] } },
+              nombreAnnul:   { $sum: { $cond: [{ $eq: ['$statut', 'ANNULEE']   }, 1, 0] } },
+              panierMoyen:   { $avg: { $cond: [{ $eq: ['$statut', 'COMPLETEE'] }, '$total', null] } },
+              totalEspeces:  { $sum: { $cond: [{ $and: [{ $eq: ['$statut', 'COMPLETEE'] }, { $eq: ['$modePaiement', 'ESPECES'] }] },      '$total', 0] } },
+              totalMobile:   { $sum: { $cond: [{ $and: [{ $eq: ['$statut', 'COMPLETEE'] }, { $eq: ['$modePaiement', 'MOBILE_MONEY'] }] }, '$total', 0] } },
+              derniereVente: { $max: '$createdAt' } } },
+        ]),
+        VenteDirecte.aggregate([
+          { $match: { ...baseQuery, statut: 'COMPLETEE' } },
+          { $unwind: '$lignes' },
+          { $group: { _id: '$lignes.nom', image: { $first: '$lignes.image' }, qte: { $sum: '$lignes.quantite' }, ca: { $sum: '$lignes.sousTotal' } } },
+          { $sort: { ca: -1 } }, { $limit: 5 },
+          { $project: { _id: 0, nom: '$_id', image: 1, qte: 1, ca: 1 } },
+        ]),
+        VenteDirecte.countDocuments({ ...baseQuery, statut: 'ANNULEE' }),
+      ]);
+
+      return { globalStats, agentStats, topArticles, annulCount };
+    };
+
+    // Fetch agents + toutes périodes en parallèle
+    const periodKeys = Object.keys(PERIODS);
+    const [agentDocs, ...periodResults] = await Promise.all([
+      SellerAgent.find({ sellerId }).select('name phone isActive').lean(),
+      ...periodKeys.map(k => computePeriod(PERIODS[k])),
+    ]);
+
+    const agentMap = Object.fromEntries(agentDocs.map(a => [String(a._id), a]));
+
+    const formatPeriod = ({ globalStats, agentStats, topArticles, annulCount }) => {
+      const g = globalStats[0] || {};
+      const agents = agentStats.map(a => ({
+        agentId:      String(a._id),
+        nom:          agentMap[String(a._id)]?.name  || 'Agent inconnu',
+        telephone:    agentMap[String(a._id)]?.phone || '',
+        isActive:     agentMap[String(a._id)]?.isActive ?? false,
+        totalCA:      a.totalCA      || 0,
+        nombreVentes: a.nombreVentes || 0,
+        nombreAnnul:  a.nombreAnnul  || 0,
+        panierMoyen:  a.panierMoyen  ? Math.round(a.panierMoyen) : 0,
+        totalEspeces: a.totalEspeces || 0,
+        totalMobile:  a.totalMobile  || 0,
+        derniereVente: a.derniereVente || null,
+      })).sort((a, b) => b.totalCA - a.totalCA);
+
+      return {
+        global: {
+          totalCA:           g.totalCA      || 0,
+          nombreVentes:      g.nombreVentes || 0,
+          totalEspeces:      g.totalEspeces || 0,
+          totalMobile:       g.totalMobile  || 0,
+          panierMoyen:       g.panierMoyen  ? Math.round(g.panierMoyen) : 0,
+          nombreAnnulations: annulCount     || 0,
+          topArticles,
+        },
+        agents,
+      };
+    };
+
+    const byPeriod = {};
+    periodKeys.forEach((k, i) => { byPeriod[PERIODS[k]] = formatPeriod(periodResults[i]); });
+
+    res.json({ success: true, data: byPeriod });
+  } catch (err) {
+    console.error('❌ Erreur agents-stats all-periods:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 module.exports = router;
