@@ -107,6 +107,21 @@ const getPerformance = async (req, res) => {
     const totalViews = allProduits.reduce((s, p) => s + (p.views || 0), 0);
     const totalFavorites = allProduits.reduce((s, p) => s + (p.favorites || 0), 0);
 
+    // Ventilation POS / marketplace à partir des entrées prodMap
+    let posChiffre = 0, posQuantite = 0, mkChiffre = 0, mkQuantite = 0;
+    for (const vente of posVentes) {
+      for (const ligne of vente.lignes || []) {
+        posQuantite += ligne.quantite;
+        posChiffre  += ligne.sousTotal || ligne.prixUnitaire * ligne.quantite;
+      }
+    }
+    for (const txn of txns) {
+      for (const p of txn.metadata?.produits || []) {
+        mkQuantite += p.quantite || 1;
+        mkChiffre  += p.montant || 0;
+      }
+    }
+
     const topVues = [...allProduits]
       .filter(p => (p.views || 0) > 0)
       .sort((a, b) => (b.views || 0) - (a.views || 0))
@@ -123,7 +138,12 @@ const getPerformance = async (req, res) => {
       status: 'success',
       data: {
         periode: { jours: days, depuis: since.toISOString(), jusqua: until.toISOString() },
-        totaux: { quantite: totalVentes, chiffre: totalChiffre, produitsActifs: produits.length, views: totalViews, favorites: totalFavorites },
+        totaux: {
+          quantite: totalVentes, chiffre: totalChiffre, produitsActifs: produits.length,
+          views: totalViews, favorites: totalFavorites,
+          pos:         { chiffre: posChiffre, quantite: posQuantite },
+          marketplace: { chiffre: mkChiffre,  quantite: mkQuantite  },
+        },
         topVentes,
         topChiffre,
         dormants,
