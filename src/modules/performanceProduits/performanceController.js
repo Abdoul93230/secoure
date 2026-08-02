@@ -87,15 +87,17 @@ const getPerformance = async (req, res) => {
       Clefournisseur: sellerId,
       'shipping.isDeleted': { $ne: true },
     })
-      .select('_id name pictures quantite views favorites')
+      .select('_id name pictures image1 quantite views favorites')
       .lean();
+
+    const getImage = p => p.pictures?.[0] || p.image1 || null;
 
     const dormants = allProduits
       .filter(p => !activeProduitIds.has(String(p._id)))
       .map(p => ({
         id: p._id,
         nom: p.name,
-        image: p.pictures?.[0] || null,
+        image: getImage(p),
         stock: p.quantite,
       }))
       .slice(0, 20);
@@ -109,13 +111,13 @@ const getPerformance = async (req, res) => {
       .filter(p => (p.views || 0) > 0)
       .sort((a, b) => (b.views || 0) - (a.views || 0))
       .slice(0, 10)
-      .map(p => ({ id: p._id, nom: p.name, image: p.pictures?.[0] || null, views: p.views || 0, favorites: p.favorites || 0 }));
+      .map(p => ({ id: p._id, nom: p.name, image: getImage(p), views: p.views || 0, favorites: p.favorites || 0 }));
 
     const topFavoris = [...allProduits]
       .filter(p => (p.favorites || 0) > 0)
       .sort((a, b) => (b.favorites || 0) - (a.favorites || 0))
       .slice(0, 10)
-      .map(p => ({ id: p._id, nom: p.name, image: p.pictures?.[0] || null, views: p.views || 0, favorites: p.favorites || 0 }));
+      .map(p => ({ id: p._id, nom: p.name, image: getImage(p), views: p.views || 0, favorites: p.favorites || 0 }));
 
     return res.json({
       status: 'success',
