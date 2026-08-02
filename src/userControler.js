@@ -498,11 +498,7 @@ const createCommande = async (req, res) => {
       const clientShipping = data.fraisLivraison || 0;
       const shippingDiff = Math.abs(serverShipping - clientShipping);
       if (shippingDiff > 50) {
-        console.warn(`⚠️ Écart frais livraison: client=${clientShipping} server=${serverShipping}`);
-        return res.status(400).json({
-          message: `Écart de frais de livraison détecté. Veuillez actualiser votre panier.`,
-          serverShipping,
-        });
+        console.warn(`⚠️ Écart frais livraison corrigé: client=${clientShipping} → server=${serverShipping}`);
       }
     }
     // ─────────────────────────────────────────────────────────────────────────
@@ -519,7 +515,8 @@ const createCommande = async (req, res) => {
 
       // 2. Traiter le code promo via le nouveau système centralisé
       let subtotal = serverSubtotal; // Utiliser le montant recalculé depuis la DB
-      let shipping = data.fraisLivraison || 0; // Valeur client validée (écart < 50 FCFA vérifié avant)
+      // Shipping : utiliser le montant recalculé par le serveur s'il est disponible
+      let shipping = serverShipping !== null ? serverShipping : (data.fraisLivraison || 0);
       let finalPrice = subtotal + shipping;
       let finalReduction = data.reduction || 0;
       
@@ -2291,11 +2288,7 @@ const updateCommanderef = async (req, res) => {
       const clientShipping = data.fraisLivraison || 0;
       const shippingDiff = Math.abs(serverShipping - clientShipping);
       if (shippingDiff > 50) {
-        console.warn(`⚠️ Écart livraison relance: client=${clientShipping} server=${serverShipping}`);
-        return res.status(400).json({
-          message: `Écart de frais de livraison détecté. Veuillez actualiser votre panier.`,
-          serverShipping,
-        });
+        console.warn(`⚠️ Écart livraison relance corrigé: client=${clientShipping} → server=${serverShipping}`);
       }
     }
     // ─────────────────────────────────────────────────────────────────────────
@@ -2326,7 +2319,8 @@ const updateCommanderef = async (req, res) => {
 
       // 2. Traiter le code promo pour la mise à jour (utiliser les montants recalculés en DB)
       let subtotal = serverSubtotal;
-      let shipping = data.fraisLivraison || 0; // Valeur client validée (écart < 50 FCFA vérifié avant)
+      // Shipping : utiliser le montant recalculé par le serveur s'il est disponible
+      let shipping = serverShipping !== null ? serverShipping : (data.fraisLivraison || 0);
       let finalPrice = subtotal + shipping;
       let finalReduction = data.reduction || 0;
 
