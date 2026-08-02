@@ -87,7 +87,7 @@ const getPerformance = async (req, res) => {
       Clefournisseur: sellerId,
       'shipping.isDeleted': { $ne: true },
     })
-      .select('_id name pictures quantite')
+      .select('_id name pictures quantite views favorites')
       .lean();
 
     const dormants = allProduits
@@ -102,15 +102,31 @@ const getPerformance = async (req, res) => {
 
     const totalVentes = produits.reduce((s, p) => s + p.quantite, 0);
     const totalChiffre = produits.reduce((s, p) => s + p.chiffre, 0);
+    const totalViews = allProduits.reduce((s, p) => s + (p.views || 0), 0);
+    const totalFavorites = allProduits.reduce((s, p) => s + (p.favorites || 0), 0);
+
+    const topVues = [...allProduits]
+      .filter(p => (p.views || 0) > 0)
+      .sort((a, b) => (b.views || 0) - (a.views || 0))
+      .slice(0, 10)
+      .map(p => ({ id: p._id, nom: p.name, image: p.pictures?.[0] || null, views: p.views || 0, favorites: p.favorites || 0 }));
+
+    const topFavoris = [...allProduits]
+      .filter(p => (p.favorites || 0) > 0)
+      .sort((a, b) => (b.favorites || 0) - (a.favorites || 0))
+      .slice(0, 10)
+      .map(p => ({ id: p._id, nom: p.name, image: p.pictures?.[0] || null, views: p.views || 0, favorites: p.favorites || 0 }));
 
     return res.json({
       status: 'success',
       data: {
         periode: { jours: days, depuis: since.toISOString(), jusqua: until.toISOString() },
-        totaux: { quantite: totalVentes, chiffre: totalChiffre, produitsActifs: produits.length },
+        totaux: { quantite: totalVentes, chiffre: totalChiffre, produitsActifs: produits.length, views: totalViews, favorites: totalFavorites },
         topVentes,
         topChiffre,
         dormants,
+        topVues,
+        topFavoris,
       },
     });
   } catch (err) {
