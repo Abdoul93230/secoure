@@ -60,12 +60,30 @@ const getProductById = handleAsyncError(async (req, res) => {
 const getProductByIdAdmin = handleAsyncError(async (req, res) => {
   const { productId } = req.params;
   const product = await productService.getProductByIdAdmin(productId);
-  
+
   if (!product) {
     return res.status(404).json({ message: "Produit non trouvé" });
   }
-  
+
   res.json({ message: "Produit trouvé", data: product });
+});
+
+// Incrémente le compteur de vues — appelé côté client uniquement
+const trackProductView = handleAsyncError(async (req, res) => {
+  const { Produit } = require('./Models');
+  const { productId } = req.params;
+
+  if (!mongoose.Types.ObjectId.isValid(productId)) {
+    return res.status(400).json({ message: "ID invalide" });
+  }
+
+  await Produit.findByIdAndUpdate(
+    productId,
+    { $inc: { views: 1 } },
+    { new: false } // pas besoin du doc retourné, perf optimisée
+  );
+
+  res.json({ success: true });
 });
 
 // const createProduct = handleAsyncError(async (req, res) => {
@@ -1656,6 +1674,7 @@ module.exports = {
   getHomeFeed,
   getProductById,
   getProductByIdAdmin,
+  trackProductView,
   createProduct,
   updateProduct,
   updateProduct2,

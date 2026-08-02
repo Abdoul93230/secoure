@@ -521,6 +521,9 @@ const produitSchema = new mongoose.Schema(
       hiddenAt: { type: Date, default: null },
       restoredAt: { type: Date, default: null },
     },
+    // Statistiques de consultation
+    views: { type: Number, default: 0 },
+    favorites: { type: Number, default: 0 },
   },
   { strict: false }
 );

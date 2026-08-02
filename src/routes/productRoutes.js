@@ -38,6 +38,9 @@ router.put('/products/bulk-validate', middelware.authAdmin, productControler.bul
 router.get('/products/missing-type/:sellerId', middelware.authAdmin, productControler.countProductsWithoutType);
 router.put('/products/admin-bulk-update', middelware.authAdmin, productControler.adminBulkUpdateProducts);
 
+// Product view tracking (public — clients uniquement)
+router.post('/productView/:productId', productControler.trackProductView);
+
 // Product pub
 router.get('/productPubget', productControler.productPubget);
 router.post('/productPubCreate', middelware.upload.single('image'), productControler.productPubCreate);
