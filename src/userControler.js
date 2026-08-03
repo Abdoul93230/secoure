@@ -2697,6 +2697,41 @@ const updateEtatTraitement = async (req, res) => {
       }
     }
 
+    // Sync statusLivraison quand livré
+    if (nouvelEtat === "livré") {
+      await Commande.findByIdAndUpdate(commandeId, { statusLivraison: "livré" });
+    }
+    if (nouvelEtat === "annulé") {
+      await Commande.findByIdAndUpdate(commandeId, { statusLivraison: "annulé" });
+    }
+
+    // Notification push buyer
+    if (updatedOrder.clefUser) {
+      try {
+        const buyer = await User.findById(updatedOrder.clefUser).select('pushToken').lean();
+        if (buyer?.pushToken && Expo.isExpoPushToken(buyer.pushToken)) {
+          const labelMap = {
+            "traitement": "Votre commande est en traitement",
+            "reçu par le livreur": "Votre commande a été remise au livreur",
+            "en cours de livraison": "Votre commande est en cours de livraison",
+            "livré": "Votre commande a été livrée",
+            "annulé": "Votre commande a été annulée",
+          };
+          const notifBody = labelMap[nouvelEtat] || `État mis à jour : ${nouvelEtat}`;
+          await expo.sendPushNotificationsAsync([{
+            to: buyer.pushToken,
+            sound: 'default',
+            title: 'Iham Baobab — Suivi commande',
+            body: notifBody,
+            data: { type: 'order_status', orderId: commandeId, etatTraitement: nouvelEtat },
+            priority: 'high',
+          }]);
+        }
+      } catch (notifErr) {
+        console.error('⚠️ Push buyer (etatTraitement):', notifErr.message);
+      }
+    }
+
     res.status(200).json({
       success: true,
       message: "État de traitement mis à jour avec succès",
