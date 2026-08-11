@@ -3,6 +3,7 @@ const jwt = require("jsonwebtoken");
 const { User, Profile } = require("../Models");
 const privateKey = require("./clef");
 const lafricaMobileSmsService = require("../services/lafricaMobileSmsService");
+const whatsappOtpService = require("../services/whatsappOtpService");
 
 const OTP_EXPIRY_MINUTES = 10;
 const OTP_COOLDOWN_SECONDS = 60;
@@ -137,6 +138,8 @@ const sendOtp = async (req, res) => {
   try {
     const rawPhone = req.body?.phone;
     const name = req.body?.name || "Utilisateur";
+    // "whatsapp" ou "sms" — défaut SMS
+    const channel = (req.body?.channel || "sms").toLowerCase();
 
     const phone = rawPhone ? normalizePhone(rawPhone) : null;
 
@@ -216,28 +219,45 @@ const sendOtp = async (req, res) => {
 
     const otpPayload = buildOtpPayload(previousOtp);
 
-    try {
-      await lafricaMobileSmsService.sendSms({
-        to: phone,
-        text: buildOtpSmsText({ code: otpPayload.code, purpose: "quick-auth" }),
-        retId: `quickauth-${Date.now()}`,
-      });
-    } catch (smsError) {
-      return res.status(502).json({
-        success: false,
-        message: "Impossible d'envoyer le code OTP par SMS",
-        error: getSmsErrorMessage(smsError),
-      });
+    if (channel === "whatsapp") {
+      try {
+        await whatsappOtpService.sendOtp(phone, otpPayload.code, OTP_EXPIRY_MINUTES);
+      } catch (waError) {
+        return res.status(502).json({
+          success: false,
+          message: "Impossible d'envoyer le code OTP par WhatsApp",
+          error: whatsappOtpService.getErrorMessage(waError),
+        });
+      }
+    } else {
+      try {
+        await lafricaMobileSmsService.sendSms({
+          to: phone,
+          text: buildOtpSmsText({ code: otpPayload.code, purpose: "quick-auth" }),
+          retId: `quickauth-${Date.now()}`,
+        });
+      } catch (smsError) {
+        return res.status(502).json({
+          success: false,
+          message: "Impossible d'envoyer le code OTP par SMS",
+          error: getSmsErrorMessage(smsError),
+        });
+      }
     }
 
+    // Mémoriser le canal pour que le resend utilise le même
+    otpPayload.channel = channel;
     user.quickAuthOtp = otpPayload;
     user.quickAuthPending = true;
     await user.save();
 
     const response = {
       success: true,
-      message: "Code OTP envoye avec succes",
+      message: channel === "whatsapp"
+        ? "Code OTP envoyé sur WhatsApp"
+        : "Code OTP envoyé par SMS",
       data: {
+        channel,
         attemptsRemaining: Math.max(0, OTP_MAX_SEND_ATTEMPTS - otpPayload.sendCount),
         cooldownSeconds: OTP_COOLDOWN_SECONDS,
         expiresInSeconds: OTP_EXPIRY_MINUTES * 60,

@@ -399,16 +399,17 @@ const recalculateOrderAmounts = async (nbrProduits, customerZoneId) => {
       name: product.name,
       prix: product.prix,
       prixPromo: product.prixPromo || 0,
-      prixSnapshot: unitPrice,       // prix effectivement appliqué
+      prixSnapshot: unitPrice,
       image1: product.image1,
       image2: product.image2,
       image3: product.image3,
       Clefournisseur: product.Clefournisseur,
+      createdBy: String(product.Clefournisseur),  // fallback string pour le groupage reorder
       description: product.description,
       categorie: product.categorie,
       poids: product.poids,
       shipping: product.shipping,
-      snapshotDate: new Date(),       // date du snapshot pour traçabilité
+      snapshotDate: new Date(),
     });
   }
 
@@ -722,9 +723,30 @@ const createCommande = async (req, res) => {
 };
 const getCommandesById = async (req, res) => {
   const id = req.params.id;
+  const { SellerRequest } = require('./Models');
 
   try {
-    const commande = await Commande.findById(id);
+    const commande = await Commande.findById(id).lean();
+
+    // Populer Clefournisseur dans chaque snapshot prod pour que le panier
+    // reorder puisse grouper par boutique et afficher le nom/logo du seller
+    if (commande?.prod?.length > 0) {
+      const sellerIds = [...new Set(
+        commande.prod.map(p => p.Clefournisseur).filter(Boolean).map(String)
+      )];
+      if (sellerIds.length > 0) {
+        const sellers = await SellerRequest.find(
+          { _id: { $in: sellerIds } },
+          { _id: 1, storeName: 1, name: 1, logo: 1, isvalid: 1 }
+        ).lean();
+        const sellerMap = new Map(sellers.map(s => [String(s._id), s]));
+        commande.prod = commande.prod.map(p => ({
+          ...p,
+          createdBy: String(p.Clefournisseur),
+          Clefournisseur: sellerMap.get(String(p.Clefournisseur)) || p.Clefournisseur,
+        }));
+      }
+    }
 
     return res.json({ commande });
   } catch (error) {
