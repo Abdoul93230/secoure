@@ -257,7 +257,7 @@ router.get('/historique/:sellerId', requirePosAccess, async (req, res) => {
     }
 
     const [ventes, total, statsAgg, topArticlesAgg, annulCount] = await Promise.all([
-      VenteDirecte.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit),
+      VenteDirecte.find(query).populate('agentId', 'name').sort({ createdAt: -1 }).skip(skip).limit(limit),
       VenteDirecte.countDocuments(query),
       VenteDirecte.aggregate([
         { $match: { ...baseQuery, statut: 'COMPLETEE' } },
