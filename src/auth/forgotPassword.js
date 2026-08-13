@@ -225,14 +225,8 @@ const forgot_password_seller = async (req, res) => {
           : 1)
       : undefined;
 
-    otpStore.set(key, {
-      otp,
-      expiresAt:      Date.now() + OTP_EXPIRY_MS,
-      sentAt:         Date.now(),
-      attempts:       0,
-      ...(sendMethod === "sms" && { smsCount, smsWindowStart }),
-    });
-
+    // Envoyer AVANT de stocker — si l'envoi échoue l'entrée n'est pas créée
+    // et l'utilisateur peut réessayer sans être bloqué par le cooldown
     if (sendMethod === "email") {
       await getTransporter().sendMail({
         from:    `"IhamBaobab" <${process.env.EMAIL_USER || process.env.MAIL_USER}>`,
@@ -244,6 +238,14 @@ const forgot_password_seller = async (req, res) => {
       const smsText = `IhamBaobab: votre code est ${otp}. Expire dans 10 min. Ne partagez jamais ce code.`;
       await lafricaSms.sendSms({ to: key, text: smsText });
     }
+
+    otpStore.set(key, {
+      otp,
+      expiresAt:      Date.now() + OTP_EXPIRY_MS,
+      sentAt:         Date.now(),
+      attempts:       0,
+      ...(sendMethod === "sms" && { smsCount, smsWindowStart }),
+    });
 
     return res.status(200).json({
       message:    sendMethod === "sms" ? "Code OTP envoyé par SMS" : "Code OTP envoyé par e-mail",

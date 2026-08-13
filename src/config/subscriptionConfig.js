@@ -12,6 +12,7 @@ const SUBSCRIPTION_CONFIG = {
     Starter: {
       name: "Starter",
       description: "Idéal pour débuter. 2 mois d'essai gratuit, aucun paiement requis.",
+      agentQuota: 0,
       pricing: {
         monthly: 2000,
         annual: 21600,   // 2000 * 12 - 10%
@@ -21,7 +22,8 @@ const SUBSCRIPTION_CONFIG = {
       commission: 3.0,   // % prélevé sur chaque vente marketplace
       productLimit: 20,
       features: {
-        pos: false,      // Caisse POS non incluse
+        pos: true,          // ✅ Caisse POS incluse pour tous les plans
+        marketplace: false, // ❌ Produits non visibles sur la marketplace
         productManagement: {
           maxProducts: 20,
           maxVariants: 3,
@@ -51,6 +53,7 @@ const SUBSCRIPTION_CONFIG = {
     Pro: {
       name: "Pro",
       description: "Pour les vendeurs réguliers. 1 mois d'essai gratuit, aucun paiement requis.",
+      agentQuota: 2,
       pricing: {
         monthly: 5000,
         annual: 54000,   // 5000 * 12 - 10%
@@ -60,7 +63,8 @@ const SUBSCRIPTION_CONFIG = {
       commission: 2.5,
       productLimit: -1,  // illimité
       features: {
-        pos: true,       // ✅ Caisse POS incluse — 0% commission sur ventes physiques
+        pos: true,          // ✅ Caisse POS incluse — 0% commission sur ventes physiques
+        marketplace: true,  // ✅ Produits visibles sur la marketplace
         productManagement: {
           maxProducts: -1,
           maxVariants: 10,
@@ -90,6 +94,7 @@ const SUBSCRIPTION_CONFIG = {
     Business: {
       name: "Business",
       description: "Pour les vendeurs établis à fort volume. 1 mois d'essai gratuit, aucun paiement requis.",
+      agentQuota: 6,
       pricing: {
         monthly: 10000,
         annual: 108000,   // 10000 * 12 - 10%
@@ -99,7 +104,8 @@ const SUBSCRIPTION_CONFIG = {
       commission: 2.0,
       productLimit: -1,
       features: {
-        pos: true,       // ✅ Caisse POS incluse — 0% commission sur ventes physiques
+        pos: true,          // ✅ Caisse POS incluse — 0% commission sur ventes physiques
+        marketplace: true,  // ✅ Produits visibles sur la marketplace
         productManagement: {
           maxProducts: -1,
           maxVariants: -1,
@@ -190,6 +196,16 @@ const SUBSCRIPTION_CONFIG = {
   hasPosAccess(planName) {
     const plan = SUBSCRIPTION_CONFIG.PLANS[planName];
     return plan ? plan.features.pos === true : false;
+  },
+
+  hasMarketplaceAccess(planName) {
+    const plan = SUBSCRIPTION_CONFIG.PLANS[planName];
+    return plan ? plan.features.marketplace === true : false;
+  },
+
+  getAgentQuota(planName) {
+    const plan = SUBSCRIPTION_CONFIG.PLANS[planName];
+    return plan ? plan.agentQuota : 0;
   },
 
   // Retourne un objet compatible avec l'ancien PLAN_DEFAULTS (price + commission + productLimit + features)

@@ -7,9 +7,6 @@ const StockService = require('../services/stockService');
 const SUBSCRIPTION_CONFIG = require('../config/subscriptionConfig');
 const { AGENT_PRIVATE_KEY, requireAgent, requireSeller } = require('../middleware/auth');
 
-// Plans autorisés à utiliser la caisse POS
-const POS_ALLOWED_PLANS = ['Pro', 'Business'];
-
 // ─── Middleware : extrait sellerId depuis token seller OU token agent ─────────
 // Pour les ventes : un caissier agent peut vendre au nom de la boutique.
 // req.resolvedSellerId est toujours l'ID de la boutique propriétaire.
@@ -41,10 +38,11 @@ async function extractPosSeller(req, res, next) {
   return next();
 }
 
-// ─── Middleware : vérifier que le seller a un plan Pro ou Business ─────────────
+// ─── Middleware : résoudre et injecter le plan du seller ──────────────────────
+// La caisse POS est disponible pour tous les plans — ce middleware injecte
+// uniquement req.sellerPlan pour usage dans les routes (commissions, etc.)
 async function requirePosAccess(req, res, next) {
   try {
-    // Si token agent → sellerId déjà résolu, sinon vient du body/params
     const sellerId = req.resolvedSellerId || req.body.sellerId || req.params.sellerId;
     if (!sellerId) return res.status(400).json({ success: false, message: 'sellerId manquant' });
 
@@ -54,7 +52,6 @@ async function requirePosAccess(req, res, next) {
 
     let planName = seller.subscription || 'Starter';
 
-    // Priorité : plan actif lié au seller
     if (seller.subscriptionId) {
       const activePlan = await PricingPlan.findOne({
         _id: seller.subscriptionId,
@@ -63,17 +60,15 @@ async function requirePosAccess(req, res, next) {
       if (activePlan) planName = activePlan.planType || planName;
     }
 
-    if (!POS_ALLOWED_PLANS.includes(planName)) {
+    if (!SUBSCRIPTION_CONFIG.hasPosAccess(planName)) {
       return res.status(403).json({
         success: false,
         posBlocked: true,
         planActuel: planName,
-        plansRequis: POS_ALLOWED_PLANS,
-        message: `La caisse POS est réservée aux plans Pro et Business. Votre plan actuel est "${planName}".`,
+        message: `La caisse POS n'est pas disponible pour le plan "${planName}".`,
       });
     }
 
-    // Injecter le plan dans la requête pour usage dans la route
     req.sellerPlan = planName;
     next();
   } catch (err) {
@@ -84,7 +79,7 @@ async function requirePosAccess(req, res, next) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/pos/vente
-// Crée une vente directe (caisse physique) — Pro & Business uniquement
+// Crée une vente directe (caisse physique) — tous les plans
 // 0% commission POS : le revenu de la plateforme vient de l'abonnement
 // ─────────────────────────────────────────────────────────────────────────────
 router.post('/vente', extractPosSeller, requirePosAccess, async (req, res) => {

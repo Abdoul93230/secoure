@@ -1322,11 +1322,11 @@ const sellerRequestSchema = new mongoose.Schema(
     },
     // Modules métier activés par l'admin
     modules: {
-      bilanJournalier:    { type: Boolean, default: false },
-      alertesStock:       { type: Boolean, default: false },
-      performanceProduits:{ type: Boolean, default: false },
-      carnetCreances:     { type: Boolean, default: false },
-      rapportPeriodique:  { type: Boolean, default: false },
+      bilanJournalier:    { type: Boolean, default: true },
+      alertesStock:       { type: Boolean, default: true },
+      performanceProduits:{ type: Boolean, default: true },
+      carnetCreances:     { type: Boolean, default: true },
+      rapportPeriodique:  { type: Boolean, default: true },
     },
     // Quota SMS pour le module CarnetCreances
     smsQuota: {
@@ -1334,6 +1334,7 @@ const sellerRequestSchema = new mongoose.Schema(
       utilise:   { type: Number, default: 0 },
       resetDate: { type: Date, default: null },
     },
+    stockAlertSeuil: { type: Number, default: 5 },
     expoPushTokens: { type: [String], default: [] },
   },
   { strict: false }

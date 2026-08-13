@@ -46,8 +46,9 @@ class ProductService {
         { isvalid: true, subscriptionStatus: { $in: ['active', 'trial'] } },
         { _id: 1 }
       ).lean(),
+      // Seuls les plans Pro et Business ont accès à la marketplace
       PricingPlan.find(
-        { status: { $in: ['active', 'trial'] }, endDate: { $gte: new Date() } },
+        { status: { $in: ['active', 'trial'] }, endDate: { $gte: new Date() }, planType: { $in: ['Pro', 'Business'] } },
         { storeId: 1 }
       ).lean()
     ]);

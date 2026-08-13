@@ -1,14 +1,17 @@
 const express = require('express');
 const router = express.Router();
-const { getAlertes, updateSeuil } = require('./alertesController');
+const { getAlertes, getSeuil, updateSeuil } = require('./alertesController');
 const requireModuleAccess = require('../../middleware/requireModuleAccess');
 
 router.use(requireModuleAccess('alertesStock'));
 
-// GET /api/modules/stock/alerts
+// GET  /api/modules/stock/alerts
 router.get('/alerts', getAlertes);
 
-// PATCH /api/modules/stock/seuil/:produitId  { seuil: 5 }
-router.patch('/seuil/:produitId', updateSeuil);
+// GET  /api/modules/stock/seuil   — seuil global actuel
+router.get('/seuil', getSeuil);
+
+// PATCH /api/modules/stock/seuil  { seuil: number }
+router.patch('/seuil', updateSeuil);
 
 module.exports = router;

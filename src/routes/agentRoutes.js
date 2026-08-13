@@ -4,10 +4,8 @@
  * Toutes les routes CRUD nécessitent requireSeller (le propriétaire de la boutique).
  * La route de login /api/agents/login est publique (retourne un token agent).
  *
- * Quota par plan :
- *   Starter  → 0 agent
- *   Pro      → 2 agents
- *   Business → 6 agents
+ * Quota par plan : défini dans subscriptionConfig.js (agentQuota)
+ *   Starter  → 0 agent  |  Pro → 2 agents  |  Business → 6 agents
  */
 const express = require('express');
 const router  = express.Router();
@@ -15,9 +13,7 @@ const bcrypt  = require('bcrypt');
 const jwt     = require('jsonwebtoken');
 const { SellerAgent, PricingPlan, SellerRequest } = require('../Models');
 const { AGENT_PRIVATE_KEY, requireSeller } = require('../middleware/auth');
-
-// Quota par plan
-const AGENT_QUOTA = { Starter: 0, Pro: 2, Business: 6 };
+const SUBSCRIPTION_CONFIG = require('../config/subscriptionConfig');
 
 // Helper : récupère le planType actif du seller
 async function getSellerPlanType(sellerId) {
@@ -49,11 +45,6 @@ router.post('/verify', async (req, res) => {
     const seller = await SellerRequest.findOne({ phone: storePhone }).select('_id storeName').lean();
     if (!seller) {
       return res.status(404).json({ success: false, message: 'Aucune boutique trouvée pour ce numéro' });
-    }
-
-    const planType = await getSellerPlanType(String(seller._id));
-    if (!['Pro', 'Business'].includes(planType)) {
-      return res.status(403).json({ success: false, message: 'Cette boutique ne dispose pas de l\'espace caissier' });
     }
 
     const agent = await SellerAgent.findOne({ storeId: seller._id, phone }).select('name isActive').lean();
@@ -110,12 +101,6 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ success: false, message: 'PIN incorrect' });
     }
 
-    // Vérifier que la boutique a bien accès au POS
-    const planType = await getSellerPlanType(resolvedStoreId);
-    if (!['Pro', 'Business'].includes(planType)) {
-      return res.status(403).json({ success: false, message: 'La boutique ne dispose pas du plan POS requis' });
-    }
-
     // Récupère le nom de la boutique pour l'afficher dans l'app agent
     const seller = await SellerRequest.findById(resolvedStoreId).select('storeName logo').lean();
 
@@ -159,7 +144,7 @@ router.get('/', requireSeller, async (req, res) => {
       .lean();
 
     const planType = await getSellerPlanType(sellerId);
-    const quota    = AGENT_QUOTA[planType] ?? 0;
+    const quota    = SUBSCRIPTION_CONFIG.getAgentQuota(planType);
     const activeCount = agents.filter(a => a.isActive).length;
 
     return res.json({
@@ -190,7 +175,7 @@ router.post('/', requireSeller, async (req, res) => {
     }
 
     const planType = await getSellerPlanType(sellerId);
-    const quota    = AGENT_QUOTA[planType] ?? 0;
+    const quota    = SUBSCRIPTION_CONFIG.getAgentQuota(planType);
 
     if (quota === 0) {
       return res.status(403).json({
@@ -262,7 +247,7 @@ router.patch('/:agentId', requireSeller, async (req, res) => {
     // Si on réactive et que le quota est déjà atteint → refus
     if (isActive === true && !agent.isActive) {
       const planType    = await getSellerPlanType(sellerId);
-      const quota       = AGENT_QUOTA[planType] ?? 0;
+      const quota       = SUBSCRIPTION_CONFIG.getAgentQuota(planType);
       const activeCount = await SellerAgent.countDocuments({ storeId: sellerId, isActive: true });
       if (activeCount >= quota) {
         return res.status(403).json({
