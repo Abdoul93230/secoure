@@ -403,7 +403,8 @@ class ProductService {
         isPublished: published,
         comments,
         validatedBy: sellerOrAdmin_id,
-        isValidated: published === "Published"
+        isValidated: published === "Published",
+        updatedAt: new Date(),
       },
       { new: true }
     );

@@ -809,6 +809,7 @@ const bulkValidateProducts = handleAsyncError(async (req, res) => {
         isValidated: published === "Published",
         validatedBy: req.userId,
         comments: comments || (published === "Refuser" ? "Refusé par l'administrateur" : "Aucun commentaire"),
+        updatedAt: new Date(),
       }
     }
   );
