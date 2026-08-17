@@ -248,11 +248,23 @@ app.use('/api/agents', agentRoutes);
 const { SellerRequest } = require('./src/Models');
 
 // GET /api/modules/acces — retourne les modules activés + quota SMS du vendeur connecté
+const MODULE_DEFAULTS = {
+  bilanJournalier:     true,
+  alertesStock:        true,
+  performanceProduits: true,
+  carnetCreances:      true,
+  rapportPeriodique:   true,
+};
 app.get('/api/modules/acces', authMiddleware.requireSeller, async (req, res) => {
   try {
     const seller = await SellerRequest.findById(req.user.id).select('modules smsQuota').lean();
     if (!seller) return res.status(404).json({ status: 'error', message: 'Vendeur introuvable' });
-    return res.json({ status: 'success', data: { modules: seller.modules || {}, smsQuota: seller.smsQuota || {} } });
+    // .lean() ne remplace pas les valeurs par défaut du schéma — on les applique manuellement
+    // pour les anciens documents qui n'ont pas encore le champ `modules`
+    const modules = Object.fromEntries(
+      Object.entries(MODULE_DEFAULTS).map(([k, def]) => [k, seller.modules?.[k] !== undefined ? seller.modules[k] : def])
+    );
+    return res.json({ status: 'success', data: { modules, smsQuota: seller.smsQuota || {} } });
   } catch (err) {
     return res.status(500).json({ status: 'error', message: err.message });
   }

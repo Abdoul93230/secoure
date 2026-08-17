@@ -1,5 +1,14 @@
 const { SellerRequest } = require('../Models');
 
+// Valeurs par défaut des modules (tous actifs sur les anciens comptes sans le champ modules)
+const MODULE_DEFAULTS = {
+  bilanJournalier:     true,
+  alertesStock:        true,
+  performanceProduits: true,
+  carnetCreances:      true,
+  rapportPeriodique:   true,
+};
+
 /**
  * Middleware factory : vérifie que le vendeur authentifié a accès au module.
  * Usage : router.use(requireModuleAccess('carnetCreances'))
@@ -17,7 +26,12 @@ function requireModuleAccess(moduleKey) {
         return res.status(404).json({ status: 'error', message: 'Vendeur introuvable' });
       }
 
-      if (!seller.modules?.[moduleKey]) {
+      // .lean() ne remplace pas les defaults du schéma — un champ absent = utiliser le défaut
+      const hasAccess = seller.modules?.[moduleKey] !== undefined
+        ? seller.modules[moduleKey]
+        : (MODULE_DEFAULTS[moduleKey] ?? false);
+
+      if (!hasAccess) {
         return res.status(403).json({
           status: 'module_locked',
           message: `Le module "${moduleKey}" n'est pas activé sur votre compte. Contactez l'administrateur.`,
