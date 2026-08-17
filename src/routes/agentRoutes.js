@@ -307,6 +307,55 @@ router.delete('/:agentId', requireSeller, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PATCH /api/agents/me/name
+// L'agent modifie son propre nom
+// ─────────────────────────────────────────────────────────────────────────────
+router.patch('/me/name', requireAgent, async (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name || !name.trim()) {
+      return res.status(400).json({ success: false, message: 'Nom requis' });
+    }
+    const updated = await SellerAgent.findByIdAndUpdate(
+      req.agent.id,
+      { name: name.trim() },
+      { new: true, select: 'name' }
+    ).lean();
+    return res.json({ success: true, data: { name: updated.name } });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PATCH /api/agents/:agentId/reset-pin
+// Le seller recrée le PIN d'un de ses agents (oubli de PIN)
+// ─────────────────────────────────────────────────────────────────────────────
+router.patch('/:agentId/reset-pin', requireSeller, async (req, res) => {
+  try {
+    const sellerId = req.user.id;
+    const { agentId } = req.params;
+    const { pin } = req.body;
+
+    if (!pin || !/^\d{4}$/.test(String(pin))) {
+      return res.status(400).json({ success: false, message: 'Le nouveau PIN doit être composé de 4 chiffres' });
+    }
+
+    const agent = await SellerAgent.findOne({ _id: agentId, storeId: sellerId });
+    if (!agent) {
+      return res.status(404).json({ success: false, message: 'Agent introuvable' });
+    }
+
+    agent.pin = await bcrypt.hash(String(pin), 10);
+    await agent.save();
+
+    return res.json({ success: true, message: 'PIN réinitialisé avec succès' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // PATCH /api/agents/me/photo
 // L'agent met à jour sa propre photo de profil (base64 data URI)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -316,7 +365,7 @@ router.patch('/me/photo', requireAgent, async (req, res) => {
     if (!photo || !photo.startsWith('data:image')) {
       return res.status(400).json({ success: false, message: 'Image base64 requise' });
     }
-    const cloudinary = require('../../cloudinary');
+    const cloudinary = require('../cloudinary');
     const result = await cloudinary.uploader.upload(photo, {
       folder: 'agents',
       transformation: [{ width: 300, height: 300, crop: 'fill', gravity: 'face' }],
