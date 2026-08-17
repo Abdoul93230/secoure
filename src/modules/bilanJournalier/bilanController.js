@@ -53,22 +53,26 @@ async function aggregateBilan(sellerId, startDate, endDate) {
   for (const txn of txns) {
     for (const p of txn.metadata?.produits || []) {
       const key = (p.nom || 'produit').toLowerCase().trim();
-      if (!prodMap[key]) {
-        prodMap[key] = { id: key, nom: p.nom, image: null, quantite: 0, total: 0 };
+      if (!mkProdMap[key]) {
+        mkProdMap[key] = { id: key, nom: p.nom, image: null, quantite: 0, total: 0 };
       }
-      prodMap[key].quantite += p.quantite || 1;
-      prodMap[key].total += p.montant || 0;
-      // Compteur marketplace uniquement
+      mkProdMap[key].quantite += p.quantite || 1;
+      mkProdMap[key].total += p.montant || 0;
       mkArticlesVendus += p.quantite || 1;
     }
   }
 
-  const topProduits = Object.values(prodMap)
+  const topProduitsPOS = Object.values(prodMap)
+    .sort((a, b) => b.quantite - a.quantite)
+    .slice(0, 5);
+
+  const topProduitsMarketplace = Object.values(mkProdMap)
     .sort((a, b) => b.quantite - a.quantite)
     .slice(0, 5);
 
   // articlesVendus total = POS + marketplace
-  const articlesVendus = Object.values(prodMap).reduce((sum, p) => sum + p.quantite, 0);
+  const posArticlesVendus = Object.values(prodMap).reduce((sum, p) => sum + p.quantite, 0);
+  const articlesVendus = posArticlesVendus + mkArticlesVendus;
 
   return {
     periode: { start: start.toISOString(), end: end.toISOString() },
@@ -76,7 +80,8 @@ async function aggregateBilan(sellerId, startDate, endDate) {
     marketplace: { total: commandeTotal, commandes: commandeCount, articlesVendus: mkArticlesVendus },
     totalGeneral: posTotal + commandeTotal,
     articlesVendus,
-    topProduits,
+    topProduitsPOS,
+    topProduitsMarketplace,
   };
 }
 
