@@ -670,12 +670,25 @@ const createCommande = async (req, res) => {
       const montantFormate = Number(montantProduits || 0).toLocaleString('fr-FR');
 
       if (io) {
+        const heartbeatCache = require('./services/heartbeatCache');
+        const articleLabel = totalArticles > 1 ? `${totalArticles} articles` : `1 article`;
         sellerIds.forEach(sid => {
+          heartbeatCache.invalidate(sid);
           io.to(`seller:${sid}`).emit('new_order', {
             commandeId: commande._id,
             reference: commande.reference,
             total: montantProduits,
             date: commande.date || new Date(),
+            // Notification inline — le mobile peut l'ajouter sans fetch réseau
+            notif: {
+              id: `notif_${commande._id}_${sid}`,
+              type: 'new_order',
+              title: '🛍️ Nouvelle commande !',
+              body: `${articleLabel} — ${montantFormate} ₣ · Réf ${commande.reference}`,
+              data: { type: 'new_order', orderId: String(commande._id), reference: commande.reference },
+              readAt: null,
+              receivedAt: new Date().toISOString(),
+            },
           });
         });
       }

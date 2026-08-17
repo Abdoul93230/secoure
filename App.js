@@ -262,14 +262,22 @@ app.get('/api/modules/acces', authMiddleware.requireSeller, async (req, res) => 
 // Retourne le timestamp de dernière modification de chaque entité pour ce vendeur.
 // Ultra-léger : 4 requêtes MongoDB avec index → <30ms
 // Permet au mobile de savoir exactement ce qui a changé sans tout fetcher
+const heartbeatCache = require('./src/services/heartbeatCache');
+
 // GET /api/sync/heartbeat
 // Retourne le timestamp de dernière modification de chaque entité pour ce vendeur.
-// Ultra-léger : requêtes MongoDB avec index → <30ms
+// Ultra-léger : requêtes MongoDB avec index → <30ms ; cache 45s si rien ne change
 // Bilan = MAX(dernière VenteDirecte POS, dernière Transaction marketplace)
 app.get('/api/sync/heartbeat', authMiddleware.requireSeller, async (req, res) => {
   try {
     const sellerId = req.user.id;
     const sellerIdStr = String(sellerId);
+
+    // Cache hit → 0 requête MongoDB
+    const cached = heartbeatCache.get(sellerIdStr);
+    if (cached) {
+      return res.json({ status: 'success', data: { ...cached, serverTime: Date.now() } });
+    }
     const { Produit } = require('./src/Models');
     const VenteDirecte = require('./src/models/VenteDirecte');
     const Transaction = require('./src/models/transactionSchema');
@@ -328,22 +336,23 @@ app.get('/api/sync/heartbeat', authMiddleware.requireSeller, async (req, res) =>
       ...(hardDeleted || []).map(p => String(p.productId)),
     ].filter((v, i, a) => a.indexOf(v) === i); // déduplique
 
-    return res.json({
-      status: 'success',
-      data: {
-        bilan:      bilanTs,
-        commandes:  lastCommande?.dateTransaction
-          ? new Date(lastCommande.dateTransaction).getTime() : null,
-        produits:   lastProduit?.updatedAt
-          ? new Date(lastProduit.updatedAt).getTime()
-          : lastProduit?.createdAt
-          ? new Date(lastProduit.createdAt).getTime() : null,
-        creances:   lastCreance?.updatedAt
-          ? new Date(lastCreance.updatedAt).getTime() : null,
-        deletedIds,   // ← IDs supprimés côté serveur
-        serverTime: Date.now(),
-      },
-    });
+    const responseData = {
+      bilan:      bilanTs,
+      commandes:  lastCommande?.dateTransaction
+        ? new Date(lastCommande.dateTransaction).getTime() : null,
+      produits:   lastProduit?.updatedAt
+        ? new Date(lastProduit.updatedAt).getTime()
+        : lastProduit?.createdAt
+        ? new Date(lastProduit.createdAt).getTime() : null,
+      creances:   lastCreance?.updatedAt
+        ? new Date(lastCreance.updatedAt).getTime() : null,
+      deletedIds,
+    };
+
+    // Mise en cache (serverTime exclu — doit toujours être frais)
+    heartbeatCache.set(sellerIdStr, responseData);
+
+    return res.json({ status: 'success', data: { ...responseData, serverTime: Date.now() } });
   } catch (err) {
     return res.status(500).json({ status: 'error', message: err.message });
   }

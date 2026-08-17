@@ -154,6 +154,8 @@ router.post('/vente', extractPosSeller, requirePosAccess, async (req, res) => {
     // Notifie l'app mobile du vendeur que le bilan a changé
     try {
       const io = req.app?.get?.('io');
+      const heartbeatCache = require('../services/heartbeatCache');
+      heartbeatCache.invalidate(sellerId);
       if (io) {
         io.to(`seller:${sellerId}`).emit('bilan_updated', {
           source: 'pos',
