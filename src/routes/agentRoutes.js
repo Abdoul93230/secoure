@@ -7,13 +7,42 @@
  * Quota par plan : défini dans subscriptionConfig.js (agentQuota)
  *   Starter  → 0 agent  |  Pro → 2 agents  |  Business → 6 agents
  */
-const express = require('express');
-const router  = express.Router();
-const bcrypt  = require('bcrypt');
-const jwt     = require('jsonwebtoken');
+const express   = require('express');
+const router    = express.Router();
+const bcrypt    = require('bcrypt');
+const jwt       = require('jsonwebtoken');
+const rateLimit = require('express-rate-limit');
 const { SellerAgent, PricingPlan, SellerRequest } = require('../Models');
 const { AGENT_PRIVATE_KEY, requireSeller, requireAgent } = require('../middleware/auth');
 const SUBSCRIPTION_CONFIG = require('../config/subscriptionConfig');
+
+// 5 tentatives de login par IP toutes les 15 min (ne compte que les échecs)
+const agentLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  skipSuccessfulRequests: true,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Trop de tentatives. Réessayez dans 15 minutes.' },
+});
+
+// 10 uploads photo par heure par IP (Cloudinary est coûteux)
+const uploadLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Limite d\'upload atteinte. Réessayez dans 1 heure.' },
+});
+
+// 10 resets PIN par heure par IP
+const resetPinLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Trop de réinitialisations. Réessayez dans 1 heure.' },
+});
 
 // Helper : récupère le planType actif du seller
 async function getSellerPlanType(sellerId) {
@@ -35,7 +64,7 @@ async function getSellerPlanType(sellerId) {
 // Pré-vérification (public) : vérifie boutique + agent SANS le PIN
 // Retourne le nom de l'agent et de la boutique pour confirmation à l'écran
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/verify', async (req, res) => {
+router.post('/verify', agentLoginLimiter, async (req, res) => {
   try {
     const { storePhone, phone } = req.body;
     if (!storePhone || !phone) {
@@ -71,7 +100,7 @@ router.post('/verify', async (req, res) => {
 // POST /api/agents/login
 // Login agent (public) : phone + PIN → token agent JWT
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/login', async (req, res) => {
+router.post('/login', agentLoginLimiter, async (req, res) => {
   try {
     const { storeId, storePhone, phone, pin } = req.body;
     if ((!storeId && !storePhone) || !phone || !pin) {
@@ -331,7 +360,7 @@ router.patch('/me/name', requireAgent, async (req, res) => {
 // PATCH /api/agents/:agentId/reset-pin
 // Le seller recrée le PIN d'un de ses agents (oubli de PIN)
 // ─────────────────────────────────────────────────────────────────────────────
-router.patch('/:agentId/reset-pin', requireSeller, async (req, res) => {
+router.patch('/:agentId/reset-pin', resetPinLimiter, requireSeller, async (req, res) => {
   try {
     const sellerId = req.user.id;
     const { agentId } = req.params;
@@ -359,7 +388,7 @@ router.patch('/:agentId/reset-pin', requireSeller, async (req, res) => {
 // PATCH /api/agents/me/photo
 // L'agent met à jour sa propre photo de profil (base64 data URI)
 // ─────────────────────────────────────────────────────────────────────────────
-router.patch('/me/photo', requireAgent, async (req, res) => {
+router.patch('/me/photo', uploadLimiter, requireAgent, async (req, res) => {
   try {
     const { photo } = req.body; // "data:image/jpeg;base64,..."
     if (!photo || !photo.startsWith('data:image')) {

@@ -79,17 +79,6 @@ const globalLimiter = rateLimit({
   message: { success: false, message: "Trop de requêtes. Veuillez réessayer dans quelques minutes." },
 });
 
-// Limite stricte sur les endpoints d'authentification : 10 tentatives/15 min
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  skipSuccessfulRequests: true, // ne compte que les échecs
-  message: { success: false, message: "Trop de tentatives de connexion. Compte temporairement bloqué (15 min)." },
-});
-
-
 // Socket.IO configuration
 const io = socketIo(server, {
   cors: {
