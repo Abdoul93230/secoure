@@ -2770,12 +2770,37 @@ const updateEtatTraitement = async (req, res) => {
     // Notifier l'app mobile seller en temps réel
     try {
       const io = req?.app?.get?.('io');
+      const { Produit, SellerRequest } = require('./Models');
+      const heartbeatCache = require('./services/heartbeatCache');
+      const produitIds = updatedOrder.nbrProduits.map(p => p.produit);
+      const produits = await Produit.find({ _id: { $in: produitIds } }, { Clefournisseur: 1 }).lean();
+      const sellerIds = [...new Set(produits.map(p => String(p.Clefournisseur)).filter(Boolean))];
+
+      // Push "argent en attente" si la commande passe à livré pour la première fois
+      if (nouvelEtat === 'livré' && ancienEtat !== 'livré') {
+        const { sendExpoPushToSellers } = require('./utils/expoNotifications');
+        const Transaction = require('./models/transactionSchema');
+        const sellers = await SellerRequest.find({ _id: { $in: sellerIds } }, { expoPushTokens: 1 }).lean();
+        for (const seller of sellers) {
+          const txn = await Transaction.findOne({
+            sellerId: String(seller._id),
+            commandeId: updatedOrder._id,
+            type: 'CREDIT_COMMANDE',
+          }, { montant: 1 }).lean();
+          const montant = txn?.montant ?? 0;
+          const montantFormate = Number(montant).toLocaleString('fr-FR');
+          const tokens = seller.expoPushTokens || [];
+          if (tokens.length > 0) {
+            sendExpoPushToSellers([seller._id], tokens, {
+              title: '💰 Paiement en attente',
+              body: `${montantFormate} ₣ placé en attente · Commande #${updatedOrder.reference}`,
+              data: { type: 'payment_pending', orderId: String(updatedOrder._id), reference: updatedOrder.reference },
+            });
+          }
+        }
+      }
+
       if (io) {
-        const { Produit } = require('./Models');
-        const heartbeatCache = require('./services/heartbeatCache');
-        const produitIds = updatedOrder.nbrProduits.map(p => p.produit);
-        const produits = await Produit.find({ _id: { $in: produitIds } }, { Clefournisseur: 1 }).lean();
-        const sellerIds = [...new Set(produits.map(p => String(p.Clefournisseur)).filter(Boolean))];
         sellerIds.forEach(sid => {
           heartbeatCache.invalidate(sid);
           io.to(`seller:${sid}`).emit('order_status_updated', {
@@ -2786,7 +2811,7 @@ const updateEtatTraitement = async (req, res) => {
         });
       }
     } catch (socketErr) {
-      console.error('⚠️ Socket order_status_updated (etatTraitement):', socketErr.message);
+      console.error('⚠️ Socket/push order_status_updated (etatTraitement):', socketErr.message);
     }
 
     res.status(200).json({
@@ -2922,12 +2947,37 @@ const updateStatusLivraison = async (req, res) => {
     // Notifier l'app mobile seller en temps réel
     try {
       const io = req?.app?.get?.('io');
+      const { Produit, SellerRequest } = require('./Models');
+      const heartbeatCache = require('./services/heartbeatCache');
+      const produitIds = commande.nbrProduits.map(p => p.produit);
+      const produits = await Produit.find({ _id: { $in: produitIds } }, { Clefournisseur: 1 }).lean();
+      const sellerIds = [...new Set(produits.map(p => String(p.Clefournisseur)).filter(Boolean))];
+
+      // Push "argent en attente" si la commande passe à livré pour la première fois
+      if (nouveauStatus === 'livré' && ancienEtat !== 'livré') {
+        const { sendExpoPushToSellers } = require('./utils/expoNotifications');
+        const Transaction = require('./models/transactionSchema');
+        const sellers = await SellerRequest.find({ _id: { $in: sellerIds } }, { expoPushTokens: 1 }).lean();
+        for (const seller of sellers) {
+          const txn = await Transaction.findOne({
+            sellerId: String(seller._id),
+            commandeId: commande._id,
+            type: 'CREDIT_COMMANDE',
+          }, { montant: 1 }).lean();
+          const montant = txn?.montant ?? 0;
+          const montantFormate = Number(montant).toLocaleString('fr-FR');
+          const tokens = seller.expoPushTokens || [];
+          if (tokens.length > 0) {
+            sendExpoPushToSellers([seller._id], tokens, {
+              title: '💰 Paiement en attente',
+              body: `${montantFormate} ₣ placé en attente · Commande #${commande.reference}`,
+              data: { type: 'payment_pending', orderId: String(commande._id), reference: commande.reference },
+            });
+          }
+        }
+      }
+
       if (io) {
-        const { Produit } = require('./Models');
-        const heartbeatCache = require('./services/heartbeatCache');
-        const produitIds = commande.nbrProduits.map(p => p.produit);
-        const produits = await Produit.find({ _id: { $in: produitIds } }, { Clefournisseur: 1 }).lean();
-        const sellerIds = [...new Set(produits.map(p => String(p.Clefournisseur)).filter(Boolean))];
         sellerIds.forEach(sid => {
           heartbeatCache.invalidate(sid);
           io.to(`seller:${sid}`).emit('order_status_updated', {
@@ -2938,7 +2988,7 @@ const updateStatusLivraison = async (req, res) => {
         });
       }
     } catch (socketErr) {
-      console.error('⚠️ Socket order_status_updated (statusLivraison):', socketErr.message);
+      console.error('⚠️ Socket/push order_status_updated (statusLivraison):', socketErr.message);
     }
 
     res.status(200).json({

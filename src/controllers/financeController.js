@@ -194,8 +194,13 @@ async function getSellerOrdersWithFinancialInfo(sellerId, options = {}) {
     if (options.dateStart) dateFilter.$gte = new Date(options.dateStart);
     if (options.dateEnd)   dateFilter.$lte = new Date(options.dateEnd);
 
+    // Filtre par commandeId unique (pour l'ouverture depuis une notification)
+    const idFilter = options.commandeId && mongoose.Types.ObjectId.isValid(options.commandeId)
+      ? { _id: new mongoose.Types.ObjectId(options.commandeId) }
+      : null;
+
     const pipeline = [
-      ...(Object.keys(dateFilter).length ? [{ $match: { date: dateFilter } }] : []),
+      ...(idFilter ? [{ $match: idFilter }] : Object.keys(dateFilter).length ? [{ $match: { date: dateFilter } }] : []),
       { $unwind: "$nbrProduits" },
       {
         $lookup: {
@@ -366,12 +371,13 @@ const seller_orders_with_financial = async (req, res) => {
     
     // 🔥 NOUVEAU: Récupérer les paramètres de pagination depuis la query
     const options = {
-      page:      req.query.page      || 1,
-      limit:     req.query.limit     || 10,
-      status:    req.query.status,
-      search:    req.query.search,
-      dateStart: req.query.dateStart,
-      dateEnd:   req.query.dateEnd,
+      page:       req.query.page      || 1,
+      limit:      req.query.limit     || 10,
+      status:     req.query.status,
+      search:     req.query.search,
+      dateStart:  req.query.dateStart,
+      dateEnd:    req.query.dateEnd,
+      commandeId: req.query.commandeId || null,
     };
     
     const [sellerOrdersResult, financialSummary] = await Promise.all([
