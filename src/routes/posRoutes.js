@@ -590,7 +590,7 @@ router.get('/seller/agents-stats', requireSeller, async (req, res) => {
     const { SellerAgent } = require('../Models');
     const agentIds = agentStats.map(a => a._id).filter(Boolean);
     const agents = agentIds.length
-      ? await SellerAgent.find({ _id: { $in: agentIds } }).select('name phone isActive').lean()
+      ? await SellerAgent.find({ _id: { $in: agentIds } }).select('name phone isActive photo').lean()
       : [];
     const agentMap = Object.fromEntries(agents.map(a => [String(a._id), a]));
 
@@ -599,6 +599,7 @@ router.get('/seller/agents-stats', requireSeller, async (req, res) => {
       nom:          agentMap[String(a._id)]?.name  || 'Agent inconnu',
       telephone:    agentMap[String(a._id)]?.phone || '',
       isActive:     agentMap[String(a._id)]?.isActive ?? false,
+      photo:        agentMap[String(a._id)]?.photo  || null,
       totalCA:      a.totalCA      || 0,
       nombreVentes: a.nombreVentes || 0,
       nombreAnnul:  a.nombreAnnul  || 0,
@@ -685,9 +686,10 @@ router.get('/seller/agents-stats/all-periods', requireSeller, async (req, res) =
     };
 
     // Fetch agents + toutes périodes en parallèle
+    // storeId est le champ qui relie l'agent à son seller (pas sellerId)
     const periodKeys = Object.keys(PERIODS);
     const [agentDocs, ...periodResults] = await Promise.all([
-      SellerAgent.find({ sellerId }).select('name phone isActive').lean(),
+      SellerAgent.find({ storeId: req.user.id }).select('name phone isActive photo').lean(),
       ...periodKeys.map(k => computePeriod(PERIODS[k])),
     ]);
 
@@ -700,6 +702,7 @@ router.get('/seller/agents-stats/all-periods', requireSeller, async (req, res) =
         nom:          agentMap[String(a._id)]?.name  || 'Agent inconnu',
         telephone:    agentMap[String(a._id)]?.phone || '',
         isActive:     agentMap[String(a._id)]?.isActive ?? false,
+        photo:        agentMap[String(a._id)]?.photo  || null,
         totalCA:      a.totalCA      || 0,
         nombreVentes: a.nombreVentes || 0,
         nombreAnnul:  a.nombreAnnul  || 0,

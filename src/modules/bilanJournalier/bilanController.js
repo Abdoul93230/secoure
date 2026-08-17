@@ -50,16 +50,47 @@ async function aggregateBilan(sellerId, startDate, endDate) {
 
   let mkArticlesVendus = 0;
   const mkProdMap = {};
+
   for (const txn of txns) {
     for (const p of txn.metadata?.produits || []) {
       const key = (p.nom || 'produit').toLowerCase().trim();
       if (!mkProdMap[key]) {
-        mkProdMap[key] = { id: key, nom: p.nom, image: null, quantite: 0, total: 0 };
+        mkProdMap[key] = { id: p.produitId || key, nom: p.nom, image: p.image || null, quantite: 0, total: 0 };
       }
       mkProdMap[key].quantite += p.quantite || 1;
       mkProdMap[key].total += p.montant || 0;
       mkArticlesVendus += p.quantite || 1;
     }
+  }
+
+  // Lookup images depuis les Commandes → Produits pour les entrées sans image
+  // (couvre les anciennes transactions créées avant l'ajout de image dans metadata)
+  const entriesSansImage = Object.values(mkProdMap).filter(e => !e.image);
+  if (entriesSansImage.length > 0) {
+    try {
+      const { Commande, Produit } = require('../../Models');
+      const mongoose = require('mongoose');
+      const commandeIds = [...new Set(txns.map(t => t.commandeId).filter(Boolean))];
+      const commandes = await Commande.find(
+        { _id: { $in: commandeIds } },
+        { nbrProduits: 1 }
+      ).lean();
+      const produitIds = [...new Set(
+        commandes.flatMap(c => c.nbrProduits.map(p => String(p.produit)))
+      )].filter(id => mongoose.Types.ObjectId.isValid(id));
+      const produits = await Produit.find(
+        { _id: { $in: produitIds }, Clefournisseur: sellerId },
+        { name: 1, image1: 1, pictures: 1 }
+      ).lean();
+      const nomToImage = {};
+      for (const pr of produits) {
+        const img = pr.image1 || (Array.isArray(pr.pictures) && pr.pictures[0]) || null;
+        if (img) nomToImage[(pr.name || '').toLowerCase().trim()] = img;
+      }
+      for (const [key, entry] of Object.entries(mkProdMap)) {
+        if (!entry.image && nomToImage[key]) entry.image = nomToImage[key];
+      }
+    } catch (_) {}
   }
 
   const topProduitsPOS = Object.values(prodMap)

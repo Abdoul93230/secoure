@@ -1752,6 +1752,10 @@ const sellerAgentSchema = new mongoose.Schema({
     type: Boolean,
     default: true,
   },
+  photo: {
+    type: String,
+    default: null,
+  },
   createdAt: {
     type: Date,
     default: Date.now,

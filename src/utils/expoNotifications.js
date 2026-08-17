@@ -20,7 +20,7 @@ async function sendExpoPushToSellers(sellerIds, tokens, { title, body, data = {}
 
   if (!tokens || tokens.length === 0) return;
 
-  const isOrderNotif = data.type === 'new_order';
+  const isOrderNotif = data.type === 'new_order' || data.type === 'payment_pending';
   const messages = tokens
     .filter(t => Expo.isExpoPushToken(t))
     .map(token => ({

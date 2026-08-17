@@ -223,7 +223,9 @@ class FinancialService {
 
       ventesParlSeller[sellerId].montantBrut += montant;
       ventesParlSeller[sellerId].produits.push({
+        produitId: produitId,
         nom: produit.name,
+        image: produit.image1 || (Array.isArray(produit.pictures) && produit.pictures[0]) || null,
         quantite,
         prix,
         montant,

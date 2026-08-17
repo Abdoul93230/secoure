@@ -12,7 +12,7 @@ const router  = express.Router();
 const bcrypt  = require('bcrypt');
 const jwt     = require('jsonwebtoken');
 const { SellerAgent, PricingPlan, SellerRequest } = require('../Models');
-const { AGENT_PRIVATE_KEY, requireSeller } = require('../middleware/auth');
+const { AGENT_PRIVATE_KEY, requireSeller, requireAgent } = require('../middleware/auth');
 const SUBSCRIPTION_CONFIG = require('../config/subscriptionConfig');
 
 // Helper : récupère le planType actif du seller
@@ -121,6 +121,7 @@ router.post('/login', async (req, res) => {
           storeId:   String(resolvedStoreId),
           storeName: seller?.storeName || '',
           storeLogo: seller?.logo || null,
+          photo:     agent.photo || null,
         },
       },
     });
@@ -142,6 +143,8 @@ router.get('/', requireSeller, async (req, res) => {
       .select('-pin')
       .sort({ createdAt: -1 })
       .lean();
+    // Normalise _id → id pour le frontend
+    agents.forEach(a => { if (!a.id) a.id = String(a._id); });
 
     const planType = await getSellerPlanType(sellerId);
     const quota    = SUBSCRIPTION_CONFIG.getAgentQuota(planType);
@@ -298,6 +301,28 @@ router.delete('/:agentId', requireSeller, async (req, res) => {
     }
 
     return res.json({ success: true, message: 'Agent supprimé' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PATCH /api/agents/me/photo
+// L'agent met à jour sa propre photo de profil (base64 data URI)
+// ─────────────────────────────────────────────────────────────────────────────
+router.patch('/me/photo', requireAgent, async (req, res) => {
+  try {
+    const { photo } = req.body; // "data:image/jpeg;base64,..."
+    if (!photo || !photo.startsWith('data:image')) {
+      return res.status(400).json({ success: false, message: 'Image base64 requise' });
+    }
+    const cloudinary = require('../../cloudinary');
+    const result = await cloudinary.uploader.upload(photo, {
+      folder: 'agents',
+      transformation: [{ width: 300, height: 300, crop: 'fill', gravity: 'face' }],
+    });
+    await SellerAgent.findByIdAndUpdate(req.agent.id, { photo: result.secure_url });
+    return res.json({ success: true, data: { photo: result.secure_url } });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
