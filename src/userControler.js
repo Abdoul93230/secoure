@@ -2767,6 +2767,28 @@ const updateEtatTraitement = async (req, res) => {
       }
     }
 
+    // Notifier l'app mobile seller en temps réel
+    try {
+      const io = req?.app?.get?.('io');
+      if (io) {
+        const { Produit } = require('./Models');
+        const heartbeatCache = require('./services/heartbeatCache');
+        const produitIds = updatedOrder.nbrProduits.map(p => p.produit);
+        const produits = await Produit.find({ _id: { $in: produitIds } }, { Clefournisseur: 1 }).lean();
+        const sellerIds = [...new Set(produits.map(p => String(p.Clefournisseur)).filter(Boolean))];
+        sellerIds.forEach(sid => {
+          heartbeatCache.invalidate(sid);
+          io.to(`seller:${sid}`).emit('order_status_updated', {
+            commandeId: updatedOrder._id,
+            reference: updatedOrder.reference,
+            etatTraitement: nouvelEtat,
+          });
+        });
+      }
+    } catch (socketErr) {
+      console.error('⚠️ Socket order_status_updated (etatTraitement):', socketErr.message);
+    }
+
     res.status(200).json({
       success: true,
       message: "État de traitement mis à jour avec succès",
@@ -2895,6 +2917,28 @@ const updateStatusLivraison = async (req, res) => {
           console.error('⚠️ Gamification creditPoints:', gErr.message);
         }
       }
+    }
+
+    // Notifier l'app mobile seller en temps réel
+    try {
+      const io = req?.app?.get?.('io');
+      if (io) {
+        const { Produit } = require('./Models');
+        const heartbeatCache = require('./services/heartbeatCache');
+        const produitIds = commande.nbrProduits.map(p => p.produit);
+        const produits = await Produit.find({ _id: { $in: produitIds } }, { Clefournisseur: 1 }).lean();
+        const sellerIds = [...new Set(produits.map(p => String(p.Clefournisseur)).filter(Boolean))];
+        sellerIds.forEach(sid => {
+          heartbeatCache.invalidate(sid);
+          io.to(`seller:${sid}`).emit('order_status_updated', {
+            commandeId: commande._id,
+            reference: commande.reference,
+            statusLivraison: nouveauStatus,
+          });
+        });
+      }
+    } catch (socketErr) {
+      console.error('⚠️ Socket order_status_updated (statusLivraison):', socketErr.message);
     }
 
     res.status(200).json({
