@@ -113,7 +113,7 @@ app.set("io", io);
 
 // Middleware configuration
 app
-  .use(globalLimiter)
+  // .use(globalLimiter)
   .use(
     cors({
       origin: [
