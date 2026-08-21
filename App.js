@@ -187,7 +187,7 @@ io.on("connection", (socket) => {
 
 // Basic routes
 app.get("/", (req, res) => {
-  res.json("node");
+  res.json("node ORACLE backend is running");
 });
 
 app.get("/proxy/ip-api", async (req, res) => {
