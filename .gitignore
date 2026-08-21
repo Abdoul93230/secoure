@@ -21,7 +21,10 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-.env
 
 # Logs financiers (générés automatiquement, ne pas versionner)
 src/logs/
+
+# Environment files
+.env
+.env.*

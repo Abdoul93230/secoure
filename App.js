@@ -79,6 +79,9 @@ const globalLimiter = rateLimit({
   message: { success: false, message: "Trop de requêtes. Veuillez réessayer dans quelques minutes." },
 });
 
+// URL du frontend selon l’environnement (Render / Oracle)
+const frontendUrl = process.env.FRONTEND_URL;
+
 // Socket.IO configuration
 const io = socketIo(server, {
   cors: {
@@ -100,6 +103,7 @@ const io = socketIo(server, {
       "https://iham-admin.onrender.com",
       "https://admin.ihambaobab.com",
       "https://sellers-k9ce.onrender.com",
+      ...(frontendUrl ? [frontendUrl] : []),
     ],
     credentials: true,
   },
@@ -130,6 +134,7 @@ app
         "https://iham-admin.onrender.com",
         "https://admin.ihambaobab.com",
         "https://sellers-k9ce.onrender.com",
+        ...(frontendUrl ? [frontendUrl] : []),
       ],
       credentials: true,
     })

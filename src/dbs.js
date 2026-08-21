@@ -9,12 +9,11 @@ const { setupUniversalCronJobs } = require("./controllers/subscriptionController
 const { setupEnhancedCronJobs } = require("./controllers/enhancedSubscriptionController");
 const syncPlanCommissions = require('./utils/syncPlanCommissions');
 
-const MONGODB_URI= process.env.MONGODB_URI
-// PromoCode
-// 'mongodb://127.0.0.1:27017/dbschagona'
+const MONGO_URI = process.env.MONGODB_URI;
 
-
-const MONGO_URI = MONGODB_URI || "mongodb+srv://abdoulrazak9323:qrru0xfJGmJG0TSc@cluster0.mvrgous.mongodb.net/?retryWrites=true&w=majority";
+if (!MONGO_URI) {
+  throw new Error("MONGODB_URI n'est pas configurée");
+}
 
 // Reconnexion automatique sur déconnexion
 mongoose.connection.on('disconnected', () => {
