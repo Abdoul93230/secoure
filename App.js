@@ -103,6 +103,8 @@ const io = socketIo(server, {
       "https://iham-admin.onrender.com",
       "https://admin.ihambaobab.com",
       "https://sellers-k9ce.onrender.com",
+      "https://api.ihambaobab.com",
+      "https://ihambaobab.com",
       ...(frontendUrl ? [frontendUrl] : []),
     ],
     credentials: true,
