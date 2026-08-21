@@ -1,0 +1,79 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: backend-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Configure SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/deploy_key
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Deploy backend
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          ssh \
+            -i ~/.ssh/deploy_key \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$DEPLOY_USER@$DEPLOY_HOST" 'bash -se' <<'REMOTE'
+          set -e
+
+          cd /opt/ihambaobab/backend
+
+          echo "===== GIT ====="
+          git fetch origin
+          git reset --hard origin/main
+
+          echo "===== ENV ====="
+          test -f .env
+
+          echo "===== DOCKER BUILD ====="
+          docker build -t ihambaobab-backend:latest .
+
+          echo "===== STOP OLD CONTAINER ====="
+          docker stop ihambaobab-backend 2>/dev/null || true
+          docker rm ihambaobab-backend 2>/dev/null || true
+
+          echo "===== START NEW CONTAINER ====="
+          docker run -d \
+            --name ihambaobab-backend \
+            --restart unless-stopped \
+            --network ihambaobab-network \
+            --env-file /opt/ihambaobab/backend/.env \
+            -p 8083:8083 \
+            ihambaobab-backend:latest
+
+          echo "===== WAIT FOR BACKEND ====="
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8083/ >/dev/null 2>&1; then
+              echo "Backend OK"
+              exit 0
+            fi
+
+            sleep 2
+          done
+
+          echo "Backend failed to start"
+          docker logs --tail 100 ihambaobab-backend
+          exit 1
+          REMOTE
