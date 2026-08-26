@@ -356,6 +356,7 @@
 
 const express = require('express');
 const router = express.Router();
+const mongoose = require('mongoose');
 const {
   validatePaymentAndPrepareActivation,
   getAdvancedSubscriptionStats,
@@ -363,9 +364,20 @@ const {
   checkAndActivateNextSubscription,
   assertPlanCompatible
 } = require('../controllers/subscriptionController');
-const { SellerRequest,PricingPlan } = require('../Models');
+const { SellerRequest, PricingPlan, Produit, Store, ProductComment, Like, DeletedProduct, SellerAgent } = require('../Models');
 const SubscriptionQueue = require('../models/Abonnements/SubscriptionQueue');
 const SubscriptionRequest = require('../models/Abonnements/SubscriptionRequest');
+const SubscriptionHistory = require('../models/Abonnements/SubscriptionHistory');
+const EnhancedSubscription = require('../models/Abonnements/EnhancedSubscription');
+const Portefeuille = require('../models/portefeuilleSchema');
+const Retrait = require('../models/retraitSchema');
+const TransactionSeller = require('../models/transactionSchema');
+const VenteDirecte = require('../models/VenteDirecte');
+const StoreLike = require('../models/StoreLike');
+const ShippingPolicy = require('../models/ShippingPolicy');
+const Review = require('../models/Review');
+const Banner = require('../Banner_Model');
+const EmailCampaign = require('../EmailCampaign_Model');
 const { getPendingRequests, createManualRenewal } = require('../controllers/enhancedSubscriptionController');
 
 // Middleware admin
@@ -898,5 +910,203 @@ router.post('/create-manual-renewal', requireAdmin, async (req, res) => {
   }
 });
 
+
+/**
+ * Aperçu des données liées à un vendeur (avant suppression)
+ */
+router.get('/clean-seller-preview/:sellerId', requireAdmin, async (req, res) => {
+  try {
+    const { sellerId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(sellerId)) {
+      return res.status(400).json({ status: 'error', message: 'ID vendeur invalide' });
+    }
+
+    const seller = await SellerRequest.findById(sellerId).lean();
+    if (!seller) {
+      return res.status(404).json({ status: 'error', message: 'Vendeur introuvable' });
+    }
+
+    const sellerIdStr = String(sellerId);
+    const sellerObjectId = new mongoose.Types.ObjectId(sellerId);
+    const SellerNotification = mongoose.model('SellerNotification');
+
+    const products = await Produit.find({ Clefournisseur: sellerObjectId }, '_id').lean();
+    const productIds = products.map(p => p._id);
+
+    const [
+      storeCount,
+      commentCount,
+      likeCount,
+      portefeuilleCount,
+      retraitCount,
+      transactionCount,
+      venteCount,
+      notifCount,
+      storeLikeCount,
+      shippingCount,
+      reviewCount,
+      bannerCount,
+      campaignCount,
+      agentCount,
+      subscriptionCount,
+      subHistoryCount,
+    ] = await Promise.all([
+      Store.countDocuments({ clefFournisseur: sellerIdStr }),
+      productIds.length > 0
+        ? ProductComment.countDocuments({ clefProduct: { $in: productIds.map(String) } })
+        : 0,
+      productIds.length > 0
+        ? Like.countDocuments({ produit: { $in: productIds } })
+        : 0,
+      Portefeuille.countDocuments({ sellerId: sellerIdStr }),
+      Retrait.countDocuments({ sellerId: sellerIdStr }),
+      TransactionSeller.countDocuments({ sellerId: sellerIdStr }),
+      VenteDirecte.countDocuments({ sellerId: sellerIdStr }),
+      SellerNotification.countDocuments({ sellerId: sellerObjectId }),
+      StoreLike.countDocuments({ seller: sellerObjectId }),
+      ShippingPolicy.countDocuments({ sellerId: sellerObjectId }),
+      Review.countDocuments({ seller: sellerObjectId }),
+      Banner.countDocuments({ sellerId: sellerObjectId }),
+      EmailCampaign.countDocuments({ sellerId: sellerObjectId }),
+      SellerAgent.countDocuments({ storeId: sellerObjectId }),
+      EnhancedSubscription.countDocuments({ storeId: sellerObjectId }),
+      SubscriptionHistory.countDocuments({ storeId: sellerObjectId }),
+    ]);
+
+    res.json({
+      status: 'success',
+      data: {
+        seller: { _id: seller._id, name: seller.name, email: seller.email, storeName: seller.storeName },
+        counts: {
+          store: storeCount,
+          produits: products.length,
+          commentairesProduits: commentCount,
+          likesProduits: likeCount,
+          portefeuille: portefeuilleCount,
+          retraits: retraitCount,
+          transactions: transactionCount,
+          ventesDirectes: venteCount,
+          notifications: notifCount,
+          storeLikes: storeLikeCount,
+          shippingPolicies: shippingCount,
+          avis: reviewCount,
+          banners: bannerCount,
+          emailCampaigns: campaignCount,
+          agents: agentCount,
+          subscriptions: subscriptionCount,
+          subscriptionHistory: subHistoryCount,
+        },
+      },
+    });
+  } catch (error) {
+    console.error('Clean seller preview error:', error);
+    res.status(500).json({ status: 'error', message: error.message || 'Erreur serveur' });
+  }
+});
+
+/**
+ * Suppression définitive d'un vendeur et de toutes ses données liées
+ */
+router.delete('/clean-seller/:sellerId', requireAdmin, async (req, res) => {
+  try {
+    const { sellerId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(sellerId)) {
+      return res.status(400).json({ status: 'error', message: 'ID vendeur invalide' });
+    }
+
+    const seller = await SellerRequest.findById(sellerId).lean();
+    if (!seller) {
+      return res.status(404).json({ status: 'error', message: 'Vendeur introuvable' });
+    }
+
+    const sellerIdStr = String(sellerId);
+    const sellerObjectId = new mongoose.Types.ObjectId(sellerId);
+    const SellerNotification = mongoose.model('SellerNotification');
+
+    const products = await Produit.find({ Clefournisseur: sellerObjectId }, '_id').lean();
+    const productIds = products.map(p => p._id);
+
+    const [
+      rPortefeuille,
+      rRetrait,
+      rTransaction,
+      rVenteDirecte,
+      rNotification,
+      rDeletedProduct,
+      rStoreLike,
+      rShippingPolicy,
+      rReview,
+      rBanner,
+      rEmailCampaign,
+      rAgent,
+      rSubscription,
+      rSubHistory,
+      rSubQueue,
+      rSubRequest,
+      rComments,
+      rLikes,
+    ] = await Promise.all([
+      Portefeuille.deleteMany({ sellerId: sellerIdStr }),
+      Retrait.deleteMany({ sellerId: sellerIdStr }),
+      TransactionSeller.deleteMany({ sellerId: sellerIdStr }),
+      VenteDirecte.deleteMany({ sellerId: sellerIdStr }),
+      SellerNotification.deleteMany({ sellerId: sellerObjectId }),
+      DeletedProduct.deleteMany({ sellerId: sellerObjectId }),
+      StoreLike.deleteMany({ seller: sellerObjectId }),
+      ShippingPolicy.deleteMany({ sellerId: sellerObjectId }),
+      Review.deleteMany({ seller: sellerObjectId }),
+      Banner.deleteMany({ sellerId: sellerObjectId }),
+      EmailCampaign.deleteMany({ sellerId: sellerObjectId }),
+      SellerAgent.deleteMany({ storeId: sellerObjectId }),
+      EnhancedSubscription.deleteMany({ storeId: sellerObjectId }),
+      SubscriptionHistory.deleteMany({ storeId: sellerObjectId }),
+      SubscriptionQueue.deleteMany({ storeId: sellerObjectId }),
+      SubscriptionRequest.deleteMany({ storeId: sellerObjectId }),
+      productIds.length > 0
+        ? ProductComment.deleteMany({ clefProduct: { $in: productIds.map(String) } })
+        : Promise.resolve({ deletedCount: 0 }),
+      productIds.length > 0
+        ? Like.deleteMany({ produit: { $in: productIds } })
+        : Promise.resolve({ deletedCount: 0 }),
+    ]);
+
+    const rProduits = await Produit.deleteMany({ Clefournisseur: sellerObjectId });
+    const rStore = await Store.deleteMany({ clefFournisseur: sellerIdStr });
+    await SellerRequest.findByIdAndDelete(sellerId);
+
+    res.json({
+      status: 'success',
+      message: `Vendeur "${seller.name || seller.email}" définitivement supprimé`,
+      deletedCounts: {
+        seller: 1,
+        store: rStore.deletedCount,
+        produits: rProduits.deletedCount,
+        commentairesProduits: rComments.deletedCount,
+        likesProduits: rLikes.deletedCount,
+        portefeuille: rPortefeuille.deletedCount,
+        retraits: rRetrait.deletedCount,
+        transactions: rTransaction.deletedCount,
+        ventesDirectes: rVenteDirecte.deletedCount,
+        notifications: rNotification.deletedCount,
+        deletedProducts: rDeletedProduct.deletedCount,
+        storeLikes: rStoreLike.deletedCount,
+        shippingPolicies: rShippingPolicy.deletedCount,
+        avis: rReview.deletedCount,
+        banners: rBanner.deletedCount,
+        emailCampaigns: rEmailCampaign.deletedCount,
+        agents: rAgent.deletedCount,
+        subscriptions: rSubscription.deletedCount,
+        subscriptionHistory: rSubHistory.deletedCount,
+        subscriptionQueue: rSubQueue.deletedCount,
+        subscriptionRequests: rSubRequest.deletedCount,
+      },
+    });
+  } catch (error) {
+    console.error('Clean seller error:', error);
+    res.status(500).json({ status: 'error', message: error.message || 'Erreur serveur' });
+  }
+});
 
 module.exports = router;

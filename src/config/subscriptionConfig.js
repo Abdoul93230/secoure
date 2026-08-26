@@ -19,7 +19,7 @@ const SUBSCRIPTION_CONFIG = {
         trialMonths: 2,
         annualDiscount: 0.10,
       },
-      commission: 3.0,   // % prélevé sur chaque vente marketplace
+      commission: null,  // N/A — pas d'accès marketplace, aucune vente marketplace possible
       productLimit: 20,
       features: {
         pos: true,          // ✅ Caisse POS incluse pour tous les plans
@@ -179,7 +179,9 @@ const SUBSCRIPTION_CONFIG = {
 
   getPlanCommission(planName) {
     const plan = SUBSCRIPTION_CONFIG.PLANS[planName];
-    return plan ? plan.commission : SUBSCRIPTION_CONFIG.DEFAULT_COMMISSION;
+    if (!plan) return SUBSCRIPTION_CONFIG.DEFAULT_COMMISSION;
+    // commission null = plan sans marketplace → fallback sur DEFAULT_COMMISSION par sécurité
+    return plan.commission ?? SUBSCRIPTION_CONFIG.DEFAULT_COMMISSION;
   },
 
   calculateAnnualSavings(planName) {
@@ -214,7 +216,7 @@ const SUBSCRIPTION_CONFIG = {
     if (!plan) return null;
     return {
       price:        { monthly: plan.pricing.monthly, annual: plan.pricing.annual },
-      commission:   plan.commission,
+      commission:   plan.commission ?? SUBSCRIPTION_CONFIG.DEFAULT_COMMISSION,
       productLimit: plan.productLimit,
       trialMonths:  plan.pricing.trialMonths,
       features:     plan.features,
