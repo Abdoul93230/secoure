@@ -1,0 +1,273 @@
+Oui. Voici une fiche de commandes pratique pour ton serveur ihambaobab, adaptée à ton installation actuelle : /opt/ihambaobab, Docker, frontend, backend et MongoDB.
+
+1. Modifier un fichier du backend
+
+Aller dans le backend :
+
+cd /opt/ihambaobab/backend
+
+Modifier un fichier avec nano :
+
+sudo nano NOM_DU_FICHIER
+
+Par exemple :
+
+sudo nano .env
+
+Ou :
+
+sudo nano App.js
+
+Pour un fichier dans src :
+
+sudo nano src/auth/forgotPassword.js
+
+Dans nano :
+
+Ctrl + O → sauvegarder
+Entrée → confirmer
+Ctrl + X → quitter
+2. Modifier un fichier du frontend
+
+Aller dans le frontend :
+
+cd /opt/ihambaobab/frontend
+
+Puis :
+
+sudo nano NOM_DU_FICHIER
+
+Par exemple :
+
+sudo nano .env
+
+ou :
+
+sudo nano src/...
+3. Après une modification du BACKEND
+
+Comme ton backend est Dockerisé, modifier les fichiers du serveur ne modifie pas automatiquement le conteneur déjà créé.
+
+Si tu modifies le code source du backend, il faut généralement :
+
+Reconstruire l'image
+cd /opt/ihambaobab/backend
+
+sudo docker build -t ihambaobab-backend:latest .
+
+Puis recréer le conteneur :
+
+sudo docker stop ihambaobab-backend
+sudo docker rm ihambaobab-backend
+
+Puis :
+
+sudo docker run -d \
+  --name ihambaobab-backend \
+  --network ihambaobab-network \
+  --env-file /opt/ihambaobab/backend/.env \
+  -p 8083:8083 \
+  --restart unless-stopped \
+  ihambaobab-backend:latest
+Vérifier
+sudo docker ps
+
+Puis les logs :
+
+sudo docker logs -f --tail 100 ihambaobab-backend
+4. Si tu modifies seulement .env du backend
+
+Pas besoin de reconstruire l'image.
+
+sudo nano /opt/ihambaobab/backend/.env
+
+Puis recréer le conteneur avec le même docker run :
+
+sudo docker stop ihambaobab-backend
+sudo docker rm ihambaobab-backend
+
+sudo docker run -d \
+  --name ihambaobab-backend \
+  --network ihambaobab-network \
+  --env-file /opt/ihambaobab/backend/.env \
+  -p 8083:8083 \
+  --restart unless-stopped \
+  ihambaobab-backend:latest
+5. Après une modification du FRONTEND
+
+Même principe : ton frontend est également dans une image Docker.
+
+cd /opt/ihambaobab/frontend
+
+Reconstruire :
+
+sudo docker build -t ihambaobab-frontend:latest .
+
+Puis :
+
+sudo docker stop ihambaobab-frontend
+sudo docker rm ihambaobab-frontend
+
+Ensuite, il faut relancer le conteneur avec sa commande de lancement habituelle.
+
+Pour retrouver cette commande si tu l'oublies :
+
+grep -R "ihambaobab-frontend" /home/ubuntu/.bash_history /opt/ihambaobab 2>/dev/null
+6. Voir les logs du backend en temps réel
+sudo docker logs -f --tail 100 ihambaobab-backend
+
+Frontend :
+
+sudo docker logs -f --tail 100 ihambaobab-frontend
+
+MongoDB :
+
+sudo docker logs -f --tail 100 ihambaobab-mongodb
+
+Quitter les logs :
+
+Ctrl + C
+7. Voir la consommation du serveur
+RAM
+free -h
+CPU
+top
+
+ou :
+
+htop
+Disque
+df -h
+CPU disponibles
+nproc
+
+Dans ton cas :
+
+2 CPU
+8. Voir la consommation de tes conteneurs
+
+Très important :
+
+sudo docker stats
+
+Pour avoir seulement une mesure :
+
+sudo docker stats --no-stream
+
+Tu verras notamment :
+
+CPU %
+MEM USAGE
+MEM %
+NET I/O
+BLOCK I/O
+PIDS
+9. Voir l'espace utilisé par Docker
+sudo docker system df
+
+Version détaillée :
+
+sudo docker system df -v
+10. Nettoyer le cache Docker
+Cache de build uniquement — recommandé
+sudo docker builder prune -f
+
+C'est la commande que tu viens d'utiliser.
+
+Elle est relativement sûre et ne supprime pas tes conteneurs actifs.
+
+Voir avant de nettoyer
+sudo docker system df
+11. Nettoyage Docker plus agressif
+
+⚠️ À utiliser avec prudence :
+
+sudo docker system prune
+
+Cela peut supprimer des ressources Docker inutilisées.
+
+Je ne te conseille pas de faire --volumes sur ta production, car tes volumes peuvent contenir des données importantes, notamment MongoDB.
+
+Donc évite :
+
+sudo docker system prune -a --volumes
+
+sur ton serveur de production.
+
+12. Voir l'espace utilisé par ton projet
+
+Backend :
+
+sudo du -sh /opt/ihambaobab/backend
+
+Frontend :
+
+sudo du -sh /opt/ihambaobab/frontend
+
+Tout le projet :
+
+sudo du -sh /opt/ihambaobab
+
+Pour trouver les gros fichiers :
+
+sudo du -ah /opt/ihambaobab 2>/dev/null | sort -h | tail -30
+13. Voir les logs système
+
+Taille des logs :
+
+sudo journalctl --disk-usage
+
+Logs système en temps réel :
+
+sudo journalctl -f
+
+Nettoyer les anciens journaux, par exemple garder 7 jours :
+
+sudo journalctl --vacuum-time=7d
+14. Voir l'état général rapidement
+
+Quand tu veux faire un check rapide du serveur :
+
+uptime
+free -h
+df -h
+sudo docker stats --no-stream
+sudo docker system df
+
+Ça te donne rapidement :
+
+charge CPU → RAM → disque → Docker → cache Docker.
+
+15. La routine que je te recommande
+
+Quand tu fais une modification backend :
+
+cd /opt/ihambaobab/backend
+sudo nano fichier
+sudo docker build -t ihambaobab-backend:latest .
+sudo docker stop ihambaobab-backend
+sudo docker rm ihambaobab-backend
+sudo docker run -d \
+  --name ihambaobab-backend \
+  --network ihambaobab-network \
+  --env-file /opt/ihambaobab/backend/.env \
+  -p 8083:8083 \
+  --restart unless-stopped \
+  ihambaobab-backend:latest
+sudo docker logs -f --tail 100 ihambaobab-backend
+
+Et périodiquement :
+
+free -h
+df -h
+sudo docker stats --no-stream
+sudo docker system df
+
+Puis, si le build cache devient important :
+
+sudo docker builder prune -f
+⚠️ Une chose à retenir
+
+Ne supprime jamais le volume MongoDB juste pour "nettoyer le cache". Ton MongoDB possède actuellement un volume persistant. C'est précisément ce qui protège tes données lorsque le conteneur MongoDB est recréé.
+
+Pour ton serveur actuel, tu as ~9.3 Go de RAM disponible et ~81 Go de disque libre, donc tu n'as aucune urgence de nettoyage.   

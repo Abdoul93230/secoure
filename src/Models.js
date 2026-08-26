@@ -1207,10 +1207,11 @@ const sellerRequestSchema = new mongoose.Schema(
     },
     phone: {
       type: String,
-      required: true,
-      unique: true,
+      required: false,
+      default: null,
+      sparse: true,
       validate: {
-        validator: (v) => /^\+[1-9]\d{7,14}$/.test(v),
+        validator: (v) => v == null || /^\+[1-9]\d{7,14}$/.test(v),
         message: "Format de numéro de téléphone invalide",
       },
     },
