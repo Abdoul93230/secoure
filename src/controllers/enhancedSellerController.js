@@ -576,13 +576,19 @@ const loginWithSubscriptionCheck = async (req, res) => {
 
     // Vérification de la validation du compte vendeur
     if (!user.isvalid) {
+      // ── Bloc admin explicite (raison renseignée par un admin) ──
+      if (user.suspensionReason) {
+        return res.status(403).json({
+          message: user.suspensionReason,
+          code: 'ACCOUNT_BLOCKED',
+          isAdminBlock: true,
+          accountStatus: 'blocked',
+          suspensionReason: user.suspensionReason,
+        });
+      }
+
       let message = "Votre compte est en attente de validation administrative.";
       let accountStatus = 'pending_validation';
-      
-      if (user.suspensionReason) {
-        message = `Votre compte a été suspendu. Raison: ${user.suspensionReason}`;
-        accountStatus = 'suspended';
-      }
       console.log({completeStatus});
       console.log({completeStatus2 : user.suspensionReason});
       const statusActions = Array.isArray(completeStatus?.statusInfo?.actions)

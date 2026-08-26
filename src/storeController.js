@@ -1223,15 +1223,25 @@ const verifyToken = async (req, res) => {
     return res.status(404).json({ message: 'Vendeur non trouvé' });
   }
 
-  // Si le compte est suspendu, forcer la déconnexion côté client
+  // Bloc admin explicite (suspensionReason renseigné par un admin)
+  if (!user.isvalid && user.suspensionReason) {
+    return res.status(403).json({
+      message: `Votre compte a été désactivé : ${user.suspensionReason}`,
+      code: 'ACCOUNT_BLOCKED',
+      isAdminBlock: true,
+      accountStatus: 'blocked',
+      suspensionReason: user.suspensionReason,
+    });
+  }
+
+  // Abonnement expiré / suspendu (sans raison admin)
   if (!user.isvalid && user.subscriptionStatus === 'suspended') {
     return res.status(403).json({
-      message: user.suspensionReason
-        ? `Compte suspendu: ${user.suspensionReason}`
-        : 'Votre compte a été suspendu. Contactez le support.',
+      message: 'Votre compte a été suspendu. Contactez le support.',
       code: 'ACCOUNT_SUSPENDED',
+      isAdminBlock: false,
       accountStatus: 'suspended',
-      suspensionReason: user.suspensionReason || null
+      suspensionReason: null,
     });
   }
 

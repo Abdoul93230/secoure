@@ -203,6 +203,7 @@ router.post('/suspend-seller/:sellerId', requireAdmin, async (req, res) => {
     if (io) {
       io.to(`seller:${sellerId}`).emit('account_suspended', {
         suspensionReason: reason,
+        isAdminBlock: true,
         suspendedAt: new Date()
       });
     }
