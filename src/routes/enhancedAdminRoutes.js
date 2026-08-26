@@ -381,18 +381,14 @@ const EmailCampaign = require('../EmailCampaign_Model');
 const { getPendingRequests, createManualRenewal } = require('../controllers/enhancedSubscriptionController');
 const cloudinary = require('../cloudinary');
 
-// Helper: extract Cloudinary public_id from URL (same logic as productService.js)
+// Helper: extract Cloudinary public_id from any Cloudinary URL
+// Handles: images/, seller-logos/, seller-documents/, payment-receipts/, etc.
 function extractCloudinaryPublicId(url) {
   try {
     if (!url || typeof url !== 'string' || !url.includes('cloudinary.com')) return null;
-    const urlParts = url.split('/');
-    const filenameWithExt = urlParts.pop();
-    if (!filenameWithExt) return null;
-    const publicId = filenameWithExt.split('.')[0];
-    const imagesIdx = urlParts.indexOf('images');
-    if (imagesIdx === -1) return null;
-    const folderPath = urlParts.slice(imagesIdx).join('/');
-    return `${folderPath}/${publicId}`;
+    // Match everything after /upload/ — skip optional version segment (v123456/)
+    const matches = url.match(/\/upload\/(?:v\d+\/)?(.+?)(?:\.[^./]+)?$/);
+    return matches ? matches[1] : null;
   } catch {
     return null;
   }
@@ -1071,16 +1067,16 @@ router.delete('/clean-seller/:sellerId', requireAdmin, async (req, res) => {
     const sellerIdentityId = extractCloudinaryPublicId(seller.ownerIdentity);
     if (sellerIdentityId) cloudinaryPublicIds.push(sellerIdentityId);
 
-    // Delete from Cloudinary in batches of 100
+    // Delete from Cloudinary one by one (uploader.destroy = méthode éprouvée du projet)
     let cloudinaryDeletedCount = 0;
     const uniquePublicIds = [...new Set(cloudinaryPublicIds.filter(Boolean))];
-    for (let i = 0; i < uniquePublicIds.length; i += 100) {
-      const batch = uniquePublicIds.slice(i, i + 100);
+    console.log(`[clean-seller] ${uniquePublicIds.length} images Cloudinary à supprimer:`, uniquePublicIds);
+    for (const publicId of uniquePublicIds) {
       try {
-        await cloudinary.api.delete_resources(batch);
-        cloudinaryDeletedCount += batch.length;
+        await cloudinary.uploader.destroy(publicId, { invalidate: true });
+        cloudinaryDeletedCount++;
       } catch (err) {
-        console.error('Cloudinary batch delete error:', err.message);
+        console.error(`Cloudinary delete error [${publicId}]:`, err.message);
       }
     }
 
