@@ -379,6 +379,24 @@ const Review = require('../models/Review');
 const Banner = require('../Banner_Model');
 const EmailCampaign = require('../EmailCampaign_Model');
 const { getPendingRequests, createManualRenewal } = require('../controllers/enhancedSubscriptionController');
+const cloudinary = require('../cloudinary');
+
+// Helper: extract Cloudinary public_id from URL (same logic as productService.js)
+function extractCloudinaryPublicId(url) {
+  try {
+    if (!url || typeof url !== 'string' || !url.includes('cloudinary.com')) return null;
+    const urlParts = url.split('/');
+    const filenameWithExt = urlParts.pop();
+    if (!filenameWithExt) return null;
+    const publicId = filenameWithExt.split('.')[0];
+    const imagesIdx = urlParts.indexOf('images');
+    if (imagesIdx === -1) return null;
+    const folderPath = urlParts.slice(imagesIdx).join('/');
+    return `${folderPath}/${publicId}`;
+  } catch {
+    return null;
+  }
+}
 
 // Middleware admin
 const requireAdmin = (req, res, next) => {
@@ -1025,8 +1043,46 @@ router.delete('/clean-seller/:sellerId', requireAdmin, async (req, res) => {
     const sellerObjectId = new mongoose.Types.ObjectId(sellerId);
     const SellerNotification = mongoose.model('SellerNotification');
 
-    const products = await Produit.find({ Clefournisseur: sellerObjectId }, '_id').lean();
+    // Fetch image data BEFORE deletion
+    const products = await Produit.find(
+      { Clefournisseur: sellerObjectId },
+      '_id image1 image2 image3 image4 image5'
+    ).lean();
     const productIds = products.map(p => p._id);
+
+    const banners = await Banner.find({ sellerId: sellerObjectId }, 'imagePublicId').lean();
+
+    // Collect all Cloudinary public_ids to delete
+    const cloudinaryPublicIds = [];
+
+    for (const product of products) {
+      for (const field of ['image1', 'image2', 'image3', 'image4', 'image5']) {
+        const pid = extractCloudinaryPublicId(product[field]);
+        if (pid) cloudinaryPublicIds.push(pid);
+      }
+    }
+
+    for (const banner of banners) {
+      if (banner.imagePublicId) cloudinaryPublicIds.push(banner.imagePublicId);
+    }
+
+    const sellerLogoId = extractCloudinaryPublicId(seller.logo);
+    if (sellerLogoId) cloudinaryPublicIds.push(sellerLogoId);
+    const sellerIdentityId = extractCloudinaryPublicId(seller.ownerIdentity);
+    if (sellerIdentityId) cloudinaryPublicIds.push(sellerIdentityId);
+
+    // Delete from Cloudinary in batches of 100
+    let cloudinaryDeletedCount = 0;
+    const uniquePublicIds = [...new Set(cloudinaryPublicIds.filter(Boolean))];
+    for (let i = 0; i < uniquePublicIds.length; i += 100) {
+      const batch = uniquePublicIds.slice(i, i + 100);
+      try {
+        await cloudinary.api.delete_resources(batch);
+        cloudinaryDeletedCount += batch.length;
+      } catch (err) {
+        console.error('Cloudinary batch delete error:', err.message);
+      }
+    }
 
     const [
       rPortefeuille,
@@ -1081,6 +1137,7 @@ router.delete('/clean-seller/:sellerId', requireAdmin, async (req, res) => {
       message: `Vendeur "${seller.name || seller.email}" définitivement supprimé`,
       deletedCounts: {
         seller: 1,
+        cloudinaryImages: cloudinaryDeletedCount,
         store: rStore.deletedCount,
         produits: rProduits.deletedCount,
         commentairesProduits: rComments.deletedCount,
