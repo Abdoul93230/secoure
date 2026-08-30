@@ -37,6 +37,7 @@ const sellerSubscriptionRoutes = require('./src/routes/sellerSubscriptionRoutes'
 const promoCodeRoutes = require('./src/routes/promoCodeRoutes');
 const gamificationRoutes = require('./src/routes/gamificationRoutes');
 const newsletterRoutes = require('./src/routes/newsletterRoutes');
+const deletionRequestRoutes = require('./src/routes/deletionRequestRoutes');
 const posRoutes   = require('./src/routes/posRoutes');
 const agentRoutes = require('./src/routes/agentRoutes');
 
@@ -235,6 +236,8 @@ app.use('/api/seller/subscription', authMiddleware.requireSeller, sellerSubscrip
 app.use('/api/promocodes', promoCodeRoutes);
 app.use('/api/gamification', gamificationRoutes);
 app.use('/api/newsletter', newsletterRoutes);
+app.use('/api', deletionRequestRoutes);                        // POST /api/deletion-request (public)
+app.use('/api/admin', authMiddleware.requireAdmin, deletionRequestRoutes); // GET|PATCH /api/admin/deletion-requests (admin)
 app.use('/api/pos', posRoutes);
 // Login agent : public (pas de requireSeller)
 // Gestion agents : protégée par requireSeller

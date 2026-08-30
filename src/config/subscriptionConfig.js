@@ -14,18 +14,18 @@ const SUBSCRIPTION_CONFIG = {
       description: "Idéal pour débuter. 2 mois d'essai gratuit, aucun paiement requis.",
       agentQuota: 0,
       pricing: {
-        monthly: 2000,
-        annual: 21600,   // 2000 * 12 - 10%
+        monthly: 1000,
+        annual: 10800,   // 1000 * 12 - 10%
         trialMonths: 2,
         annualDiscount: 0.10,
       },
       commission: null,  // N/A — pas d'accès marketplace, aucune vente marketplace possible
-      productLimit: 20,
+      productLimit: 30,
       features: {
         pos: true,          // ✅ Caisse POS incluse pour tous les plans
         marketplace: false, // ❌ Produits non visibles sur la marketplace
         productManagement: {
-          maxProducts: 20,
+          maxProducts: 30,
           maxVariants: 3,
           maxCategories: 5,
           catalogImport: false,
@@ -55,8 +55,8 @@ const SUBSCRIPTION_CONFIG = {
       description: "Pour les vendeurs réguliers. 1 mois d'essai gratuit, aucun paiement requis.",
       agentQuota: 2,
       pricing: {
-        monthly: 5000,
-        annual: 54000,   // 5000 * 12 - 10%
+        monthly: 2500,
+        annual: 27000,   // 2500 * 12 - 10%
         trialMonths: 1,
         annualDiscount: 0.10,
       },
@@ -96,8 +96,8 @@ const SUBSCRIPTION_CONFIG = {
       description: "Pour les vendeurs établis à fort volume. 1 mois d'essai gratuit, aucun paiement requis.",
       agentQuota: 6,
       pricing: {
-        monthly: 10000,
-        annual: 108000,   // 10000 * 12 - 10%
+        monthly: 5000,
+        annual: 54000,   // 5000 * 12 - 10%
         trialMonths: 1,
         annualDiscount: 0.10,
       },

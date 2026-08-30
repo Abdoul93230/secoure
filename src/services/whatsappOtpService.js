@@ -1,10 +1,12 @@
 const axios = require("axios");
 
 const getConfig = () => ({
-  token: process.env.WHATSAPP_ACCESS_TOKEN || "",
+  token:        process.env.WHATSAPP_ACCESS_TOKEN || "",
   phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || "",
-  apiVersion: process.env.WHATSAPP_API_VERSION || "v19.0",
-  enabled: String(process.env.WHATSAPP_ENABLED || "false").toLowerCase() === "true",
+  apiVersion:   process.env.WHATSAPP_API_VERSION || "v19.0",
+  enabled:      String(process.env.WHATSAPP_ENABLED || "false").toLowerCase() === "true",
+  templateName: process.env.WHATSAPP_TEMPLATE_NAME || "",   // ex: "ihambaobab_otp"
+  templateLang: process.env.WHATSAPP_TEMPLATE_LANG || "fr",
 });
 
 const assertReady = () => {
@@ -38,16 +40,37 @@ const sendOtp = async (to, code, expiryMinutes = 10) => {
 
   const recipient = String(to).replace(/\s+/g, "").replace(/^\+/, "");
 
-  const body = {
-    messaging_product: "whatsapp",
-    recipient_type: "individual",
-    to: recipient,
-    type: "text",
-    text: {
-      preview_url: false,
-      body: `🔐 *IhamBaobab* — Votre code de vérification est *${code}*.\n\nIl expire dans ${expiryMinutes} minutes.\n\n_Ne le partagez jamais._`,
-    },
-  };
+  // Si un template approuvé est configuré, on l'utilise (requis pour les messages sortants)
+  // Sinon, fallback en texte libre (fonctionne uniquement dans une fenêtre de 24h)
+  let body;
+  if (cfg.templateName) {
+    body = {
+      messaging_product: "whatsapp",
+      to: recipient,
+      type: "template",
+      template: {
+        name: cfg.templateName,
+        language: { code: cfg.templateLang },
+        components: [
+          {
+            type: "body",
+            parameters: [{ type: "text", text: code }],
+          },
+        ],
+      },
+    };
+  } else {
+    body = {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: recipient,
+      type: "text",
+      text: {
+        preview_url: false,
+        body: `🔐 *IhamBaobab* — Votre code de vérification est *${code}*.\n\nIl expire dans ${expiryMinutes} minutes.\n\n_Ne le partagez jamais._`,
+      },
+    };
+  }
 
   const url = `https://graph.facebook.com/${cfg.apiVersion}/${cfg.phoneNumberId}/messages`;
 

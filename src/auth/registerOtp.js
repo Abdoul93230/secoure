@@ -20,7 +20,8 @@
 const nodemailer  = require('nodemailer');
 const jwt         = require('jsonwebtoken');
 const { SellerRequest } = require('../Models');
-const lafricaSms  = require('../services/lafricaMobileSmsService');
+const lafricaSms    = require('../services/lafricaMobileSmsService');
+const whatsappOtp   = require('../services/whatsappOtpService');
 
 const SECRET          = require('./clefSeller');
 const OTP_TTL_MS      = 10 * 60 * 1000;   // 10 min
@@ -77,7 +78,7 @@ const buildEmailHtml = (otp) => `<!DOCTYPE html>
 const sendOtp = async (req, res) => {
   const { identifier, method } = req.body;
 
-  if (!identifier || !['email', 'phone'].includes(method)) {
+  if (!identifier || !['email', 'phone', 'whatsapp'].includes(method)) {
     return res.status(400).json({ message: 'Paramètres invalides (identifier + method requis).' });
   }
 
@@ -88,15 +89,20 @@ const sendOtp = async (req, res) => {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(key)) {
       return res.status(400).json({ message: 'Adresse email invalide.' });
     }
-  } else {
+  } else if (method === 'phone') {
     if (!/^\+\d{8,15}$/.test(key)) {
       return res.status(400).json({ message: 'Numéro invalide (format international : +22787...).' });
     }
     if (!SMS_ALLOWED.some(p => key.startsWith(p))) {
       return res.status(403).json({
-        message: 'SMS disponible uniquement pour Niger (+227) et Bénin (+229). Utilisez votre email.',
+        message: 'SMS disponible uniquement pour Niger (+227) et Bénin (+229). Utilisez votre email ou WhatsApp.',
         suggestEmail: true,
+        suggestWhatsapp: true,
       });
+    }
+  } else if (method === 'whatsapp') {
+    if (!/^\+\d{8,15}$/.test(key)) {
+      return res.status(400).json({ message: 'Numéro invalide (format international : +22787...).' });
     }
   }
 
@@ -128,6 +134,8 @@ const sendOtp = async (req, res) => {
         subject: 'Code de vérification — IhamBaobab',
         html: buildEmailHtml(otp),
       });
+    } else if (method === 'whatsapp') {
+      await whatsappOtp.sendOtp(key, otp, 10);
     } else {
       await lafricaSms.sendSms({
         to:   key,
@@ -140,11 +148,12 @@ const sendOtp = async (req, res) => {
     return res.status(500).json({ message: "Erreur lors de l'envoi du code." });
   }
 
+  const channelLabel = method === 'email' ? 'email' : method === 'whatsapp' ? 'WhatsApp' : 'SMS';
   return res.status(200).json({
     sent:     true,
     method,
     cooldown: Math.ceil(cooldown / 1000),
-    message:  method === 'email' ? 'Code envoyé par email.' : 'Code envoyé par SMS.',
+    message:  `Code envoyé par ${channelLabel}.`,
   });
 };
 

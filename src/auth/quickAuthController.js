@@ -555,21 +555,28 @@ const requestPasswordResetOtp = async (req, res) => {
       });
     }
 
+    const channel = (req.body?.channel || "sms").toLowerCase();
+
     const otpPayload = buildOtpPayload(previousOtp);
-    otpPayload.purpose = "password-reset";
+    otpPayload.purpose  = "password-reset";
+    otpPayload.channel  = channel;
 
     try {
-      await lafricaMobileSmsService.sendSms({
-        to: phone,
-        text: buildOtpSmsText({ code: otpPayload.code, purpose: "password-reset" }),
-        retId: `pwdreset-${Date.now()}`,
-      });
-    } catch (smsError) {
-      console.error('[SMS password-reset] code:', smsError.code, '| status:', smsError.status, '| body:', JSON.stringify(smsError.providerBody ?? smsError.message));
+      if (channel === "whatsapp") {
+        await whatsappOtpService.sendOtp(phone, otpPayload.code, OTP_EXPIRY_MINUTES);
+      } else {
+        await lafricaMobileSmsService.sendSms({
+          to: phone,
+          text: buildOtpSmsText({ code: otpPayload.code, purpose: "password-reset" }),
+          retId: `pwdreset-${Date.now()}`,
+        });
+      }
+    } catch (sendError) {
+      console.error(`[${channel}-password-reset] error:`, sendError.code, sendError.message, JSON.stringify(sendError.providerBody ?? {}));
       return res.status(502).json({
         success: false,
-        message: "Impossible d'envoyer le code OTP de reinitialisation",
-        error: getSmsErrorMessage(smsError),
+        message: "Impossible d'envoyer le code OTP de réinitialisation",
+        error: channel === "whatsapp" ? whatsappOtpService.getErrorMessage(sendError) : getSmsErrorMessage(sendError),
       });
     }
 
@@ -578,8 +585,9 @@ const requestPasswordResetOtp = async (req, res) => {
 
     const response = {
       success: true,
-      message: "Code OTP de reinitialisation envoye avec succes",
+      message: channel === "whatsapp" ? "Code OTP envoyé par WhatsApp" : "Code OTP de reinitialisation envoye avec succes",
       data: {
+        channel,
         attemptsRemaining: Math.max(0, OTP_MAX_SEND_ATTEMPTS - otpPayload.sendCount),
         cooldownSeconds: OTP_COOLDOWN_SECONDS,
         expiresInSeconds: OTP_EXPIRY_MINUTES * 60,
