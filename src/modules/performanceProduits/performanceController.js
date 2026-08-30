@@ -33,7 +33,8 @@ async function computePeriod(sellerId, since, until, days, allProduits, getImage
   for (const vente of posVentes) {
     for (const ligne of vente.lignes || []) {
       const key = String(ligne.produitId);
-      touch(key, ligne.nom, ligne.image, ligne.prixUnitaire);
+      const posImg = ligne.image || getImage(allProduits.find(ap => String(ap._id) === key) || {});
+      touch(key, ligne.nom, posImg, ligne.prixUnitaire);
       const montant = ligne.sousTotal || ligne.prixUnitaire * ligne.quantite;
       prodMap[key].quantite += ligne.quantite;
       prodMap[key].chiffre  += montant;
@@ -47,7 +48,9 @@ async function computePeriod(sellerId, since, until, days, allProduits, getImage
   for (const txn of txns) {
     for (const p of txn.metadata?.produits || []) {
       const key = `mkt_${(p.nom || '').toLowerCase().trim()}`;
-      touch(key, p.nom, null, p.prix || 0);
+      const mkName = (p.nom || '').toLowerCase().trim();
+      const mkProd = allProduits.find(ap => (ap.name || '').toLowerCase().trim() === mkName);
+      touch(key, p.nom, mkProd ? getImage(mkProd) : null, p.prix || 0);
       prodMap[key].quantite += p.quantite || 1;
       prodMap[key].chiffre  += p.montant || 0;
       prodMap[key].sources.add('marketplace');
