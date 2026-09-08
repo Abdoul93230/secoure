@@ -9,7 +9,7 @@ function verifyWebhook(req, res) {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
-
+    console.log(VERIFY_TOKEN);
   if (mode === 'subscribe' && token === VERIFY_TOKEN) {
     console.log('[WhatsApp Webhook] Vérification réussie');
     return res.status(200).send(challenge);
