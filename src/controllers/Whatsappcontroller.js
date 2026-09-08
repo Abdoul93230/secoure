@@ -4,11 +4,16 @@ const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN; // même valeur que dans
  * Étape de vérification faite une seule fois par Meta (handshake).
  * Meta envoie: ?hub.mode=subscribe&hub.verify_token=XXX&hub.challenge=YYY
  * On doit renvoyer hub.challenge tel quel si le token correspond.
+ *
+ * NOTE: certains middlewares (ex: express-mongo-sanitize) remplacent les
+ * points "." par des underscores "_" dans les clés de req.query.
+ * On gère donc les deux formats possibles par sécurité.
  */
 function verifyWebhook(req, res) {
-    const mode = req.query['hub.mode'];
-    const token = req.query['hub.verify_token'];
-    const challenge = req.query['hub.challenge'];
+    const mode = req.query['hub.mode'] ?? req.query['hub_mode'];
+    const token = req.query['hub.verify_token'] ?? req.query['hub_verify_token'];
+    const challenge = req.query['hub.challenge'] ?? req.query['hub_challenge'];
+
     console.log('req.query complet:', JSON.stringify(req.query, null, 2));
     console.log('token reçu:', JSON.stringify(token), '| longueur:', token?.length);
     console.log('token attendu:', JSON.stringify(VERIFY_TOKEN), '| longueur:', VERIFY_TOKEN?.length);
