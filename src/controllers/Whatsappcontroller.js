@@ -9,6 +9,7 @@ function verifyWebhook(req, res) {
     const mode = req.query['hub.mode'];
     const token = req.query['hub.verify_token'];
     const challenge = req.query['hub.challenge'];
+    console.log('req.query complet:', JSON.stringify(req.query, null, 2));
     console.log('token reçu:', JSON.stringify(token), '| longueur:', token?.length);
     console.log('token attendu:', JSON.stringify(VERIFY_TOKEN), '| longueur:', VERIFY_TOKEN?.length);
 
