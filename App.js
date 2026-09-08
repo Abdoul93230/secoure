@@ -48,6 +48,7 @@ const performanceRoutes = require('./src/modules/performanceProduits/performance
 const creancesRoutes = require('./src/modules/carnetCreances/creancesRoutes');
 const rapportRoutes = require('./src/modules/rapportPeriodique/rapportRoutes');
 
+const whatsappRoutes = require('./src/routes/Whatsapp');
 // Import middleware
 const { errorHandler } = require('./src/middleware/errorHandler');
 const authMiddleware = require('./src/middleware/auth');
@@ -375,6 +376,8 @@ app.use('/api/modules/performance', authMiddleware.requireSeller, performanceRou
 app.use('/api/modules/creances', authMiddleware.requireSeller, creancesRoutes);
 app.use('/api/modules/rapports', authMiddleware.requireSeller, rapportRoutes);
 
+
+app.use('/webhook/whatsapp', whatsappRoutes);
 
 // Start server
 server.listen(port, () => {

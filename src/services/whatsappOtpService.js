@@ -1,3 +1,11 @@
+// ─── WhatsApp OTP Service — DÉSACTIVÉ ────────────────────────────────────────
+// Réactiver quand le template Meta est approuvé :
+//   1. Décommenter le bloc ci-dessous
+//   2. Supprimer les stubs en bas du fichier
+//   3. Configurer WHATSAPP_TEMPLATE_NAME + régénérer le token dans .env
+// ─────────────────────────────────────────────────────────────────────────────
+
+/*
 const axios = require("axios");
 
 const getConfig = () => ({
@@ -5,7 +13,7 @@ const getConfig = () => ({
   phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || "",
   apiVersion:   process.env.WHATSAPP_API_VERSION || "v19.0",
   enabled:      String(process.env.WHATSAPP_ENABLED || "false").toLowerCase() === "true",
-  templateName: process.env.WHATSAPP_TEMPLATE_NAME || "",   // ex: "ihambaobab_otp"
+  templateName: process.env.WHATSAPP_TEMPLATE_NAME || "",
   templateLang: process.env.WHATSAPP_TEMPLATE_LANG || "fr",
 });
 
@@ -29,19 +37,9 @@ const assertReady = () => {
   return cfg;
 };
 
-/**
- * Envoie un OTP via WhatsApp Cloud API (message texte simple).
- * @param {string} to   – numéro E.164 (+22790...)
- * @param {string} code – code OTP à 6 chiffres
- * @param {number} expiryMinutes
- */
 const sendOtp = async (to, code, expiryMinutes = 10) => {
   const cfg = assertReady();
-
   const recipient = String(to).replace(/\s+/g, "").replace(/^\+/, "");
-
-  // Si un template approuvé est configuré, on l'utilise (requis pour les messages sortants)
-  // Sinon, fallback en texte libre (fonctionne uniquement dans une fenêtre de 24h)
   let body;
   if (cfg.templateName) {
     body = {
@@ -52,10 +50,7 @@ const sendOtp = async (to, code, expiryMinutes = 10) => {
         name: cfg.templateName,
         language: { code: cfg.templateLang },
         components: [
-          {
-            type: "body",
-            parameters: [{ type: "text", text: code }],
-          },
+          { type: "body", parameters: [{ type: "text", text: code }] },
         ],
       },
     };
@@ -71,18 +66,12 @@ const sendOtp = async (to, code, expiryMinutes = 10) => {
       },
     };
   }
-
   const url = `https://graph.facebook.com/${cfg.apiVersion}/${cfg.phoneNumberId}/messages`;
-
   const response = await axios.post(url, body, {
-    headers: {
-      Authorization: `Bearer ${cfg.token}`,
-      "Content-Type": "application/json",
-    },
+    headers: { Authorization: `Bearer ${cfg.token}`, "Content-Type": "application/json" },
     timeout: 10000,
     validateStatus: () => true,
   });
-
   if (response.status >= 400) {
     const errData = response.data?.error || response.data;
     const e = new Error(errData?.message || "Erreur WhatsApp Cloud API");
@@ -91,11 +80,7 @@ const sendOtp = async (to, code, expiryMinutes = 10) => {
     e.providerBody = response.data;
     throw e;
   }
-
-  return {
-    messageId: response.data?.messages?.[0]?.id || null,
-    raw: response.data,
-  };
+  return { messageId: response.data?.messages?.[0]?.id || null, raw: response.data };
 };
 
 const getErrorMessage = (error) => {
@@ -106,5 +91,16 @@ const getErrorMessage = (error) => {
   if (error.code === "WA_API_ERROR") return `WhatsApp API error ${error.status}: ${error.providerBody?.error?.message || error.message}`;
   return error.message || "Erreur WhatsApp";
 };
+
+module.exports = { sendOtp, getErrorMessage };
+*/
+
+// ── Stubs (service désactivé) ─────────────────────────────────────────────────
+const sendOtp = async () => {
+  const e = new Error("WhatsApp OTP désactivé — template en attente d'approbation Meta");
+  e.code = "WA_DISABLED";
+  throw e;
+};
+const getErrorMessage = () => "Service WhatsApp OTP temporairement désactivé";
 
 module.exports = { sendOtp, getErrorMessage };

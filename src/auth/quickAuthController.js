@@ -3,7 +3,7 @@ const jwt = require("jsonwebtoken");
 const { User, Profile } = require("../Models");
 const privateKey = require("./clef");
 const lafricaMobileSmsService = require("../services/lafricaMobileSmsService");
-const whatsappOtpService = require("../services/whatsappOtpService");
+// const whatsappOtpService = require("../services/whatsappOtpService"); // DÉSACTIVÉ
 
 const OTP_EXPIRY_MINUTES = 10;
 const OTP_COOLDOWN_SECONDS = 60;
@@ -138,8 +138,9 @@ const sendOtp = async (req, res) => {
   try {
     const rawPhone = req.body?.phone;
     const name = req.body?.name || "Utilisateur";
-    // "whatsapp" ou "sms" — défaut SMS
-    const channel = (req.body?.channel || "sms").toLowerCase();
+    // WhatsApp DÉSACTIVÉ — canal forcé à SMS
+    // const channel = (req.body?.channel || "sms").toLowerCase();
+    const channel = "sms";
 
     const phone = rawPhone ? normalizePhone(rawPhone) : null;
 
@@ -219,17 +220,14 @@ const sendOtp = async (req, res) => {
 
     const otpPayload = buildOtpPayload(previousOtp);
 
-    if (channel === "whatsapp") {
-      try {
-        await whatsappOtpService.sendOtp(phone, otpPayload.code, OTP_EXPIRY_MINUTES);
-      } catch (waError) {
-        return res.status(502).json({
-          success: false,
-          message: "Impossible d'envoyer le code OTP par WhatsApp",
-          error: whatsappOtpService.getErrorMessage(waError),
-        });
-      }
-    } else {
+    // if (channel === "whatsapp") { // DÉSACTIVÉ
+    //   try {
+    //     await whatsappOtpService.sendOtp(phone, otpPayload.code, OTP_EXPIRY_MINUTES);
+    //   } catch (waError) {
+    //     return res.status(502).json({ success: false, message: "Impossible d'envoyer le code OTP par WhatsApp", error: whatsappOtpService.getErrorMessage(waError) });
+    //   }
+    // } else {
+    if (true) {
       try {
         await lafricaMobileSmsService.sendSms({
           to: phone,
@@ -253,9 +251,7 @@ const sendOtp = async (req, res) => {
 
     const response = {
       success: true,
-      message: channel === "whatsapp"
-        ? "Code OTP envoyé sur WhatsApp"
-        : "Code OTP envoyé par SMS",
+      message: "Code OTP envoyé par SMS", // WhatsApp DÉSACTIVÉ
       data: {
         channel,
         attemptsRemaining: Math.max(0, OTP_MAX_SEND_ATTEMPTS - otpPayload.sendCount),
@@ -555,16 +551,19 @@ const requestPasswordResetOtp = async (req, res) => {
       });
     }
 
-    const channel = (req.body?.channel || "sms").toLowerCase();
+    // WhatsApp DÉSACTIVÉ — canal forcé à SMS
+    // const channel = (req.body?.channel || "sms").toLowerCase();
+    const channel = "sms";
 
     const otpPayload = buildOtpPayload(previousOtp);
     otpPayload.purpose  = "password-reset";
     otpPayload.channel  = channel;
 
     try {
-      if (channel === "whatsapp") {
-        await whatsappOtpService.sendOtp(phone, otpPayload.code, OTP_EXPIRY_MINUTES);
-      } else {
+      // if (channel === "whatsapp") { // DÉSACTIVÉ
+      //   await whatsappOtpService.sendOtp(phone, otpPayload.code, OTP_EXPIRY_MINUTES);
+      // } else {
+      {
         await lafricaMobileSmsService.sendSms({
           to: phone,
           text: buildOtpSmsText({ code: otpPayload.code, purpose: "password-reset" }),
@@ -576,7 +575,7 @@ const requestPasswordResetOtp = async (req, res) => {
       return res.status(502).json({
         success: false,
         message: "Impossible d'envoyer le code OTP de réinitialisation",
-        error: channel === "whatsapp" ? whatsappOtpService.getErrorMessage(sendError) : getSmsErrorMessage(sendError),
+        error: getSmsErrorMessage(sendError), // WhatsApp DÉSACTIVÉ
       });
     }
 
@@ -585,7 +584,7 @@ const requestPasswordResetOtp = async (req, res) => {
 
     const response = {
       success: true,
-      message: channel === "whatsapp" ? "Code OTP envoyé par WhatsApp" : "Code OTP de reinitialisation envoye avec succes",
+      message: "Code OTP de reinitialisation envoye avec succes", // WhatsApp DÉSACTIVÉ
       data: {
         channel,
         attemptsRemaining: Math.max(0, OTP_MAX_SEND_ATTEMPTS - otpPayload.sendCount),
