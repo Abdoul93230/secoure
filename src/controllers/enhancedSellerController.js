@@ -1,5 +1,6 @@
 const { SellerRequest, PricingPlan } = require("../Models");
 const { createSubscriptionForSeller, createInitialSubscription, getSellerCompleteStatus } = require('./subscriptionController');
+const { isSubscriptionRelatedSuspension } = require('../routes/sellerSubscriptionRoutes');
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const privateKeSeller = require("../auth/clefSeller");
@@ -576,32 +577,39 @@ const loginWithSubscriptionCheck = async (req, res) => {
 
     // Vérification de la validation du compte vendeur
     if (!user.isvalid) {
-      // ── Bloc admin explicite (raison renseignée par un admin) ──
-      if (user.suspensionReason) {
+      const suspensionReason = user.suspensionReason || "";
+      // Même classification que sellerSubscriptionRoutes (requireSeller des routes
+      // abonnement) : distinguer une suspension ADMINISTRATIVE d'une suspension
+      // liée à l'abonnement. Un vendeur suspendu pour défaut d'abonnement doit
+      // pouvoir accéder à la page abonnement pour se réactiver → on lui fournit
+      // un token de réabonnement (1 jour). Un bloc admin explicite reste bloqué.
+      const isSubscriptionSuspension = isSubscriptionRelatedSuspension(suspensionReason);
+
+      // ── Bloc admin explicite (raison renseignée, non liée à l'abonnement) ──
+      if (suspensionReason && !isSubscriptionSuspension) {
         return res.status(403).json({
-          message: user.suspensionReason,
+          message: suspensionReason,
           code: 'ACCOUNT_BLOCKED',
           isAdminBlock: true,
           accountStatus: 'blocked',
-          suspensionReason: user.suspensionReason,
+          suspensionReason,
         });
       }
 
-      let message = "Votre compte est en attente de validation administrative.";
-      let accountStatus = 'pending_validation';
-      console.log({completeStatus});
-      console.log({completeStatus2 : user.suspensionReason});
-      const statusActions = Array.isArray(completeStatus?.statusInfo?.actions)
-        ? completeStatus.statusInfo.actions
-        : [];
-      const suspensionReason = user.suspensionReason || "";
+      // ── Suspension pour défaut d'abonnement, OU compte sans aucun abonnement ──
+      // Signaux univoques uniquement : raison liée à l'abonnement, absence totale
+      // d'abonnement (pas de queue), ou statut explicitement "suspended+blocked".
+      // ⚠️ On exclut volontairement les statuts trial/active (upgrade_plan,
+      // canCreateRequest) pour ne pas capturer les comptes en attente de validation
+      // qui ont un essai actif → eux doivent aller vers /ValidationDemandeStore.
+      const isNoSubscription = completeStatus?.status === 'no_subscription';
+      const isStatusBlockedSuspended =
+        completeStatus?.statusInfo?.blocked === true &&
+        completeStatus?.statusInfo?.status === 'suspended';
       const shouldProvideResubscriptionToken =
-        accountStatus === 'suspended' && (
-          statusActions.includes("upgrade_plan") ||
-          statusActions.includes("reactivate_account") ||
-          completeStatus?.statusInfo?.canCreateRequest === true ||
-          /abonnement|subscription|reactivation|upgrade|expire|expiration|paiement|incoh[eé]rence|queue/i.test(suspensionReason)
-        );
+        (suspensionReason && isSubscriptionSuspension) ||
+        isNoSubscription ||
+        isStatusBlockedSuspended;
 
       const resubscriptionToken = shouldProvideResubscriptionToken
         ? jwt.sign(
@@ -618,11 +626,49 @@ const loginWithSubscriptionCheck = async (req, res) => {
             { expiresIn: "1d" }
           )
         : null;
-      
-      return res.status(403).json({ 
-        message,
-        accountStatus,
-        suspensionReason: user.suspensionReason,
+
+      if (resubscriptionToken) {
+        // Format attendu par les frontends :
+        // - Web (Sellers/Login.js) : 403 + token + canReactivate → /abonnement
+        // - Mobile (authStore.js)  : 403 + token + accountStatus 'suspended' → mur d'abonnement
+        return res.status(403).json({
+          message: suspensionReason || "Aucun abonnement actif. Renouvelez votre abonnement pour réactiver votre compte.",
+          accountStatus: 'suspended',
+          canReactivate: true,
+          suspensionReason: suspensionReason || null,
+          statusInfo: completeStatus?.statusInfo,
+          user: {
+            id: user._id,
+            name: user.name,
+            email: user.email,
+            storeName: user.storeName,
+            isvalid: user.isvalid,
+            subscriptionStatus: 'suspended'
+          },
+          subscription: {
+            current: completeStatus.activeSubscription,
+            statusInfo: completeStatus.statusInfo,
+            lastPlan: completeStatus.activeSubscription?.planType
+          },
+          accessibility: {
+            canAddProducts: false,
+            canManageStore: false,
+            canReceiveOrders: false,
+            canAccessReports: false,
+            canResubscribe: true, // Permission spéciale pour le réabonnement
+            allowedPages: ['subscription', 'payment', 'profile'],
+            restrictedFeatures: ['product_management', 'order_processing', 'store_settings']
+          },
+          completeStatus,
+          token: resubscriptionToken
+        });
+      }
+
+      // ── Compte simplement en attente de validation administrative (inscription récente) ──
+      return res.status(403).json({
+        message: "Votre compte est en attente de validation administrative.",
+        accountStatus: 'pending_validation',
+        suspensionReason: null,
         nextSteps: [
           "Votre dossier est en cours de vérification par nos équipes",
           "Vous recevrez un email de confirmation une fois validé",
@@ -630,7 +676,6 @@ const loginWithSubscriptionCheck = async (req, res) => {
           "Contactez le support si urgent: support@ihambaobab.com"
         ],
         completeStatus,
-        ...(resubscriptionToken ? { token: resubscriptionToken } : {})
       });
     }
 

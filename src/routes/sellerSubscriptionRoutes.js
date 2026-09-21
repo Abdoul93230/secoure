@@ -60,6 +60,16 @@ const PAYMENT_CONFIG = {
   orange_money: { phone: "+22776543210", name: "iHambaObab Orange Money" }
 };
 
+// ─── Classification de la suspension ─────────────────────────────────────────
+// Source unique de vérité partagée avec enhancedSellerController (login) :
+// distingue une suspension administrative d'une suspension liée à l'abonnement.
+// Une suspension liée à l'abonnement doit pouvoir accéder à la page abonnement
+// pour se réactiver (payer / réactiver), une suspension admin non.
+const isSubscriptionRelatedSuspension = (suspensionReason) => {
+  return /(abonnement|subscription|grace|expire|expiration|paiement|reactivation|incoh[eé]rence|queue)/i
+    .test(suspensionReason || '');
+};
+
 // Middleware d'authentification vendeur
 const requireSeller = async (req, res, next) => {
   try {
@@ -77,9 +87,7 @@ const requireSeller = async (req, res, next) => {
 
     // Bloquer seulement les suspensions administratives sur les routes abonnement.
     // Les suspensions liées à l'abonnement doivent pouvoir accéder à cette page pour se réactiver.
-    const suspensionReason = seller.suspensionReason || '';
-    const isSubscriptionSuspension = /(abonnement|subscription|grace|expire|expiration|paiement|reactivation)/i.test(suspensionReason);
-    if (!seller.isvalid && seller.subscriptionStatus === 'suspended' && !isSubscriptionSuspension) {
+    if (!seller.isvalid && seller.subscriptionStatus === 'suspended' && !isSubscriptionRelatedSuspension(seller.suspensionReason)) {
       return res.status(403).json({
         message: seller.suspensionReason
           ? `Compte suspendu: ${seller.suspensionReason}`
@@ -836,3 +844,4 @@ const getPlanBestFor = (planName) => {
 };
 
 module.exports = router;
+module.exports.isSubscriptionRelatedSuspension = isSubscriptionRelatedSuspension;

@@ -20,6 +20,8 @@ const isRouteExempt = (req) => {
     'payment-history',
     'start-trial',
     'cancel-request',
+    'auto-renew',
+    'invoice',
   ];
 
   // Vérifier si le path contient l'un des chemins exempts
