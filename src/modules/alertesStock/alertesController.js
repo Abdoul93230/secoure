@@ -28,7 +28,7 @@ const getAlertes = async (req, res) => {
         const stock = p.quantite ?? 0;
         const niveau = stock === 0 ? 'rupture' : stock <= seuilGlobal ? 'bas' : 'ok';
         if (niveau !== 'ok') {
-          alertes.push({ _id: p._id, nom: p.name, image, prix: p.prix, stock, variante: null, niveau });
+          alertes.push({ _id: p._id, productId: p._id, varianteId: null, nom: p.name, image, prix: p.prix, stock, variante: null, niveau });
         }
       } else {
         for (const v of p.variants) {
@@ -36,7 +36,7 @@ const getAlertes = async (req, res) => {
           const niveau = vStock === 0 ? 'rupture' : vStock <= seuilGlobal ? 'bas' : 'ok';
           if (niveau !== 'ok') {
             const vLabel = [v.colors?.join('/'), v.sizes?.join('/')].filter(Boolean).join(' - ') || 'Variante';
-            alertes.push({ _id: p._id, nom: p.name, image, prix: v.price || p.prix, stock: vStock, variante: vLabel, niveau });
+            alertes.push({ _id: p._id, productId: p._id, varianteId: v._id, nom: p.name, image, prix: v.price || p.prix, stock: vStock, variante: vLabel, niveau });
           }
         }
       }

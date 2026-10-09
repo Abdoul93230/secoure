@@ -520,13 +520,13 @@ const createCommande = async (req, res) => {
       let shipping = serverShipping !== null ? serverShipping : (data.fraisLivraison || 0);
       let finalPrice = subtotal + shipping;
       let finalReduction = data.reduction || 0;
-      
+
       let promoResult = null;
       if (data.idCodePro) {
         console.log('🎫 Validation du code promo:', data.idCodePro);
         try {
           const userId = data.clefUser || null;
-          
+
           // Utiliser applyPromoToOrder sans orderId pour valider et calculer la réduction uniquement
           promoResult = await promoCodeController.applyPromoToOrder(
             data.idCodePro,
@@ -534,7 +534,7 @@ const createCommande = async (req, res) => {
             userId,
             { session, orderId: null } // On enregistre pas l'usage ici car on n'a pas encore l'orderId
           );
-          
+
           if (promoResult.success && promoResult.promoCode) {
             finalReduction = promoResult.discount;
             finalPrice = subtotal - finalReduction + shipping;
@@ -618,7 +618,7 @@ const createCommande = async (req, res) => {
       // 3. Décrémenter le stock
       console.log('📦 Décrémentation du stock...');
       const stockResult = await StockService.decrementStock(data.nbrProduits, { session });
-      
+
       console.log('✅ Commande créée et stock mis à jour:', {
         commandeId: commande._id,
         stockOperations: stockResult.operations.length
@@ -684,7 +684,7 @@ const createCommande = async (req, res) => {
               id: `notif_${commande._id}_${sid}`,
               type: 'new_order',
               title: '🛍️ Nouvelle commande !',
-              body: `${articleLabel} — ${montantFormate} ₣ · Réf ${commande.reference}`,
+              body: `${articleLabel} — ${montantFormate} FCFA · Réf ${commande.reference}`,
               data: { type: 'new_order', orderId: String(commande._id), reference: commande.reference },
               readAt: null,
               receivedAt: new Date().toISOString(),
@@ -703,7 +703,7 @@ const createCommande = async (req, res) => {
         const articleLabel = totalArticles > 1 ? `${totalArticles} articles` : `1 article`;
         await sendExpoPushToSellers(sellerIds, allTokens, {
           title: '🛍️ Nouvelle commande !',
-          body: `${articleLabel} — ${montantFormate} ₣ · Réf ${commande.reference}`,
+          body: `${articleLabel} — ${montantFormate} FCFA · Réf ${commande.reference}`,
           data: {
             type: 'new_order',
             orderId: String(commande._id),
@@ -714,7 +714,7 @@ const createCommande = async (req, res) => {
           },
         });
       }
-    } catch (_) {}
+    } catch (_) { }
 
     const message = "Commande créée avec succès et stock mis à jour.";
     return res.json({
@@ -726,9 +726,9 @@ const createCommande = async (req, res) => {
   } catch (error) {
     console.error('❌ Erreur lors de la création de la commande:', error);
     const message = "Erreur lors de la création de la commande.";
-    return res.status(500).json({ 
-      message, 
-      error: error.message 
+    return res.status(500).json({
+      message,
+      error: error.message
     });
   } finally {
     await session.endSession();
@@ -823,14 +823,14 @@ const getOrderPaymentStatus = async (req, res) => {
       commandes[0];
 
     if (!commande) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         status: 'notfound',
         message: "Commande introuvable"
       });
     }
 
     // Réponse optimisée: ~200 bytes au lieu de 4.9KB
-    return res.json({ 
+    return res.json({
       reference: commande.reference,
       status: commande.statusPayment,
       lastUpdate: commande.updatedAt || commande.date,
@@ -838,10 +838,10 @@ const getOrderPaymentStatus = async (req, res) => {
     });
   } catch (error) {
     console.error('Erreur getOrderPaymentStatus:', error);
-    return res.status(500).json({ 
+    return res.status(500).json({
       status: 'error',
       message: "Erreur serveur",
-      error: error.message 
+      error: error.message
     });
   }
 };
@@ -916,7 +916,7 @@ const deleteCommandeById = async (req, res) => {
       // Restaurer le stock avant de supprimer la commande
       console.log('🔄 Suppression de commande - Restauration du stock...');
       const stockResult = await StockService.incrementStock(
-        commandeToDelete.nbrProduits, 
+        commandeToDelete.nbrProduits,
         { session }
       );
 
@@ -946,17 +946,17 @@ const deleteCommandeById = async (req, res) => {
 
     const { deletedCommande, stockResult } = req.deleteResult;
     const message = "Commande supprimée avec succès et stock restauré.";
-    return res.json({ 
-      message, 
+    return res.json({
+      message,
       stockOperations: stockResult.operations
     });
 
   } catch (error) {
     console.error('❌ Erreur lors de la suppression de la commande:', error);
     const message = "Erreur lors de la suppression de la commande.";
-    return res.status(500).json({ 
-      message, 
-      error: error.message 
+    return res.status(500).json({
+      message,
+      error: error.message
     });
   } finally {
     await session.endSession();
@@ -2228,8 +2228,8 @@ const payment_callback = async (req, res) => {
 };
 
 const payment_callback2 = async (req, res) => {
-  try {    
-    console.log({callbackData2: req.body});
+  try {
+    console.log({ callbackData2: req.body });
 
     const webhookData = req.body?.data || req.body || {};
 
@@ -2370,14 +2370,14 @@ const updateCommanderef = async (req, res) => {
         console.log('🎫 Re-validation du code promo pour mise à jour:', data.idCodePro);
         try {
           const userId = data.clefUser || null;
-          
+
           promoResult = await promoCodeController.applyPromoToOrder(
             data.idCodePro,
             subtotal,
             userId,
             { session, orderId: null }
           );
-          
+
           if (promoResult.success && promoResult.promoCode) {
             finalReduction = promoResult.discount;
             finalPrice = subtotal - finalReduction + shipping;
@@ -2439,7 +2439,7 @@ const updateCommanderef = async (req, res) => {
       // Valider la disponibilité du stock pour les nouveaux produits
       console.log('🔍 Validation du stock pour la mise à jour de commande...');
       const stockValidation = await StockService.validateStockAvailability(data.nbrProduits);
-      
+
       if (!stockValidation.valid) {
         const errors = stockValidation.invalidItems.map(item => item.error).join(', ');
         throw new Error(`Stock insuffisant: ${errors}`);
@@ -2478,7 +2478,7 @@ const updateCommanderef = async (req, res) => {
           dateValidation: null,
         }),
       };
-      
+
       console.log('📝 Mise à jour du statusPayment:', dataUpdate.statusPayment);
 
       const updatedCommande = await Commande.findOneAndUpdate({ reference: oldReference }, dataUpdate, { session, new: true });
@@ -2498,16 +2498,16 @@ const updateCommanderef = async (req, res) => {
       // 3. Mettre à jour le stock (restaurer ancien + décrémenter nouveau)
       console.log('📦 Mise à jour du stock...');
       const stockResult = await StockService.decrementStock(
-        data.nbrProduits, 
-        { 
-          session, 
-          isUpdate: true, 
-          oldNbrProduits 
+        data.nbrProduits,
+        {
+          session,
+          isUpdate: true,
+          oldNbrProduits
         }
       );
 
       console.log("✅ Référence mise à jour et stock mis à jour:", { oldReference, newReference });
-      
+
       // Sauvegarder le résultat pour la réponse
       req.updateResult = { stockResult };
     });
@@ -2684,12 +2684,12 @@ const updateEtatTraitement = async (req, res) => {
     // Si la commande est annulée, restaurer le stock
     if (nouvelEtat === "annulé") {
       console.log('🔄 Annulation de commande - Restauration du stock...');
-      
+
       try {
         const StockService = require('./services/stockService');
         const stockResult = await StockService.incrementStock(currentOrder.nbrProduits);
         console.log('✅ Stock restauré avec succès:', stockResult.operations);
-        
+
         updateFields.stockRestored = true;
         updateFields.stockRestorationDate = new Date();
       } catch (stockError) {
@@ -2793,7 +2793,7 @@ const updateEtatTraitement = async (req, res) => {
           if (tokens.length > 0) {
             sendExpoPushToSellers([seller._id], tokens, {
               title: '💰 Paiement en attente',
-              body: `${montantFormate} ₣ placé en attente · Commande #${updatedOrder.reference}`,
+              body: `${montantFormate} FCFA placé en attente · Commande #${updatedOrder.reference}`,
               data: { type: 'payment_pending', orderId: String(updatedOrder._id), reference: updatedOrder.reference },
             });
           }
@@ -2853,7 +2853,7 @@ const updateStatusLivraison = async (req, res) => {
     // Si la commande est annulée, restaurer le stock et le code promo
     if (nouveauStatus === "Annulée" || nouveauStatus === "annulé") {
       console.log('🔄 Annulation de commande - Restauration du stock et promo...');
-      
+
       try {
         // Restauration du stock
         const stockResult = await StockService.incrementStock(currentOrder.nbrProduits);
@@ -2970,7 +2970,7 @@ const updateStatusLivraison = async (req, res) => {
           if (tokens.length > 0) {
             sendExpoPushToSellers([seller._id], tokens, {
               title: '💰 Paiement en attente',
-              body: `${montantFormate} ₣ placé en attente · Commande #${commande.reference}`,
+              body: `${montantFormate} FCFA placé en attente · Commande #${commande.reference}`,
               data: { type: 'payment_pending', orderId: String(commande._id), reference: commande.reference },
             });
           }
