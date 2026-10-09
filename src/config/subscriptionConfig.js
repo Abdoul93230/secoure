@@ -16,7 +16,7 @@ const SUBSCRIPTION_CONFIG = {
       pricing: {
         monthly: 1000,
         annual: 10800,   // 1000 * 12 - 10%
-        trialMonths: 2,
+        trialMonths: 1,
         annualDiscount: 0.10,
       },
       commission: null,  // N/A — pas d'accès marketplace, aucune vente marketplace possible
@@ -138,33 +138,33 @@ const SUBSCRIPTION_CONFIG = {
   DEFAULT_COMMISSION: 3.0,
 
   PAYMENT_METHODS: {
-    mynita:       { phone: "+22790123456", name: "iHambaObab Mynita",       active: true },
-    aman:         { phone: "+22798765432", name: "iHambaObab Aman",         active: true },
+    mynita: { phone: "+22790123456", name: "iHambaObab Mynita", active: true },
+    aman: { phone: "+22798765432", name: "iHambaObab Aman", active: true },
     airtel_money: { phone: "+22787654321", name: "iHambaObab Airtel Money", active: true },
     orange_money: { phone: "+22776543210", name: "iHambaObab Orange Money", active: true },
   },
 
   SUBSCRIPTION_STATUSES: {
-    ACTIVE:    'active',
-    EXPIRED:   'expired',
+    ACTIVE: 'active',
+    EXPIRED: 'expired',
     SUSPENDED: 'suspended',
     CANCELLED: 'cancelled',
-    PENDING:   'pending',
-    TRIAL:     'trial',
+    PENDING: 'pending',
+    TRIAL: 'trial',
   },
 
   REQUEST_STATUSES: {
-    PENDING_PAYMENT:   'pending_payment',
+    PENDING_PAYMENT: 'pending_payment',
     PAYMENT_SUBMITTED: 'payment_submitted',
-    PAYMENT_VERIFIED:  'payment_verified',
-    ACTIVATED:         'activated',
-    REJECTED:          'rejected',
-    CANCELLED:         'cancelled',
+    PAYMENT_VERIFIED: 'payment_verified',
+    ACTIVATED: 'activated',
+    REJECTED: 'rejected',
+    CANCELLED: 'cancelled',
   },
 
-  GRACE_PERIOD_DAYS:        2,
-  PAYMENT_DEADLINE_HOURS:   24,
-  RENEWAL_REMINDER_DAYS:    [7, 3, 1],
+  GRACE_PERIOD_DAYS: 2,
+  PAYMENT_DEADLINE_HOURS: 24,
+  RENEWAL_REMINDER_DAYS: [7, 3, 1],
 
   // ─── Utilitaires ──────────────────────────────────────────────
 
@@ -215,11 +215,11 @@ const SUBSCRIPTION_CONFIG = {
     const plan = SUBSCRIPTION_CONFIG.PLANS[planName];
     if (!plan) return null;
     return {
-      price:        { monthly: plan.pricing.monthly, annual: plan.pricing.annual },
-      commission:   plan.commission ?? SUBSCRIPTION_CONFIG.DEFAULT_COMMISSION,
+      price: { monthly: plan.pricing.monthly, annual: plan.pricing.annual },
+      commission: plan.commission ?? SUBSCRIPTION_CONFIG.DEFAULT_COMMISSION,
       productLimit: plan.productLimit,
-      trialMonths:  plan.pricing.trialMonths,
-      features:     plan.features,
+      trialMonths: plan.pricing.trialMonths,
+      features: plan.features,
     };
   },
 };
