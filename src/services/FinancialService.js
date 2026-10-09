@@ -585,10 +585,10 @@ class FinancialService {
         }
       });
 
-      // Ajouter les retraits en attente
+      // Ajouter les retraits en attente ou approuvés (pas encore traités)
       const retraitsEnAttente = await Retrait.find({
         sellerId,
-        statut: 'EN_ATTENTE'
+        statut: { $in: ['EN_ATTENTE', 'APPROUVE'] }
       });
       const soldeReserveCalcule = retraitsEnAttente.reduce((sum, r) => sum + r.montantDemande, 0);
 
@@ -783,8 +783,15 @@ class FinancialService {
         await retrait.save({ session });
 
         // Traitement selon le nouveau statut
-        if (nouveauStatut === 'APPROUVE' || nouveauStatut === 'TRAITE') {
-          // Créer une transaction de retrait si elle n'a pas déjà été créée
+        if (nouveauStatut === 'APPROUVE') {
+          // Approbation = validation administrative uniquement
+          // L'argent reste en soldeReserveRetrait, aucune déduction
+          // Le retrait effectif se fera quand le statut passe à TRAITE
+          console.log(`✅ Retrait ${retrait.reference} approuvé — en attente de traitement`);
+
+        } else if (nouveauStatut === 'TRAITE') {
+          // C'est ici que le retrait est effectivement réalisé
+          // Créer la transaction de retrait si elle n'a pas déjà été créée
           if (!retrait.transactionId) {
             const transaction = new Transaction({
               sellerId: retrait.sellerId,
@@ -814,13 +821,13 @@ class FinancialService {
 
         } else if (nouveauStatut === 'REJETE' || nouveauStatut === 'ANNULE') {
           // Remettre l'argent disponible selon l'état précédent
-          if (ancienStatut === 'EN_ATTENTE') {
-            // Argent encore en soldeReserveRetrait
+          if (ancienStatut === 'EN_ATTENTE' || ancienStatut === 'APPROUVE') {
+            // Argent encore en soldeReserveRetrait → remettre en disponible
             await this.mettreAJourPortefeuille(retrait.sellerId, {
               soldeReserveRetrait: -retrait.montantDemande,
               soldeDisponible: retrait.montantDemande
             }, session);
-          } else if (ancienStatut === 'APPROUVE' || ancienStatut === 'TRAITE') {
+          } else if (ancienStatut === 'TRAITE') {
             // Déjà déduit du total → recréditer total + disponible
             await this.mettreAJourPortefeuille(retrait.sellerId, {
               soldeTotal: retrait.montantDemande,
@@ -916,10 +923,10 @@ class FinancialService {
           }
         });
 
-        // Calculer le solde réservé pour les retraits en attente
+        // Calculer le solde réservé pour les retraits en attente ou approuvés (pas encore traités)
         const retraitsEnAttente = await Retrait.find({
           sellerId,
-          statut: 'EN_ATTENTE'
+          statut: { $in: ['EN_ATTENTE', 'APPROUVE'] }
         }).session(session);
 
         const soldeReserveRetrait = retraitsEnAttente.reduce((sum, retrait) => sum + retrait.montantDemande, 0);
