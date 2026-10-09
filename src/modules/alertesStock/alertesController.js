@@ -35,8 +35,13 @@ const getAlertes = async (req, res) => {
           const vStock = v.stock ?? 0;
           const niveau = vStock === 0 ? 'rupture' : vStock <= seuilGlobal ? 'bas' : 'ok';
           if (niveau !== 'ok') {
-            const vLabel = [v.colors?.join('/'), v.sizes?.join('/')].filter(Boolean).join(' - ') || 'Variante';
-            alertes.push({ _id: p._id, productId: p._id, varianteId: v._id, nom: p.name, image, prix: v.price || p.prix, stock: vStock, variante: vLabel, niveau });
+            const colorStr = Array.isArray(v.colors) ? v.colors.join('/') : (v.color || '');
+            const sizeStr = Array.isArray(v.sizes) ? v.sizes.join('/') : (v.size || '');
+            const nameStr = v.name || v.label || v.title || '';
+            const vLabel = [colorStr, sizeStr, nameStr].filter(Boolean).join(' - ') || 'Variante';
+            const vImage = v.imageUrl || v.picture || image;
+            const vPrice = v.price || v.prix || p.prix;
+            alertes.push({ _id: p._id, productId: p._id, varianteId: v._id, nom: p.name, image: vImage, prix: vPrice, stock: vStock, variante: vLabel, niveau });
           }
         }
       }

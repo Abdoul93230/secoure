@@ -183,11 +183,22 @@ router.patch('/adjust/:productId', async (req, res) => {
 
     let updatedProduct;
     if (variantId) {
+      const mongoose = require('mongoose');
+      const vId = mongoose.Types.ObjectId.isValid(variantId) ? new mongoose.Types.ObjectId(variantId) : variantId;
+      
       updatedProduct = await Produit.findOneAndUpdate(
-        { _id: productId, 'variants._id': variantId },
+        { _id: productId, 'variants._id': vId },
         { $set: { 'variants.$.stock': stock } },
         { new: true, select: 'name variants quantite' }
       );
+
+      if (!updatedProduct) {
+        updatedProduct = await Produit.findOneAndUpdate(
+          { _id: productId, 'variants._id': String(variantId) },
+          { $set: { 'variants.$.stock': stock } },
+          { new: true, select: 'name variants quantite' }
+        );
+      }
     } else {
       updatedProduct = await Produit.findByIdAndUpdate(
         productId,
