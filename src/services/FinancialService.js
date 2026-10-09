@@ -680,9 +680,10 @@ class FinancialService {
   // Demander un retrait (inchangé mais amélioré)
   static async demanderRetrait(sellerId, montantDemande, methodeRetrait, detailsRetrait, reference) {
     const session = await mongoose.startSession();
+    let resultRetrait;
 
     try {
-      return await session.withTransaction(async () => {
+      await session.withTransaction(async () => {
         // Vérifier la cohérence avant le retrait
         const verification = await this.verifierCoherencePortefeuille(sellerId);
         if (!verification.coherent) {
@@ -730,8 +731,10 @@ class FinancialService {
         }, session);
 
         console.log(`💸 Demande de retrait créée: ${retrait.reference} - ${montantDemande} FCFA`);
-        return retrait;
+        resultRetrait = retrait;
       });
+
+      return resultRetrait;
 
     } catch (error) {
       console.error('❌ Erreur demande retrait:', error);
@@ -744,9 +747,10 @@ class FinancialService {
   // Traiter une demande de retrait (Admin) - amélioré
   static async traiterRetrait(retraitId, nouveauStatut, adminId, commentaire = '') {
     const session = await mongoose.startSession();
+    let resultRetrait;
 
     try {
-      return await session.withTransaction(async () => {
+      await session.withTransaction(async () => {
         const retrait = await Retrait.findById(retraitId).session(session);
 
         if (!retrait) {
@@ -846,8 +850,10 @@ class FinancialService {
         }
 
         console.log(`💸 Retrait ${retrait.reference} ${nouveauStatut} par admin ${adminId}`);
-        return retrait;
+        resultRetrait = retrait;
       });
+
+      return resultRetrait;
 
     } catch (error) {
       console.error('❌ Erreur traitement retrait:', error);
