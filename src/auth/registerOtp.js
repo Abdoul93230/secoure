@@ -3,7 +3,7 @@
  *
  * Flux :
  *   1. POST /auth/register-otp/send   { identifier, method }
- *      → envoie un OTP 6 chiffres par email ou SMS
+ *      → envoie un OTP 6 chiffres par email, SMS ou WhatsApp
  *      → retourne { sent: true, method, cooldown }
  *
  *   2. POST /auth/register-otp/verify { identifier, otp }
@@ -21,7 +21,7 @@ const nodemailer  = require('nodemailer');
 const jwt         = require('jsonwebtoken');
 const { SellerRequest } = require('../Models');
 const lafricaSms    = require('../services/lafricaMobileSmsService');
-// const whatsappOtp = require('../services/whatsappOtpService'); // DÉSACTIVÉ
+const whatsappOtp = require('../services/whatsappOtpService');
 
 const SECRET          = require('./clefSeller');
 const OTP_TTL_MS      = 10 * 60 * 1000;   // 10 min
@@ -78,7 +78,7 @@ const buildEmailHtml = (otp) => `<!DOCTYPE html>
 const sendOtp = async (req, res) => {
   const { identifier, method } = req.body;
 
-  if (!identifier || !['email', 'phone'/* , 'whatsapp' */].includes(method)) {
+  if (!identifier || !['email', 'phone', 'whatsapp'].includes(method)) {
     return res.status(400).json({ message: 'Paramètres invalides (identifier + method requis).' });
   }
 
@@ -95,15 +95,16 @@ const sendOtp = async (req, res) => {
     }
     if (!SMS_ALLOWED.some(p => key.startsWith(p))) {
       return res.status(403).json({
-        message: 'SMS disponible uniquement pour Niger (+227) et Bénin (+229). Utilisez votre email.',
+        message: 'SMS disponible uniquement pour Niger (+227) et Bénin (+229). Utilisez WhatsApp ou votre email.',
         suggestEmail: true,
-        // suggestWhatsapp: true, // DÉSACTIVÉ
+        suggestWhatsapp: true,
       });
     }
-  // } else if (method === 'whatsapp') { // DÉSACTIVÉ
-  //   if (!/^\+\d{8,15}$/.test(key)) {
-  //     return res.status(400).json({ message: 'Numéro invalide (format international : +22787...).' });
-  //   }
+  } else if (method === 'whatsapp') {
+    // WhatsApp fonctionne quel que soit le pays (aucune restriction SMS)
+    if (!/^\+\d{8,15}$/.test(key)) {
+      return res.status(400).json({ message: 'Numéro invalide (format international : +22787...).' });
+    }
   }
 
   // ── Unicité : l'identifiant est-il déjà pris ? ────────────────────────────
@@ -126,6 +127,7 @@ const sendOtp = async (req, res) => {
   store.set(key, { otp, expiresAt: Date.now() + OTP_TTL_MS, sentAt: Date.now(), attempts: 0 });
 
   // ── Envoi ──────────────────────────────────────────────────────────────────
+  let channelLabel = method === 'email' ? 'email' : 'SMS';
   try {
     if (method === 'email') {
       await transporter().sendMail({
@@ -134,21 +136,40 @@ const sendOtp = async (req, res) => {
         subject: 'Code de vérification — IhamBaobab',
         html: buildEmailHtml(otp),
       });
-    // } else if (method === 'whatsapp') { // DÉSACTIVÉ
-    //   await whatsappOtp.sendOtp(key, otp, 10);
+    } else if (method === 'whatsapp') {
+      try {
+        await whatsappOtp.sendOtp(key, otp, 10);
+        channelLabel = 'WhatsApp';
+      } catch (waErr) {
+        console.error('registerOtp WhatsApp error:', waErr.code, whatsappOtp.getErrorMessage(waErr));
+        // Repli SMS uniquement si le pays est éligible (coût SMS maîtrisé)
+        if (SMS_ALLOWED.some(p => key.startsWith(p))) {
+          await lafricaSms.sendSms({
+            to:   key,
+            text: `IhamBaobab: votre code est ${otp}. Expire dans 10 min. Ne partagez jamais ce code.`,
+          });
+          channelLabel = 'SMS';
+        } else {
+          store.delete(key);
+          return res.status(502).json({
+            message: "Impossible d'envoyer le code par WhatsApp. Utilisez votre email.",
+            error: whatsappOtp.getErrorMessage(waErr),
+            suggestEmail: true,
+          });
+        }
+      }
     } else {
       await lafricaSms.sendSms({
         to:   key,
         text: `IhamBaobab: votre code est ${otp}. Expire dans 10 min. Ne partagez jamais ce code.`,
       });
+      channelLabel = 'SMS';
     }
   } catch (err) {
     store.delete(key);
     console.error('registerOtp sendOtp error:', err);
     return res.status(500).json({ message: "Erreur lors de l'envoi du code." });
   }
-
-  const channelLabel = method === 'email' ? 'email' : 'SMS'; // WhatsApp DÉSACTIVÉ
   return res.status(200).json({
     sent:     true,
     method,

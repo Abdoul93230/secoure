@@ -3,7 +3,7 @@ const jwt = require("jsonwebtoken");
 const { User, Profile } = require("../Models");
 const privateKey = require("./clef");
 const lafricaMobileSmsService = require("../services/lafricaMobileSmsService");
-// const whatsappOtpService = require("../services/whatsappOtpService"); // DÉSACTIVÉ
+const whatsappOtpService = require("../services/whatsappOtpService");
 
 const OTP_EXPIRY_MINUTES = 10;
 const OTP_COOLDOWN_SECONDS = 60;
@@ -138,9 +138,9 @@ const sendOtp = async (req, res) => {
   try {
     const rawPhone = req.body?.phone;
     const name = req.body?.name || "Utilisateur";
-    // WhatsApp DÉSACTIVÉ — canal forcé à SMS
-    // const channel = (req.body?.channel || "sms").toLowerCase();
-    const channel = "sms";
+    // Canal d'envoi demandé par le client : "whatsapp" ou "sms" (défaut)
+    const requestedChannel = (req.body?.channel || "sms").toLowerCase();
+    const channel = requestedChannel === "whatsapp" ? "whatsapp" : "sms";
 
     const phone = rawPhone ? normalizePhone(rawPhone) : null;
 
@@ -220,14 +220,24 @@ const sendOtp = async (req, res) => {
 
     const otpPayload = buildOtpPayload(previousOtp);
 
-    // if (channel === "whatsapp") { // DÉSACTIVÉ
-    //   try {
-    //     await whatsappOtpService.sendOtp(phone, otpPayload.code, OTP_EXPIRY_MINUTES);
-    //   } catch (waError) {
-    //     return res.status(502).json({ success: false, message: "Impossible d'envoyer le code OTP par WhatsApp", error: whatsappOtpService.getErrorMessage(waError) });
-    //   }
-    // } else {
-    if (true) {
+    // Envoi du code : WhatsApp si demandé, avec repli automatique sur SMS.
+    // L'utilisateur doit toujours recevoir son code, même si WhatsApp échoue.
+    let usedChannel = channel;
+
+    if (channel === "whatsapp") {
+      try {
+        await whatsappOtpService.sendOtp(phone, otpPayload.code, OTP_EXPIRY_MINUTES);
+      } catch (waError) {
+        console.error(
+          "[whatsapp-quick-auth] echec WhatsApp, repli SMS:",
+          waError.code,
+          whatsappOtpService.getErrorMessage(waError)
+        );
+        usedChannel = "sms";
+      }
+    }
+
+    if (usedChannel === "sms") {
       try {
         await lafricaMobileSmsService.sendSms({
           to: phone,
@@ -243,17 +253,17 @@ const sendOtp = async (req, res) => {
       }
     }
 
-    // Mémoriser le canal pour que le resend utilise le même
-    otpPayload.channel = channel;
+    // Mémoriser le canal réellement utilisé pour que le resend utilise le même
+    otpPayload.channel = usedChannel;
     user.quickAuthOtp = otpPayload;
     user.quickAuthPending = true;
     await user.save();
 
     const response = {
       success: true,
-      message: "Code OTP envoyé par SMS", // WhatsApp DÉSACTIVÉ
+      message: usedChannel === "whatsapp" ? "Code OTP envoyé par WhatsApp" : "Code OTP envoyé par SMS",
       data: {
-        channel,
+        channel: usedChannel,
         attemptsRemaining: Math.max(0, OTP_MAX_SEND_ATTEMPTS - otpPayload.sendCount),
         cooldownSeconds: OTP_COOLDOWN_SECONDS,
         expiresInSeconds: OTP_EXPIRY_MINUTES * 60,
@@ -551,42 +561,56 @@ const requestPasswordResetOtp = async (req, res) => {
       });
     }
 
-    // WhatsApp DÉSACTIVÉ — canal forcé à SMS
-    // const channel = (req.body?.channel || "sms").toLowerCase();
-    const channel = "sms";
+    // Canal d'envoi demandé par le client : "whatsapp" ou "sms" (défaut)
+    const requestedChannel = (req.body?.channel || "sms").toLowerCase();
+    const channel = requestedChannel === "whatsapp" ? "whatsapp" : "sms";
 
     const otpPayload = buildOtpPayload(previousOtp);
     otpPayload.purpose  = "password-reset";
-    otpPayload.channel  = channel;
 
-    try {
-      // if (channel === "whatsapp") { // DÉSACTIVÉ
-      //   await whatsappOtpService.sendOtp(phone, otpPayload.code, OTP_EXPIRY_MINUTES);
-      // } else {
-      {
+    // WhatsApp si demandé, avec repli automatique sur SMS
+    let usedChannel = channel;
+    if (channel === "whatsapp") {
+      try {
+        await whatsappOtpService.sendOtp(phone, otpPayload.code, OTP_EXPIRY_MINUTES);
+      } catch (waError) {
+        console.error(
+          "[whatsapp-password-reset] echec WhatsApp, repli SMS:",
+          waError.code,
+          whatsappOtpService.getErrorMessage(waError)
+        );
+        usedChannel = "sms";
+      }
+    }
+
+    if (usedChannel === "sms") {
+      try {
         await lafricaMobileSmsService.sendSms({
           to: phone,
           text: buildOtpSmsText({ code: otpPayload.code, purpose: "password-reset" }),
           retId: `pwdreset-${Date.now()}`,
         });
+      } catch (sendError) {
+        console.error(`[sms-password-reset] error:`, sendError.code, sendError.message, JSON.stringify(sendError.providerBody ?? {}));
+        return res.status(502).json({
+          success: false,
+          message: "Impossible d'envoyer le code OTP de réinitialisation",
+          error: getSmsErrorMessage(sendError),
+        });
       }
-    } catch (sendError) {
-      console.error(`[${channel}-password-reset] error:`, sendError.code, sendError.message, JSON.stringify(sendError.providerBody ?? {}));
-      return res.status(502).json({
-        success: false,
-        message: "Impossible d'envoyer le code OTP de réinitialisation",
-        error: getSmsErrorMessage(sendError), // WhatsApp DÉSACTIVÉ
-      });
     }
 
+    otpPayload.channel = usedChannel;
     user.quickAuthOtp = otpPayload;
     await user.save();
 
     const response = {
       success: true,
-      message: "Code OTP de reinitialisation envoye avec succes", // WhatsApp DÉSACTIVÉ
+      message: usedChannel === "whatsapp"
+        ? "Code OTP de reinitialisation envoye par WhatsApp"
+        : "Code OTP de reinitialisation envoye par SMS",
       data: {
-        channel,
+        channel: usedChannel,
         attemptsRemaining: Math.max(0, OTP_MAX_SEND_ATTEMPTS - otpPayload.sendCount),
         cooldownSeconds: OTP_COOLDOWN_SECONDS,
         expiresInSeconds: OTP_EXPIRY_MINUTES * 60,

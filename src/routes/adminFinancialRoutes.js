@@ -229,6 +229,20 @@ router.put('/finances/retraits/:retraitId/status', verifyAdmin, async (req, res)
             commentaire
         );
 
+        // Notifier l'app mobile du vendeur en temps réel
+        try {
+            const io = req.app?.get?.('io');
+            const heartbeatCache = require('../services/heartbeatCache');
+            heartbeatCache.invalidate(retrait.sellerId);
+            if (io) {
+                io.to(`seller:${retrait.sellerId}`).emit('bilan_updated', {
+                    source: 'retrait',
+                    retraitId: retrait._id,
+                    statut: retrait.statut
+                });
+            }
+        } catch (_) {}
+
         res.json({
             success: true,
             data: retrait,
