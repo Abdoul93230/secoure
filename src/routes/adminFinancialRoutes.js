@@ -235,13 +235,20 @@ router.put('/finances/retraits/:retraitId/status', verifyAdmin, async (req, res)
             const heartbeatCache = require('../services/heartbeatCache');
             heartbeatCache.invalidate(retrait.sellerId);
             if (io) {
-                io.to(`seller:${retrait.sellerId}`).emit('bilan_updated', {
+                const sellerId = retrait.sellerId?.toString?.() || retrait.sellerId;
+                const room = `seller:${sellerId}`;
+                console.log(`📡 Socket emit bilan_updated → room "${room}", statut: ${retrait.statut}`);
+                io.to(room).emit('bilan_updated', {
                     source: 'retrait',
                     retraitId: retrait._id,
                     statut: retrait.statut
                 });
+            } else {
+                console.warn('⚠️ Socket io non disponible (req.app.get("io") est null)');
             }
-        } catch (_) {}
+        } catch (socketErr) {
+            console.error('❌ Erreur socket emit bilan_updated:', socketErr.message);
+        }
 
         res.json({
             success: true,

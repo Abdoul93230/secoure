@@ -171,6 +171,7 @@ io.on("connection", (socket) => {
   socket.on("seller:join", ({ sellerId }) => {
     if (sellerId) {
       socket.join(`seller:${sellerId}`);
+      console.log(`📱 Seller ${sellerId} joined room seller:${sellerId} (socket: ${socket.id})`);
     }
   });
 
