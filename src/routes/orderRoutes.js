@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const userController = require('../userControler');
+const middelware = require('../auth/middelware');
 const productControler = require('../productControler');
 const { Commande } = require('../Models');
 
@@ -9,9 +10,15 @@ router.post('/createCommande', userController.createCommande);
 router.get('/getCommandesById/:id', userController.getCommandesById);
 router.get('/getOrderPaymentStatus/:reference', userController.getOrderPaymentStatus);
 router.get('/getCommandeByReference/:reference', userController.getCommandeByReference);
-router.get('/getCommandesByClefUser/:clefUser', userController.getCommandesByClefUser);
-router.get('/getCommandesByClefUser2/:clefUser', userController.getCommandesByClefUser2);
-router.get('/getAllCommandes', userController.getAllCommandes);
+// SÉCURITÉ : un client ne peut lire que SES commandes (adresses et téléphones de livraison)
+const ownOrdersOnly = (req, res, next) =>
+  String(req.userId) === String(req.params.clefUser)
+    ? next()
+    : res.status(403).json({ message: "Accès refusé à ces commandes." });
+router.get('/getCommandesByClefUser/:clefUser', middelware.auth, ownOrdersOnly, userController.getCommandesByClefUser);
+router.get('/getCommandesByClefUser2/:clefUser', middelware.auth, ownOrdersOnly, userController.getCommandesByClefUser2);
+// Toutes les commandes de tous les clients : réservé à l'admin
+router.get('/getAllCommandes', middelware.authAdmin, userController.getAllCommandes);
 router.delete('/deleteCommandeById/:commandeId', userController.deleteCommandeById);
 
 // Order status updates

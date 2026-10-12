@@ -43,8 +43,13 @@ class LikeService {
   async getLikesByUser(userId) {
     return await Like.find({ user: userId }).populate('produit');
   }
+  // Version client : uniquement les produits publiés et non supprimés
   async getLikesByUserClient(userId) {
-    return await Like.find({ user: userId }).populate('produit');
+    const likes = await Like.find({ user: userId }).populate({
+      path: 'produit',
+      match: { isPublished: 'Published', isDeleted: { $ne: true } },
+    });
+    return likes.filter((like) => like.produit);
   }
 
   async getLikesByProduct(produitId) {
