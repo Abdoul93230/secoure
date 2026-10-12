@@ -27,7 +27,8 @@ router.get('/getSeller/:Id', sellerController.getSeller);
 router.get('/getSellerClients/:Id', sellerController.getSellerClients);
 router.get('/getSellerByName/:name', sellerController.getSellerByName);
 router.get('/getSellerByNameClients/:name', sellerController.getSellerByNameClients);
-router.get('/getSellers/', sellerController.getSellers);
+// Liste complète des vendeurs (y compris non validés) : réservée à l'admin
+router.get('/getSellers/', middelware.authAdmin, sellerController.getSellers);
 router.get('/getSellersClients/', sellerController.getSellersClients);
 router.put('/updateSeller/:id',
   middelware.uploadsecond.fields([

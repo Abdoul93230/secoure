@@ -1,5 +1,20 @@
 const mongoose = require("mongoose");
 
+/**
+ * SÉCURITÉ — Champs secrets jamais renvoyés dans une réponse JSON (res.json(doc)).
+ * Les contrôles côté serveur (bcrypt.compare, vérification OTP) lisent toujours
+ * le document Mongoose directement : ils ne sont pas affectés.
+ */
+const SECRET_FIELDS = ["password", "pin", "quickAuthOtp", "otp", "otpCode", "resetPasswordToken", "resetPasswordExpires", "resetToken", "refreshToken"];
+const hideSecrets = (schema) => {
+  const transform = (_doc, ret) => {
+    SECRET_FIELDS.forEach((f) => { delete ret[f]; });
+    return ret;
+  };
+  schema.set("toJSON", { ...(schema.get("toJSON") || {}), transform });
+  schema.set("toObject", { ...(schema.get("toObject") || {}), transform });
+};
+
 const userSchema = new mongoose.Schema(
   {
     name: {
@@ -91,6 +106,7 @@ const userSchema = new mongoose.Schema(
   { strict: false }
 );
 
+hideSecrets(userSchema);
 const User = mongoose.model("User", userSchema);
 
 const adminChema = new mongoose.Schema(
@@ -135,6 +151,7 @@ const adminChema = new mongoose.Schema(
   },
   { strict: false }
 );
+hideSecrets(adminChema);
 const Admin = mongoose.model("Admin", adminChema);
 
 const fournisseursChema = new mongoose.Schema(
@@ -197,6 +214,7 @@ const fournisseursChema = new mongoose.Schema(
   { strict: false }
 );
 
+hideSecrets(fournisseursChema);
 const Fournisseur = mongoose.model("Fournisseur", fournisseursChema);
 
 const zoneSchema = new mongoose.Schema(
@@ -1341,6 +1359,7 @@ const sellerRequestSchema = new mongoose.Schema(
   { strict: false }
 );
 
+hideSecrets(sellerRequestSchema);
 const SellerRequest = mongoose.model("SellerRequest", sellerRequestSchema);
 
 // ─── Notifications vendeur ────────────────────────────────────────────────────
@@ -1766,6 +1785,7 @@ const sellerAgentSchema = new mongoose.Schema({
 // Index composite : un seul numéro par boutique
 sellerAgentSchema.index({ storeId: 1, phone: 1 }, { unique: true });
 
+hideSecrets(sellerAgentSchema);
 const SellerAgent = mongoose.model('SellerAgent', sellerAgentSchema);
 
 module.exports = {

@@ -6,13 +6,14 @@ const middelware = require('../auth/middelware');
 // User management
 router.post('/user', userController.createUser);
 router.get('/user', userController.getUser);
-router.get('/getUsers', userController.getUsers);
+// Listes complètes (emails, téléphones) : réservées à l'admin
+router.get('/getUsers', middelware.authAdmin, userController.getUsers);
 router.get('/getUserByName/:name', userController.getUserByName);
 
 // Profile management
 router.post('/createProfile', middelware.upload.single('image'), userController.creatProfile);
 router.get('/getUserProfile', userController.getUserProfile);
-router.get('/getUserProfiles', userController.getUserProfiles);
+router.get('/getUserProfiles', middelware.authAdmin, userController.getUserProfiles);
 
 // Address management
 router.get('/getAllAddressByUser', userController.getAllAddressByUser);
