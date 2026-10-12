@@ -2121,6 +2121,24 @@ const payment_callback = async (req, res) => {
       // Mettre à jour le statut de la commande
       const isSuccessfulPayment = ["succeeded", "success", "paid", "completed"].includes(normalizedStatus);
 
+      // SÉCURITÉ : jamais « payé » si le montant reçu est inférieur au prix de la commande
+      if (isSuccessfulPayment) {
+        const expectedAmount = Number(commande.prix) || 0;
+        const paidAmount = Number(amount);
+        if (expectedAmount > 0 && Number.isFinite(paidAmount) && paidAmount + 1 < expectedAmount) {
+          console.error("⚠️ Paiement inférieur au montant de la commande — non validé", {
+            reference: commande.reference,
+            expectedAmount,
+            paidAmount,
+          });
+          await Commande.updateOne(
+            { _id: commande._id },
+            { $set: { "paymentDetails.amountMismatch": { expected: expectedAmount, received: paidAmount, at: new Date() } } }
+          );
+          return res.status(200).json({ message: "Montant payé insuffisant : paiement non validé" });
+        }
+      }
+
       if (isSuccessfulPayment) {
         const updatedCommande = await Commande.findOneAndUpdate(
           { _id: commande._id },

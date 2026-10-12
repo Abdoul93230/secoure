@@ -1024,6 +1024,24 @@ const login = async (req, res) => {
   }
 };
 
+const ADMIN_KEY_FOR_SELLER_READ = require("./auth/clefAdmin");
+/** Le jeton est-il celui du vendeur demandé ou d'un administrateur ? */
+const canSeeFullSeller = (req, sellerId) => {
+  const header = req.headers.authorization || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7) : null;
+  if (!token) return false;
+  try {
+    const p = jwt.verify(token, privateKeSeller);
+    if (String(p.userId) === String(sellerId)) return true;
+  } catch (e) { /* pas un jeton vendeur valide */ }
+  try {
+    jwt.verify(token, ADMIN_KEY_FOR_SELLER_READ);
+    return true;
+  } catch (e) {
+    return false;
+  }
+};
+
 const getSeller = (req, res) => {
   const Id = req.params.Id;
   SellerRequest.findById(Id)
@@ -1033,7 +1051,10 @@ const getSeller = (req, res) => {
         return res.status(400).json(`le Seller demander n'existe pas!`);
       }
       const message = `vous avez demander le Sellers :${response.name}`;
-      return res.json({ message: message, data: response });
+      // SÉCURITÉ : profil complet (pièce d'identité, contacts, réglages) réservé
+      // au vendeur lui-même et à l'admin ; profil public pour tout autre appelant
+      const fullAccess = canSeeFullSeller(req, Id);
+      return res.json({ message: message, data: fullAccess ? response : toPublicSeller(response) });
     })
     .catch((error) => {
       console.log({error});
