@@ -739,6 +739,18 @@ const searchProductBySeller = handleAsyncError(async (req, res) => {
   res.json({ message: "Produits du seller", ...result, products: result.products, data: result.products });
 });
 
+// Version publique : uniquement les produits visibles sur la marketplace
+const searchProductBySellerClient = handleAsyncError(async (req, res) => {
+  const { sellerId } = req.params;
+  if (!mongoose.Types.ObjectId.isValid(sellerId)) {
+    return res.status(400).json({ message: "ID invalide" });
+  }
+  const page = parseInt(req.query.page) || 1;
+  const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+  const result = await productService.searchBySellerClient(sellerId, { page, limit });
+  res.json({ message: "Produits du seller", ...result, products: result.products, data: result.products });
+});
+
 const searchProductByType = handleAsyncError(async (req, res) => {
   const { type } = req.params;
   const page = parseInt(req.query.page) || 1;
@@ -1696,6 +1708,7 @@ module.exports = {
   getAllProductsAdmin,
   getAllProductsClients,
   getClientProductById,
+  searchProductBySellerClient,
   getHomeFeed,
   getProductById,
   getProductByIdAdmin,

@@ -24,7 +24,7 @@ router.get('/searchProductBySeller/:sellerId', productControler.searchProductByS
 router.get('/searchProductBySellerAdmin/:sellerId', middelware.authAdmin, productControler.searchProductBySeller);
 // Alias pour compatibilité web/mobile (anciens noms fournisseur)
 router.get('/searchProductBySupplier/:sellerId', middelware.authSeller, productControler.searchProductBySeller);
-router.get('/searchProductBySupplierClients/:sellerId', productControler.searchProductBySeller);
+router.get('/searchProductBySupplierClients/:sellerId', productControler.searchProductBySellerClient);
 router.get('/searchProductBySupplierAdmin/:sellerId', middelware.authAdmin, productControler.searchProductBySeller);
 
 // Product search

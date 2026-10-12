@@ -424,6 +424,26 @@ class ProductService {
     return { products, total, page, limit, pages: Math.ceil(total / limit) };
   }
 
+  /** Produits d'une boutique visibles par les clients (publiés + vendeur éligible marketplace) */
+  async searchBySellerClient(sellerId, { page = 1, limit = 50 } = {}) {
+    const eligibleSellerIds = await this.getEligibleSellerIds();
+    if (!eligibleSellerIds.map(String).includes(String(sellerId))) {
+      return { products: [], total: 0, page, limit, pages: 0 };
+    }
+    const filter = {
+      Clefournisseur: sellerId,
+      isDeleted: false,
+      isPublished: 'Published',
+      'subscriptionControl.forcedHidden': { $ne: true },
+    };
+    const skip = (page - 1) * limit;
+    const [products, total] = await Promise.all([
+      Produit.find(filter).sort({ createdAt: -1, _id: -1 }).skip(skip).limit(limit).lean(),
+      Produit.countDocuments(filter)
+    ]);
+    return { products, total, page, limit, pages: Math.ceil(total / limit) };
+  }
+
   async searchByType(type, { page = 1, limit = 40 } = {}) {
     return await this.getClientVisibleProducts({ ClefType: type }, { page, limit });
   }

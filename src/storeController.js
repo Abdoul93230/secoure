@@ -1042,6 +1042,28 @@ const getSeller = (req, res) => {
       return res.status(500).json({ message: message, error: error });
     });
 };
+/**
+ * SÉCURITÉ — Profil public d'un vendeur (endpoints *Clients) : liste blanche.
+ * Exclut la pièce d'identité (ownerIdentity), l'email/téléphone personnels de connexion,
+ * les quotas et modules internes.
+ */
+const PUBLIC_SELLER_FIELDS = [
+  "_id", "name", "storeName", "storeDescription", "category", "storeType", "businessProfile",
+  "logo", "coverImage", "banner", "openingHours", "businessPhone", "whatsapp", "website",
+  "facebook", "instagram", "address", "city", "region", "postalCode", "isvalid",
+  "subscriptionStatus", "rating", "reviewsCount", "likesCount", "followersCount",
+  "productsCount", "minimumOrder", "delivery", "acceptsReturns", "createdAt",
+];
+const toPublicSeller = (seller) => {
+  if (!seller) return seller;
+  const src = typeof seller.toJSON === "function" ? seller.toJSON() : seller;
+  const out = {};
+  PUBLIC_SELLER_FIELDS.forEach((f) => {
+    if (src[f] !== undefined) out[f] = src[f];
+  });
+  return out;
+};
+
 const getSellerClients = async (req, res) => {
   const Id = req.params.Id;
 
@@ -1073,8 +1095,8 @@ const getSellerClients = async (req, res) => {
       });
     }
 
-    const message = `Vous avez demandé le vendeur : ${response.name}`;
-    return res.json({ message: message, data: response });
+    const message = `Vous avez demandé le vendeur : ${response.storeName || response.name}`;
+    return res.json({ message: message, data: toPublicSeller(response) });
   } catch (error) {
     console.error({ error });
     const message =
@@ -1155,7 +1177,7 @@ const getSellerByNameClients = async (req, res) => {
     return res.status(200).json({
       status: "ACTIVE",
       message: `Vous avez demandé la boutique ${seller.storeName}`,
-      data: seller
+      data: toPublicSeller(seller)
     });
 
   } catch (error) {
@@ -1206,7 +1228,7 @@ const getSellersClients = async (req, res) => {
 
     return res.json({
       message: 'vous avez demander tous les Sellers clients.',
-      data: sellers
+      data: sellers.map(toPublicSeller)
     });
   } catch (error) {
     const message =
