@@ -439,10 +439,20 @@ class ProductService {
   }
 
   async searchByName(name, { page = 1, limit = 40 } = {}) {
-    return await this.getClientVisibleProducts(
+    const result = await this.getClientVisibleProducts(
       { $text: { $search: name } },
       { page, limit }
     );
+    // La recherche plein texte ne trouve que des mots entiers : si rien, on tente
+    // une recherche par début de mot (« rob » → « robe »), insensible à la casse.
+    if (result.total === 0 && String(name).trim().length >= 2) {
+      const escaped = String(name).trim().slice(0, 60).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return await this.getClientVisibleProducts(
+        { $or: [{ name: { $regex: `(^|\\s)${escaped}`, $options: 'i' } }, { marque: { $regex: `^${escaped}`, $options: 'i' } }] },
+        { page, limit }
+      );
+    }
+    return result;
   }
 
   async searchByNameAndSeller(name, seller, { page = 1, limit = 50 } = {}) {
