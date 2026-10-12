@@ -27,8 +27,31 @@ const getAllProductsSeller = handleAsyncError(async (req, res) => {
 const getAllProductsClients = handleAsyncError(async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const limit = Math.min(parseInt(req.query.limit) || 40, 100);
-  const result = await productService.getAllProductsClients({ page, limit });
+  const toNumber = (v) => (v === undefined || v === '' || isNaN(Number(v)) ? undefined : Number(v));
+  const result = await productService.getAllProductsClients({
+    page,
+    limit,
+    type: req.query.type || undefined,
+    category: req.query.category || undefined,
+    minPrice: toNumber(req.query.minPrice),
+    maxPrice: toNumber(req.query.maxPrice),
+    promo: req.query.promo === '1' || req.query.promo === 'true',
+    sort: req.query.sort || undefined,
+  });
   res.json({ message: "Tous les produits", ...result, data: result.products });
+});
+
+// Produit public (clients web/mobile, liens partagés)
+const getClientProductById = handleAsyncError(async (req, res) => {
+  const { productId } = req.params;
+  if (!mongoose.Types.ObjectId.isValid(productId)) {
+    return res.status(400).json({ message: "ID invalide" });
+  }
+  const product = await productService.getClientProductById(productId);
+  if (!product) {
+    return res.status(404).json({ message: "Produit non trouvé" });
+  }
+  res.json({ message: "Produit trouvé", data: product });
 });
 
 const getAllProductsAdmin = handleAsyncError(async (req, res) => {
@@ -1672,6 +1695,7 @@ module.exports = {
   getAllProductsSeller,
   getAllProductsAdmin,
   getAllProductsClients,
+  getClientProductById,
   getHomeFeed,
   getProductById,
   getProductByIdAdmin,

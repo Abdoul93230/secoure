@@ -418,7 +418,7 @@ const createSellerWithSubscription = async (req, res) => {
         trialEndsAt: subscriptionResult.subscription.endDate
       });
 
-      const trialMonths = resolvedPlanType === 'Starter' ? 2 : 1;
+      const trialMonths = 1;
       const trialLabel = `${trialMonths} mois`;
 
       return res.status(201).json({

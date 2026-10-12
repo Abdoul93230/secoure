@@ -494,13 +494,13 @@ const assertPlanCompatible = async (storeId, planType) => {
 
 /**
  * Créer l'abonnement d'essai initial lors de l'inscription.
- * Starter → 2 mois gratuits. Pro / Business → 1 mois gratuit.
+ * 1 mois gratuit pour tous les plans (Starter, Pro, Business).
  */
 const createInitialSubscription = async (sellerId, planType = 'Starter') => {
   try {
     const resolvedPlan = ['Starter', 'Pro', 'Business'].includes(planType) ? planType : 'Starter';
     const planConfig = PLAN_DEFAULTS[resolvedPlan];
-    const trialMonths = planConfig.trialMonths || (resolvedPlan === 'Starter' ? 2 : 1);
+    const trialMonths = planConfig.trialMonths || 1;
 
     const startDate = new Date();
     const endDate = new Date();
@@ -532,7 +532,7 @@ const createInitialSubscription = async (sellerId, planType = 'Starter') => {
 
     await queue.save();
 
-    const trialLabel = resolvedPlan === 'Starter' ? '2 mois' : '1 mois';
+    const trialLabel = `${trialMonths} mois`;
     const historyEntry = new SubscriptionHistory({
       storeId: sellerId,
       subscriptionId: subscription._id,

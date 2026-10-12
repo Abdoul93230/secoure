@@ -165,7 +165,7 @@ router.get('/available-plans', async (req, res) => {
 
 /**
  * Démarrer l'essai gratuit pour un vendeur sans abonnement.
- * Starter → 2 mois gratuits, Pro / Business → 1 mois gratuit. Aucun paiement.
+ * 1 mois gratuit pour tous les plans. Aucun paiement.
  */
 router.post('/start-trial', requireSeller, async (req, res) => {
   try {
@@ -183,7 +183,7 @@ router.post('/start-trial', requireSeller, async (req, res) => {
     }
 
     const result = await createInitialSubscription(sellerId, planType);
-    const trialMonths = PLAN_DEFAULTS[planType]?.trialMonths || (planType === 'Starter' ? 2 : 1);
+    const trialMonths = PLAN_DEFAULTS[planType]?.trialMonths || 1;
 
     res.json({
       status: 'success',

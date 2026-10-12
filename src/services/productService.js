@@ -1,4 +1,16 @@
-const { Produit, Commande, SellerRequest, PricingPlan } = require('../Models');
+const { Produit, Commande, SellerRequest, PricingPlan, TypeProduit } = require('../Models');
+
+// Cache mémoire de la liste des vendeurs éligibles (recalculée au plus toutes les 60 s)
+const ELIGIBLE_SELLERS_TTL_MS = 60 * 1000;
+let eligibleSellersCache = { ids: null, expiresAt: 0, pending: null };
+
+// Tris autorisés pour les listes client
+const CLIENT_SORTS = {
+  newest: { createdAt: -1, _id: -1 },
+  price_asc: { prix: 1, _id: -1 },
+  price_desc: { prix: -1, _id: -1 },
+  popular: { views: -1, _id: -1 },
+};
 const cloudinary = require('../cloudinary');
 
 const fs = require("fs");
@@ -41,6 +53,26 @@ class ProductService {
   // Build the set of seller IDs eligible for client-facing display.
   // 2 queries total instead of 1-per-product (was O(n) round-trips).
   async getEligibleSellerIds() {
+    const now = Date.now();
+    if (eligibleSellersCache.ids && eligibleSellersCache.expiresAt > now) {
+      return eligibleSellersCache.ids;
+    }
+    // Une seule requête en vol même si plusieurs clients arrivent en même temps
+    if (!eligibleSellersCache.pending) {
+      eligibleSellersCache.pending = this.computeEligibleSellerIds()
+        .then((ids) => {
+          eligibleSellersCache = { ids, expiresAt: Date.now() + ELIGIBLE_SELLERS_TTL_MS, pending: null };
+          return ids;
+        })
+        .catch((err) => {
+          eligibleSellersCache.pending = null;
+          throw err;
+        });
+    }
+    return eligibleSellersCache.pending;
+  }
+
+  async computeEligibleSellerIds() {
     const [validSellers, activePlans] = await Promise.all([
       SellerRequest.find(
         { isvalid: true, subscriptionStatus: { $in: ['active', 'trial'] } },
@@ -64,7 +96,7 @@ class ProductService {
     return eligible;
   }
 
-  async getClientVisibleProducts(baseFilter = {}, { page = 1, limit = 40 } = {}) {
+  async getClientVisibleProducts(baseFilter = {}, { page = 1, limit = 40, sort = 'newest' } = {}) {
     const eligibleSellerIds = await this.getEligibleSellerIds();
     const skip = (page - 1) * limit;
 
@@ -78,7 +110,7 @@ class ProductService {
 
     const [products, total] = await Promise.all([
       Produit.find(filter)
-        .sort({ createdAt: -1, _id: -1 })
+        .sort(CLIENT_SORTS[sort] || CLIENT_SORTS.newest)
         .skip(skip)
         .limit(limit)
         .populate('Clefournisseur', 'name storeName logo subscriptionStatus isvalid')
@@ -109,8 +141,43 @@ class ProductService {
     return { products, total, page, limit, pages: Math.ceil(total / limit) };
   }
 
-  async getAllProductsClients({ page = 1, limit = 40 } = {}) {
-    return await this.getClientVisibleProducts({}, { page, limit });
+  /**
+   * Liste client paginée avec filtres optionnels (tous rétrocompatibles) :
+   * type, category, minPrice, maxPrice, promo, sort (newest|price_asc|price_desc|popular)
+   */
+  async getAllProductsClients({ page = 1, limit = 40, type, category, minPrice, maxPrice, promo, sort } = {}) {
+    const filter = {};
+
+    if (type) {
+      filter.ClefType = type;
+    } else if (category) {
+      const types = await TypeProduit.find({ clefCategories: String(category) }, { _id: 1 }).lean();
+      filter.ClefType = { $in: types.map((t) => t._id.toString()) };
+    }
+
+    if (minPrice != null || maxPrice != null) {
+      filter.prix = {};
+      if (minPrice != null) filter.prix.$gte = minPrice;
+      if (maxPrice != null) filter.prix.$lte = maxPrice;
+    }
+
+    if (promo) filter.prixPromo = { $gt: 0 };
+
+    return await this.getClientVisibleProducts(filter, { page, limit, sort });
+  }
+
+  /** Produit public : visible uniquement s'il est publié et que son vendeur est éligible */
+  async getClientProductById(productId) {
+    const eligibleSellerIds = await this.getEligibleSellerIds();
+    return await Produit.findOne({
+      _id: productId,
+      isDeleted: false,
+      isPublished: 'Published',
+      Clefournisseur: { $in: eligibleSellerIds },
+      'subscriptionControl.forcedHidden': { $ne: true },
+    })
+      .populate('Clefournisseur', 'name storeName logo subscriptionStatus isvalid')
+      .lean();
   }
 
   async getAllProductsAdmin({ page = 1, limit = 50, search = '', status = '', type = '' } = {}) {

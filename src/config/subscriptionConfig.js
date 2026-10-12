@@ -11,7 +11,7 @@ const SUBSCRIPTION_CONFIG = {
   PLANS: {
     Starter: {
       name: "Starter",
-      description: "Idéal pour débuter. 2 mois d'essai gratuit, aucun paiement requis.",
+      description: "Idéal pour débuter. 1 mois d'essai gratuit, aucun paiement requis.",
       agentQuota: 0,
       pricing: {
         monthly: 1000,

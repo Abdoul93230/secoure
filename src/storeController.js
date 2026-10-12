@@ -360,10 +360,10 @@ const createSeller = async (req, res) => {
 
     console.log(req.body);
 
-    // Calculer la date de fin (pour le plan Starter, ajouter 2 mois gratuits)
+    // Calculer la date de fin (pour le plan Starter, ajouter 1 mois gratuit)
     let endDate = new Date();
     if (planType === "Starter") {
-      endDate.setMonth(endDate.getMonth() + 2); // 2 mois gratuits
+      endDate.setMonth(endDate.getMonth() + 1); // 1 mois gratuit
     }
     // else {
     //   endDate.setMonth(endDate.getMonth() + 1); // 1 mois par défaut pour les autres plans
