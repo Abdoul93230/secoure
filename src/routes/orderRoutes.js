@@ -11,7 +11,7 @@ const { orderActor } = require('../auth/guestAuth');
 router.post('/createCommande', orderActor(), userController.createCommande);
 router.get('/getCommandesById/:id', orderActor(), userController.getCommandesById);
 router.get('/getOrderPaymentStatus/:reference', userController.getOrderPaymentStatus);
-router.get('/getCommandeByReference/:reference', userController.getCommandeByReference);
+router.get('/getCommandeByReference/:reference', orderActor(), userController.getCommandeByReference);
 // SÉCURITÉ : un client ne peut lire que SES commandes (adresses et téléphones de livraison)
 const ownOrdersOnly = (req, res, next) =>
   String(req.userId) === String(req.params.clefUser)

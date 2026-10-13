@@ -878,6 +878,12 @@ const getCommandeByReference = async (req, res) => {
     if (!commande) {
       return res.status(404).json({ message: "Aucune commande trouvée pour cette référence." });
     }
+    // SÉCURITÉ : les références sont prévisibles (date) → propriétaire (compte / invité vérifié) ou admin
+    const actor = req.actor;
+    const isOwner = actor && String(commande.clefUser) === String(actor.userId) && (actor.kind !== 'guest' || actor.verified || commande.isGuestOrder);
+    if (!(isOwner || actor?.kind === 'admin')) {
+      return res.status(403).json({ message: "Accès non autorisé à cette commande." });
+    }
 
     return res.json({ commande });
   } catch (error) {
