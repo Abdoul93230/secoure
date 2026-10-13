@@ -11,9 +11,16 @@
  *    Une zone réapparue dans un référentiel est réactivée avec le même identifiant.
  *  - Recalcule level / fullPath / ancestors de toutes les zones.
  *
+ *  - Option --purge : SUPPRIME définitivement les zones désactivées absentes des référentiels
+ *    (données de démonstration) qui ne sont utilisées nulle part : boutiques, modèles, campagnes,
+ *    anciennes politiques, adresses et commandes. Une zone n'est supprimée que si toutes ses
+ *    sous-zones le sont aussi (jamais d'orpheline).
+ *
  * Usage :
  *   node scripts/syncNigerZones.js                  → simulation (aucune écriture)
+ *   node scripts/syncNigerZones.js --purge          → simulation, avec la liste des zones à supprimer
  *   node scripts/syncNigerZones.js --apply          → applique
+ *   node scripts/syncNigerZones.js --apply --purge  → applique et supprime les zones de démonstration
  *   node scripts/syncNigerZones.js --apply --keep-foreign
  * Idempotent : une seconde exécution ne change rien.
  */
@@ -24,6 +31,7 @@ const { foreignTrees } = require('../src/services/zones/foreignReferential');
 
 const APPLY = process.argv.includes('--apply');
 const KEEP_FOREIGN = process.argv.includes('--keep-foreign');
+const PURGE = process.argv.includes('--purge');
 const TYPE_LEVEL = { country: 0, region: 1, city: 2, district: 3 };
 const norm = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 const slug = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, '');
@@ -139,7 +147,7 @@ function planSync(existing, treeOrTrees, { keepForeign = false, newId = () => ne
     if (b.name !== z.name || b.parent !== z.parent || b.fullPath !== z.fullPath) updated.push({ z, before: b });
     if (!b.isActive && z.isActive) reactivated.push(z);
   }
-  return { zones, created, updated, deactivated, reactivated, nigerId };
+  return { zones, created, updated, deactivated, reactivated, nigerId, used };
 }
 
 async function main() {
@@ -181,6 +189,36 @@ async function main() {
   const risky = plan.deactivated.filter((z) => refs.get(String(z._id)));
   if (risky.length) console.log(`\n⚠ ${risky.length} zone(s) désactivée(s) encore utilisée(s) : à réaffecter dans l'admin (Centre de livraison).`);
 
+  // ── Purge des zones de démonstration ──
+  let purgeIds = [];
+  if (PURGE) {
+    const oid = (v) => String(v);
+    // Toutes les références possibles (y compris adresses et commandes)
+    const usedRefs = new Set(refs.keys());
+    for (const a of await db.collection('adressshippings').find({ zoneId: { $ne: null } }, { projection: { zoneId: 1 } }).toArray()) usedRefs.add(oid(a.zoneId));
+    for (const c of await db.collection('commandes').find({ 'livraisonDetails.zoneId': { $exists: true, $ne: null } }, { projection: { 'livraisonDetails.zoneId': 1 } }).toArray()) usedRefs.add(oid(c.livraisonDetails.zoneId));
+    for (const p of await db.collection('shippingpolicies').find({}, { projection: { 'zonePolicies.zoneId': 1 } }).toArray()) for (const zp of p.zonePolicies || []) if (zp.zoneId) usedRefs.add(oid(zp.zoneId));
+    for (const s of await db.collection('sellerrequests').find({ shippingOriginZoneId: { $ne: null } }, { projection: { shippingOriginZoneId: 1 } }).toArray()) usedRefs.add(oid(s.shippingOriginZoneId));
+
+    const all = [...plan.zones.values()];
+    const children = new Map();
+    for (const z of all) if (z.parent) children.set(z.parent, (children.get(z.parent) || []).concat(String(z._id)));
+    const candidate = new Set(all.filter((z) => !z.__new && z.isActive === false && !plan.used.has(String(z._id)) && !usedRefs.has(String(z._id))).map((z) => String(z._id)));
+    // Une zone n'est supprimable que si tout son sous-arbre l'est
+    const ok = new Map();
+    const deletable = (id) => {
+      if (ok.has(id)) return ok.get(id);
+      const r = candidate.has(id) && (children.get(id) || []).every(deletable);
+      ok.set(id, r);
+      return r;
+    };
+    purgeIds = all.map((z) => String(z._id)).filter(deletable);
+    const kept = [...candidate].filter((id) => !purgeIds.includes(id));
+    console.log(`\n== Zones de démonstration à SUPPRIMER : ${purgeIds.length} ==`);
+    for (const id of purgeIds) console.log(`  ✕ ${plan.zones.get(id).fullPath}`);
+    if (kept.length) console.log(`  (${kept.length} zone(s) désactivée(s) conservée(s) : encore utilisée(s) ou avec une sous-zone utilisée)`);
+  }
+
   if (APPLY) {
     const ops = [];
     for (const z of plan.zones.values()) {
@@ -189,6 +227,7 @@ async function main() {
         fullPath: z.fullPath, level: z.level, ancestors: z.ancestors.map((a) => new mongoose.Types.ObjectId(a)), aliases: z.aliases || [],
         ...(z.center?.lat != null ? { center: { lat: z.center.lat, lng: z.center.lng } } : {}),
       };
+      if (purgeIds.includes(String(z._id))) continue;
       if (z.__new) {
         ops.push({ insertOne: { document: { _id: z._id, code: z.code, type: z.type, ...doc, createdAt: new Date(), updatedAt: new Date() } } });
       } else {
@@ -196,7 +235,11 @@ async function main() {
       }
     }
     const r = await db.collection('zonefs').bulkWrite(ops, { ordered: true });
-    console.log(`\n✔ Appliqué : ${r.insertedCount} créée(s), ${r.modifiedCount} mise(s) à jour. Les caches du serveur se rafraîchissent en moins de 5 minutes.`);
+    let deleted = 0;
+    if (purgeIds.length) {
+      deleted = (await db.collection('zonefs').deleteMany({ _id: { $in: purgeIds.map((id) => new mongoose.Types.ObjectId(id)) }, isActive: false })).deletedCount;
+    }
+    console.log(`\n✔ Appliqué : ${r.insertedCount} créée(s), ${r.modifiedCount} mise(s) à jour${PURGE ? `, ${deleted} supprimée(s)` : ''}. Les caches du serveur se rafraîchissent en moins de 5 minutes.`);
   } else {
     console.log('\nSimulation terminée — relancez avec --apply pour appliquer.');
   }
