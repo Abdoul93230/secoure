@@ -38,6 +38,13 @@ const zoneSchema = new mongoose.Schema({
     type: Boolean,
     default: true
   },
+  // Autres noms pour la recherche et la détection (« Niamey I », « Gamkalé »…)
+  aliases: [{ type: String, trim: true, maxlength: 100 }],
+  // Point approximatif (centre de la ville / du quartier) — filtre « Près de chez moi »
+  center: {
+    lat: { type: Number, min: -90, max: 90 },
+    lng: { type: Number, min: -180, max: 180 }
+  },
   // Champs calculés pour optimiser les requêtes
   fullPath: {
     type: String,

@@ -46,7 +46,7 @@ let zonesPayload = { at: 0, data: null };
 router.get('/zones', async (_req, res) => {
   try {
     if (!zonesPayload.data || Date.now() - zonesPayload.at > 5 * 60 * 1000) {
-      const zones = await Zone.find({ isActive: true }, { name: 1, type: 1, parent: 1, fullPath: 1, level: 1 }).sort({ fullPath: 1 }).lean();
+      const zones = await Zone.find({ isActive: true }, { name: 1, type: 1, parent: 1, fullPath: 1, level: 1, aliases: 1, center: 1 }).sort({ fullPath: 1 }).lean();
       zonesPayload = { at: Date.now(), data: zones };
     }
     res.set('Cache-Control', 'public, max-age=300');

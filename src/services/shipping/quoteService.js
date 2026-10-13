@@ -34,7 +34,7 @@ const normalizeName = (s) =>
 async function loadZones() {
   if (zonesCache.byId && Date.now() - zonesCache.at < TTL_MS) return zonesCache.byId;
   if (!zonesCache.pending) {
-    zonesCache.pending = Zone.find({}, { name: 1, type: 1, parent: 1, isActive: 1, fullPath: 1 })
+    zonesCache.pending = Zone.find({}, { name: 1, type: 1, parent: 1, isActive: 1, fullPath: 1, aliases: 1 })
       .lean()
       .then((zones) => {
         const byId = new Map(zones.map((z) => [str(z._id), z]));
@@ -140,13 +140,14 @@ async function resolveSellerOrigin(seller) {
   }
   const byId = await loadZones();
   const tokens = locationTokens(seller);
+  const names = (z) => [z.name, ...(z.aliases || [])].map(normalizeName);
+  // Cohérence : nombre de niveaux du chemin cités dans le profil (« Sabon Gari / Zinder » → Zinder, pas Maradi)
+  const coherence = (z) => str(z.fullPath).split('>').filter((seg) => tokens.includes(normalizeName(seg))).length;
   const candidates = [...byId.values()]
-    .filter((z) => z.isActive !== false && z.type !== 'country' && tokens.includes(normalizeName(z.name)))
-    .sort((a, b) => {
-      const homeA = normalizeName(a.fullPath).startsWith(PLATFORM_COUNTRY) ? 1 : 0;
-      const homeB = normalizeName(b.fullPath).startsWith(PLATFORM_COUNTRY) ? 1 : 0;
-      return homeB - homeA || TYPE_DEPTH[b.type] - TYPE_DEPTH[a.type];
-    });
+    .filter((z) => z.isActive !== false && z.type !== 'country' && names(z).some((n) => tokens.includes(n)))
+    .map((z) => ({ z, score: coherence(z), home: normalizeName(z.fullPath).startsWith(PLATFORM_COUNTRY) ? 1 : 0 }))
+    .sort((a, b) => b.home - a.home || b.score - a.score || TYPE_DEPTH[b.z.type] - TYPE_DEPTH[a.z.type])
+    .map((c) => c.z);
   if (candidates[0]) return { ...(await zoneForEngine(candidates[0]._id)), source: 'inferred' };
   const country = await platformCountryZone();
   return country ? { ...country, source: 'country-fallback' } : null;
