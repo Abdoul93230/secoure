@@ -33,6 +33,7 @@ async function listActiveZones() {
 }
 
 function invalidateShippingCaches() {
+  originBadgeCache.clear();
   activeZonesCache = { at: 0, data: null };
   zonesCache = { at: 0, byId: null, pending: null };
   templatesCache = { at: 0, list: null };
@@ -268,8 +269,59 @@ async function legacyQuote(sellerId, customerZoneId, weight) {
   };
 }
 
+// ─── Badge « 📍 ville » des boutiques (cartes produit, fiche produit) ──────────
+
+const originBadgeCache = new Map(); // sellerId → { at, value }
+
+/** Ville affichée pour une boutique : « Niamey » (toutes communes), sinon la ville, sinon la région */
+async function originBadgeOf(seller) {
+  const origin = await resolveSellerOrigin(seller);
+  if (!origin || origin.source === 'country-fallback') return null;
+  const byId = await loadZones();
+  const chain = (origin.path || []).map((p) => byId.get(str(p.id))).filter(Boolean);
+  const country = chain.find((z) => z.type === 'country');
+  const region = chain.find((z) => z.type === 'region');
+  const city = chain.find((z) => z.type === 'city');
+  const district = chain.find((z) => z.type === 'district');
+  const isNiamey = normalizeName(region?.name) === 'niamey';
+  const cityName = isNiamey ? 'Niamey' : city?.name || region?.name || null;
+  if (!cityName) return null;
+  const abroad = country && normalizeName(country.name) !== PLATFORM_COUNTRY;
+  return {
+    city: abroad ? `${cityName}, ${country.name}` : cityName,
+    detail: district?.name || (isNiamey ? city?.name : null) || null,
+    regionId: str(region?._id) || null,
+    source: origin.source,
+  };
+}
+
+/** Badges de plusieurs boutiques (cache 5 min par boutique) */
+async function sellerOriginBadges(sellerIds) {
+  const ids = [...new Set((sellerIds || []).map(str).filter(isId))].slice(0, 200);
+  const out = {};
+  const missing = [];
+  for (const id of ids) {
+    const hit = originBadgeCache.get(id);
+    if (hit && Date.now() - hit.at < TTL_MS * 5) out[id] = hit.value;
+    else missing.push(id);
+  }
+  if (missing.length) {
+    const { SellerRequest } = require('../../Models');
+    const sellers = await SellerRequest.find({ _id: { $in: missing } }, { city: 1, region: 1, shippingOriginZoneId: 1 }).lean();
+    const byId = new Map(sellers.map((s) => [str(s._id), s]));
+    for (const id of missing) {
+      const s = byId.get(id);
+      const value = s ? await originBadgeOf(s) : null;
+      originBadgeCache.set(id, { at: Date.now(), value });
+      out[id] = value;
+    }
+  }
+  return out;
+}
+
 module.exports = {
   quoteCart,
+  sellerOriginBadges,
   legacyQuote,
   resolveSellerOrigin,
   zoneForEngine,

@@ -2,11 +2,12 @@
  * API publique du moteur de livraison v3 — /api/shipping/v3
  *   POST /quote      devis complet d'un panier (un colis par boutique)
  *   GET  /estimate   estimation pour une fiche produit
+ *   GET  /origins    ville d'expédition des boutiques (?ids=…)
  *   GET  /zones      toutes les zones actives (arbre complet, pour les sélecteurs)
  */
 const express = require('express');
 const rateLimit = require('express-rate-limit');
-const { quoteCart, listActiveZones } = require('../services/shipping/quoteService');
+const { quoteCart, listActiveZones, sellerOriginBadges } = require('../services/shipping/quoteService');
 
 const router = express.Router();
 const isId = (v) => /^[a-f\d]{24}$/i.test(String(v || ''));
@@ -38,6 +39,20 @@ router.get('/estimate', async (req, res) => {
   } catch (e) {
     console.error('[shipping/v3/estimate]', e);
     return res.status(500).json({ success: false, message: 'Estimation indisponible.' });
+  }
+});
+
+/** Ville d'expédition des boutiques (badge « 📍 ville ») : ?ids=a,b,c (200 max) */
+router.get('/origins', async (req, res) => {
+  try {
+    const ids = String(req.query.ids || '').split(',').map((x) => x.trim()).filter((x) => isId(x)).slice(0, 200);
+    if (!ids.length) return res.json({ success: true, data: {} });
+    const data = await sellerOriginBadges(ids);
+    res.set('Cache-Control', 'public, max-age=300');
+    return res.json({ success: true, data });
+  } catch (e) {
+    console.error('[shipping/v3/origins]', e);
+    return res.status(500).json({ success: false, message: 'Origines indisponibles.' });
   }
 });
 
