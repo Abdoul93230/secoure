@@ -1822,6 +1822,9 @@ async function getSellerOrders(sellerId, options = {}) {
           reduction: { $first: "$reduction" },
           date: { $first: "$date" },
           etatTraitement: { $first: "$etatTraitement" },
+          // Invité sans code SMS : à confirmer par l'équipe avant préparation
+          phoneConfirmation: { $first: "$phoneConfirmation" },
+          isGuestOrder: { $first: "$isGuestOrder" },
 
           // Ajouter les produits du vendeur avec leurs détails complets
           sellerProducts: {

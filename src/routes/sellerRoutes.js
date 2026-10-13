@@ -60,10 +60,23 @@ router.put('/setImage/:id', ownStore((req) => req.params.id), middelware.upload.
 
 // Seller orders
 router.get('/seller-orders/:Id', ownStoreOrAgent((req) => req.params.Id), sellerController.seller_orders);
-router.put('/seller-orders/:orderId/validate/:sellerId', ownStoreOrAgent((req) => req.params.sellerId), sellerController.validate_seller_products);
+// Commande d'invité en attente d'appel de l'équipe : pas de préparation avant confirmation
+const notAwaitingCall = async (req, res, next) => {
+  try {
+    const { Commande } = require('../Models');
+    const c = await Commande.findById(req.params.orderId, { phoneConfirmation: 1 }).lean();
+    if (c?.phoneConfirmation === 'pending') {
+      return res.status(409).json({ success: false, code: 'CALL_CONFIRMATION_PENDING', message: "Commande en attente de confirmation par appel de l'équipe Ihambaobab. Ne la préparez pas encore." });
+    }
+    return next();
+  } catch {
+    return next();
+  }
+};
+router.put('/seller-orders/:orderId/validate/:sellerId', ownStoreOrAgent((req) => req.params.sellerId), notAwaitingCall, sellerController.validate_seller_products);
 // 🔥 NOUVEAU: Validation individuelle par produit
-router.put('/seller-orders/:orderId/validate-product/:sellerId/:productId', ownStoreOrAgent((req) => req.params.sellerId), sellerController.validate_individual_product);
-router.put('/seller-orders/:orderId/toggle-product/:sellerId/:productId/:productIndex', ownStoreOrAgent((req) => req.params.sellerId), sellerController.toggle_product_validation);
+router.put('/seller-orders/:orderId/validate-product/:sellerId/:productId', ownStoreOrAgent((req) => req.params.sellerId), notAwaitingCall, sellerController.validate_individual_product);
+router.put('/seller-orders/:orderId/toggle-product/:sellerId/:productId/:productIndex', ownStoreOrAgent((req) => req.params.sellerId), notAwaitingCall, sellerController.toggle_product_validation);
 
 // Pricing plans
 router.post('/pricing-plans', middelware.authAdmin, sellerController.createPricingPlan);
