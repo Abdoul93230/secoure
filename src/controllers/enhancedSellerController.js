@@ -378,8 +378,17 @@ const createSellerWithSubscription = async (req, res) => {
     // Hashage du mot de passe
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    // Livraison v3 : lieu d'expédition choisi dans la liste officielle (facultatif à l'inscription)
+    let shippingOriginZoneId = null;
+    if (req.body.shippingOriginZoneId) {
+      const { describeCustomerZone } = require('../services/shipping/customerZone');
+      const zone = await describeCustomerZone(req.body.shippingOriginZoneId).catch(() => null);
+      if (zone) shippingOriginZoneId = zone.id;
+    }
+
     // Création du vendeur
     const newSeller = new SellerRequest({
+      ...(shippingOriginZoneId && { shippingOriginZoneId }),
       ...(email && { email }),
       ...(phone && { phone }),
       emailp: emailp?.length ? emailp : null,
