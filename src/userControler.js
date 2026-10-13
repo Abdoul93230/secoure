@@ -452,6 +452,30 @@ const recalculateOrderAmounts = async (nbrProduits, customerZoneId) => {
  * Complète livraisonDetails (zoneId, chemin, région / quartier officiels, repère, position).
  * @returns {Promise<{ zoneId: string } | { error: { status, body } }>}
  */
+/**
+ * Auteur de la commande (compte, invité ou admin — voir auth/guestAuth.js) :
+ * le compte vient du jeton, jamais du corps de la requête.
+ * Invité : pas de points ni de code promo (réservés aux comptes) ;
+ * numéro non vérifié → paiement en ligne uniquement (pas de SMS dépensé pour ces commandes).
+ */
+const applyOrderActor = (req, data) => {
+  const actor = req.actor;
+  if (!actor) return { status: 401, body: { code: 'AUTH_REQUIRED', message: 'Connectez-vous ou continuez sans compte pour commander.' } };
+  if (actor.kind !== 'admin') data.clefUser = actor.userId;
+  if (actor.kind === 'guest') {
+    if (Number(data.pointsToUse) > 0) {
+      return { status: 403, body: { code: 'POINTS_ACCOUNT_ONLY', message: 'Les Baobab Points sont réservés aux comptes. Créez votre compte pour les utiliser.' } };
+    }
+    if (data.idCodePro || data.codePro === true || data.codePro === 'true') {
+      return { status: 403, body: { code: 'PROMO_ACCOUNT_ONLY', message: 'Les codes promo sont réservés aux comptes. Créez votre compte en 1 minute pour en profiter.' } };
+    }
+    if (!actor.verified && ['payé à la livraison', 'payé par téléphone'].includes(data.statusPayment)) {
+      return { status: 403, body: { code: 'GUEST_OTP_REQUIRED', message: 'Vérifiez votre numéro (code par SMS) pour payer à la livraison.' } };
+    }
+  }
+  return null;
+};
+
 const prepareOrderZone = async (data, existingOrder = null) => {
   const { resolveOrderZoneId, describeCustomerZone, cleanLocation } = require('./services/shipping/customerZone');
   const zoneId = await resolveOrderZoneId({ data, existingOrder, AdressShipping });
@@ -501,6 +525,10 @@ const createCommande = async (req, res) => {
     if (data.statusPayment && !VALID_STATUS_PAYMENT.includes(data.statusPayment)) {
       return res.status(400).json({ message: `Statut de paiement invalide: ${data.statusPayment}` });
     }
+
+    // ── Auteur : compte, invité ou admin (jamais le clefUser envoyé) ─────────
+    const actorError = applyOrderActor(req, data);
+    if (actorError) return res.status(actorError.status).json(actorError.body);
 
     // ── Livraison v3 : zone obligatoire, validée côté serveur ────────────────
     const zoneCheck = await prepareOrderZone(data);
@@ -646,6 +674,9 @@ const createCommande = async (req, res) => {
         statusPayment: data?.statusPayment ? data.statusPayment : "en cours",
         pointsUsed,
         pointsDiscount,
+        // Suivi partageable + commande sans compte
+        trackingToken: require('./auth/guestAuth').newTrackingToken(),
+        isGuestOrder: req.actor?.kind === 'guest',
       });
 
       await commande.save({ session });
@@ -788,6 +819,13 @@ const getCommandesById = async (req, res) => {
 
   try {
     const commande = await Commande.findById(id).lean();
+    if (!commande) return res.status(404).json({ message: 'Commande introuvable.' });
+    // SÉCURITÉ : propriétaire (compte ou invité vérifié) ou admin uniquement
+    const actor = req.actor;
+    const isOwner = actor && String(commande.clefUser) === String(actor.userId) && (actor.kind !== 'guest' || actor.verified);
+    if (!(isOwner || actor?.kind === 'admin')) {
+      return res.status(403).json({ message: 'Accès non autorisé à cette commande.' });
+    }
 
     // Populer Clefournisseur dans chaque snapshot prod pour que le panier
     // reorder puisse grouper par boutique et afficher le nom/logo du seller
@@ -2378,6 +2416,13 @@ const updateCommanderef = async (req, res) => {
       return createCommande(req, res);
     }
     // ─────────────────────────────────────────────────────────────────────────
+
+    // ── Auteur et propriété de la commande d'origine ──────────────────────────
+    const actorError = applyOrderActor(req, data);
+    if (actorError) return res.status(actorError.status).json(actorError.body);
+    if (req.actor.kind !== 'admin' && String(existingCheck.clefUser) !== String(req.actor.userId)) {
+      return res.status(403).json({ message: 'Cette commande ne vous appartient pas.' });
+    }
 
     // ── Livraison v3 : zone obligatoire (celle de la commande d'origine à défaut) ──
     const zoneCheck = await prepareOrderZone(data, existingCheck);

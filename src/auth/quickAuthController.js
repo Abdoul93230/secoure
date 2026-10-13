@@ -715,7 +715,50 @@ const resetPasswordWithPhoneOtp = async (req, res) => {
   }
 };
 
+/**
+ * Envoie un code par SMS à un utilisateur (limites d'envoi communes : délai, fenêtre, nombre).
+ * Texte court = 1 seul segment SMS (coût minimal). Ne sauvegarde que si l'envoi réussit.
+ * @returns {Promise<{ ok: boolean, status: number, body: object }>}
+ */
+const deliverOtpTo = async (user, phone, { purpose = "guest-order" } = {}) => {
+  const previousOtp = user.quickAuthOtp || {};
+  const now = new Date();
+  if (previousOtp.lastSentAt) {
+    const since = Math.floor((now.getTime() - new Date(previousOtp.lastSentAt).getTime()) / 1000);
+    if (since < OTP_COOLDOWN_SECONDS) {
+      return { ok: false, status: 429, body: { success: false, message: `Patientez ${OTP_COOLDOWN_SECONDS - since}s avant de redemander un code.`, data: { cooldownSeconds: OTP_COOLDOWN_SECONDS - since } } };
+    }
+  }
+  const windowStartedAt = previousOtp.windowStartedAt ? new Date(previousOtp.windowStartedAt) : now;
+  const inWindow = now.getTime() - windowStartedAt.getTime() <= OTP_SEND_WINDOW_MINUTES * 60 * 1000;
+  if ((inWindow ? previousOtp.sendCount || 0 : 0) >= OTP_MAX_SEND_ATTEMPTS) {
+    return { ok: false, status: 429, body: { success: false, message: "Trop de codes demandés. Réessayez dans quelques minutes.", data: { retryAfterMinutes: OTP_SEND_WINDOW_MINUTES } } };
+  }
+  const otpPayload = buildOtpPayload(previousOtp);
+  const text = purpose === "guest-order"
+    ? `IhamBaobab: votre code est ${otpPayload.code}. Valable ${OTP_EXPIRY_MINUTES} min. Ne le partagez pas.`
+    : buildOtpSmsText({ code: otpPayload.code, purpose });
+  try {
+    await lafricaMobileSmsService.sendSms({ to: phone, text, retId: `${purpose}-${Date.now()}` });
+  } catch (smsError) {
+    return { ok: false, status: 502, body: { success: false, message: "Impossible d'envoyer le SMS. Vérifiez le numéro et réessayez.", error: getSmsErrorMessage(smsError) } };
+  }
+  otpPayload.channel = "sms";
+  user.quickAuthOtp = otpPayload;
+  await user.save();
+  return {
+    ok: true,
+    status: 200,
+    body: { success: true, message: "Code envoyé par SMS", data: { channel: "sms", cooldownSeconds: OTP_COOLDOWN_SECONDS, expiresInSeconds: OTP_EXPIRY_MINUTES * 60 } },
+  };
+};
+
 module.exports = {
+  deliverOtpTo,
+  normalizePhone,
+  phoneRegex,
+  ensureMinimalProfile,
+  OTP_MAX_VERIFY_ATTEMPTS,
   checkPhone,
   sendOtp,
   resendOtp,

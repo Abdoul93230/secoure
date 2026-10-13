@@ -6,8 +6,10 @@ const productControler = require('../productControler');
 const { Commande } = require('../Models');
 
 // Order creation and management
-router.post('/createCommande', userController.createCommande);
-router.get('/getCommandesById/:id', userController.getCommandesById);
+// SÉCURITÉ : l'auteur vient du jeton (compte, invité ou admin), jamais du corps de la requête
+const { orderActor } = require('../auth/guestAuth');
+router.post('/createCommande', orderActor(), userController.createCommande);
+router.get('/getCommandesById/:id', orderActor(), userController.getCommandesById);
 router.get('/getOrderPaymentStatus/:reference', userController.getOrderPaymentStatus);
 router.get('/getCommandeByReference/:reference', userController.getCommandeByReference);
 // SÉCURITÉ : un client ne peut lire que SES commandes (adresses et téléphones de livraison)
@@ -28,7 +30,7 @@ router.put('/command/updateEtatTraitement/:commandeId', userController.updateEta
 router.put('/command/updateStatusLivraison/:commandeId', userController.updateStatusLivraison);
 
 // Order reference update
-router.put('/updateCommande', userController.updateCommanderef);
+router.put('/updateCommande', orderActor(), userController.updateCommanderef);
 
 // Order status checking
 router.get('/checkOrderStatus/:orderId', async (req, res) => {

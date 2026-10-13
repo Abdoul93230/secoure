@@ -83,6 +83,16 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    // Commande sans compte : compte « invité » créé à partir du numéro, sans mot de passe.
+    // Devient un compte normal quand la personne choisit un mot de passe (historique conservé).
+    isGuest: {
+      type: Boolean,
+      default: false,
+    },
+    guestVerifiedAt: {
+      type: Date,
+      default: null,
+    },
     needsPasswordChange: {
       type: Boolean,
       default: false,
@@ -960,6 +970,9 @@ const commandeSchema = new mongoose.Schema(
       webhookPayload: Object,
       failureDetails: Object, // Détails complets en cas d'échec
     },
+    // Suivi partageable (lien /suivi/:reference?k=…) et commande passée sans compte
+    trackingToken: { type: String, index: true, sparse: true },
+    isGuestOrder: { type: Boolean, default: false },
     livraisonDetails: {
       customerName: String,
       email: String,
