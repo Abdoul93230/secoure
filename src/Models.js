@@ -882,6 +882,15 @@ const adressShipping = new mongoose.Schema(
       type: String,
       required: false,
     },
+    // Adresse structurée (livraison v3) : zone choisie dans la liste, repère, position facultative
+    zoneId: { type: mongoose.Schema.Types.ObjectId, ref: "ZoneF", default: null },
+    zonePath: { type: String, default: null },
+    landmark: { type: String, trim: true, maxlength: 200, default: "" },
+    location: {
+      lat: { type: Number, min: -90, max: 90 },
+      lng: { type: Number, min: -180, max: 180 },
+      accuracy: { type: Number, min: 0 },
+    },
   },
   { strict: false }
 );
@@ -956,6 +965,10 @@ const commandeSchema = new mongoose.Schema(
       quartier: String, // Référence publique iPay
       numero: String,
       description: String,
+      zoneId: { type: mongoose.Schema.Types.ObjectId, ref: "ZoneF" },
+      zonePath: String,
+      landmark: String,
+      location: { lat: Number, lng: Number, accuracy: Number },
     },
     prix: {
       type: Number,

@@ -436,7 +436,9 @@ const recalculateOrderAmounts = async (nbrProduits, customerZoneId) => {
         freeShippingAmount: p.free?.amount || 0,
       }));
     } catch (shippingErr) {
-      console.warn('⚠️ Shipping recalculation failed, skipping validation:', shippingErr.message);
+      // Jamais de repli sur les frais envoyés par le client : on refuse proprement
+      console.error('❌ Calcul livraison v3 impossible:', shippingErr.message);
+      throw Object.assign(new Error('Calcul de la livraison momentanément indisponible. Réessayez dans un instant.'), { status: 503, code: 'SHIPPING_QUOTE_FAILED' });
     }
   }
 
@@ -444,6 +446,42 @@ const recalculateOrderAmounts = async (nbrProduits, customerZoneId) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Zone de livraison d'une commande (livraison v3) : obligatoire, validée côté serveur.
+ * Complète livraisonDetails (zoneId, chemin, région / quartier officiels, repère, position).
+ * @returns {Promise<{ zoneId: string } | { error: { status, body } }>}
+ */
+const prepareOrderZone = async (data, existingOrder = null) => {
+  const { resolveOrderZoneId, describeCustomerZone, cleanLocation } = require('./services/shipping/customerZone');
+  const zoneId = await resolveOrderZoneId({ data, existingOrder, AdressShipping });
+  const zone = zoneId ? await describeCustomerZone(zoneId).catch(() => null) : null;
+  if (!zone) {
+    return {
+      error: {
+        status: 400,
+        body: {
+          code: 'SHIPPING_ZONE_REQUIRED',
+          message: zoneId
+            ? 'Votre zone de livraison n’est plus disponible : choisissez-la à nouveau.'
+            : 'Choisissez votre zone de livraison (quartier ou ville) pour calculer les frais.',
+        },
+      },
+    };
+  }
+  const ld = data.livraisonDetails || {};
+  data.livraisonDetails = {
+    ...ld,
+    zoneId: zone.id,
+    zonePath: zone.path,
+    region: zone.region,
+    quartier: zone.quartier,
+    ...(ld.landmark !== undefined ? { landmark: String(ld.landmark || '').trim().slice(0, 200) } : {}),
+    ...(ld.location ? { location: cleanLocation(ld.location) } : {}),
+  };
+  data.customerZoneId = zone.id;
+  return { zoneId: zone.id };
+};
 
 const createCommande = async (req, res) => {
   const data = req.body;
@@ -461,16 +499,20 @@ const createCommande = async (req, res) => {
       return res.status(400).json({ message: `Statut de paiement invalide: ${data.statusPayment}` });
     }
 
+    // ── Livraison v3 : zone obligatoire, validée côté serveur ────────────────
+    const zoneCheck = await prepareOrderZone(data);
+    if (zoneCheck.error) return res.status(zoneCheck.error.status).json(zoneCheck.error.body);
+
     // ── Security: recalculate amounts from DB (outside transaction for clean reads) ──
     let serverSubtotal, serverShipping, serverShippingByStore, serverProd, shippingQuote;
     try {
       ({ serverSubtotal, serverShipping, serverShippingByStore, serverProd, shippingQuote } = await recalculateOrderAmounts(
         data.nbrProduits,
-        data.customerZoneId || null
+        data.customerZoneId
       ));
     } catch (calcErr) {
       console.error('❌ Erreur recalcul montants:', calcErr.message);
-      return res.status(400).json({ message: calcErr.message });
+      return res.status(calcErr.status || 400).json({ ...(calcErr.code ? { code: calcErr.code } : {}), message: calcErr.message });
     }
 
     const clientSubtotal = data.prixTotal || data.prix || 0;
@@ -1065,9 +1107,24 @@ const mettreAJourStatuts = async (req, res) => {
   }
 };
 
-function createOrUpdateAddress(req, res) {
+async function createOrUpdateAddress(req, res) {
   const { clefUser, ...newAddressData } = req.body;
-  console.log(req.body);
+
+  // Adresse structurée (livraison v3) : la zone choisie fait foi pour region / quartier
+  if (newAddressData.zoneId !== undefined && newAddressData.zoneId !== null && newAddressData.zoneId !== '') {
+    const { describeCustomerZone, cleanLocation } = require('./services/shipping/customerZone');
+    const zone = await describeCustomerZone(newAddressData.zoneId).catch(() => null);
+    if (!zone) return res.status(400).json({ err: ['Zone de livraison inconnue : choisissez votre quartier dans la liste.'] });
+    newAddressData.zoneId = zone.id;
+    newAddressData.zonePath = zone.path;
+    newAddressData.region = zone.region;
+    newAddressData.quartier = zone.quartier;
+    if (newAddressData.landmark !== undefined) newAddressData.landmark = String(newAddressData.landmark || '').trim().slice(0, 200);
+    if (newAddressData.location !== undefined) newAddressData.location = cleanLocation(newAddressData.location);
+  } else {
+    delete newAddressData.zoneId;
+    delete newAddressData.zonePath;
+  }
 
   // Vérifier si l'adresse existe déjà pour la clé d'utilisateur donnée
   AdressShipping.findOne({ clefUser })
@@ -2318,16 +2375,20 @@ const updateCommanderef = async (req, res) => {
     }
     // ─────────────────────────────────────────────────────────────────────────
 
+    // ── Livraison v3 : zone obligatoire (celle de la commande d'origine à défaut) ──
+    const zoneCheck = await prepareOrderZone(data, existingCheck);
+    if (zoneCheck.error) return res.status(zoneCheck.error.status).json(zoneCheck.error.body);
+
     // ── Security: recalculate amounts from DB ─────────────────────────────────
     let serverSubtotal, serverShipping, serverShippingByStore, serverProd, shippingQuote;
     try {
       ({ serverSubtotal, serverShipping, serverShippingByStore, serverProd, shippingQuote } = await recalculateOrderAmounts(
         data.nbrProduits,
-        data.customerZoneId || null
+        data.customerZoneId
       ));
     } catch (calcErr) {
       console.error('❌ Erreur recalcul montants (relance):', calcErr.message);
-      return res.status(400).json({ message: calcErr.message });
+      return res.status(calcErr.status || 400).json({ ...(calcErr.code ? { code: calcErr.code } : {}), message: calcErr.message });
     }
 
     const clientSubtotal = data.prixTotal || data.prix || 0;
