@@ -138,6 +138,8 @@ app
         "https://ihambaobadmin.onrender.com",
         "https://ihambaobabv.onrender.com",
         "https://www.ihambaobab.com",
+        // Domaine sans « www » : le site s'y ouvre aussi, sans redirection
+        "https://ihambaobab.com",
         "https://iham-admin.onrender.com",
         "https://admin.ihambaobab.com",
         "https://sellers-k9ce.onrender.com",
