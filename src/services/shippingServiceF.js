@@ -153,7 +153,9 @@ class ShippingService {
     }
 
     try {
-      return await ShippingPolicy.calculateShippingCost(sellerId, customerZoneId, weight);
+      // Délégué au moteur v3 (source de vérité unique, identique à la création de commande)
+      const { legacyQuote } = require('./shipping/quoteService');
+      return await legacyQuote(sellerId, customerZoneId, weight);
     } catch (error) {
       throw new Error(`Erreur de calcul: ${error.message}`);
     }

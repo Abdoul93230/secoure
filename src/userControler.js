@@ -374,7 +374,6 @@ const VALID_STATUS_PAYMENT = ["en_attente", "en cours", "payé à la livraison",
 
 const recalculateOrderAmounts = async (nbrProduits, customerZoneId) => {
   const { Produit, SellerRequest } = require('./Models');
-  const shippingServiceF = require('./services/shippingServiceF');
 
   const productIds = nbrProduits.map(item => item.produit);
   // Fetch complet pour pouvoir construire le snapshot prod côté backend
@@ -415,44 +414,33 @@ const recalculateOrderAmounts = async (nbrProduits, customerZoneId) => {
 
   let serverShipping = null;
   let serverShippingByStore = [];
+  let shippingQuote = null;
 
   if (customerZoneId) {
+    // Moteur de livraison v3 : même calcul que le devis affiché au client (prix affiché = prix facturé)
     try {
-      const sellerItems = {};
-      for (const item of nbrProduits) {
-        const product = productMap.get(String(item.produit));
-        if (!product) continue;
-        const sellerId = String(product.Clefournisseur);
-        if (!sellerItems[sellerId]) {
-          sellerItems[sellerId] = { sellerId, weight: 0, items: 0 };
-        }
-        sellerItems[sellerId].weight += (product.shipping?.weight || 0.5) * item.quantite;
-        sellerItems[sellerId].items += item.quantite;
-      }
-
-      const sellerIds = Object.keys(sellerItems);
-      const sellers = await SellerRequest.find({ _id: { $in: sellerIds } })
-        .select('_id storeName')
-        .lean();
-      const sellerNameMap = new Map(sellers.map(s => [String(s._id), s.storeName || 'Boutique']));
-
-      const shippingResult = await shippingServiceF.calculateMultiVendorShipping(
-        Object.values(sellerItems),
-        customerZoneId
-      );
-      serverShipping = shippingResult.totalShipping;
-
-      serverShippingByStore = shippingResult.vendors.map(v => ({
-        storeId: String(v.sellerId),
-        storeName: sellerNameMap.get(String(v.sellerId)) || 'Boutique',
-        shippingCost: v.totalCost || 0,
+      const { quoteCart } = require('./services/shipping/quoteService');
+      shippingQuote = await quoteCart({
+        destinationZoneId: customerZoneId,
+        items: nbrProduits.map((item) => ({ productId: String(item.produit), quantity: item.quantite })),
+      });
+      serverShipping = shippingQuote.totalFee;
+      serverShippingByStore = shippingQuote.parcels.map((p) => ({
+        storeId: String(p.sellerId),
+        storeName: p.storeName,
+        shippingCost: p.fee || 0,
+        relation: p.relation,
+        delay: p.delay?.label || null,
+        quoteRequired: !!p.quoteRequired,
+        freeShippingCampaign: p.free?.name || null,
+        freeShippingAmount: p.free?.amount || 0,
       }));
     } catch (shippingErr) {
       console.warn('⚠️ Shipping recalculation failed, skipping validation:', shippingErr.message);
     }
   }
 
-  return { serverSubtotal, serverShipping, serverShippingByStore, serverProd };
+  return { serverSubtotal, serverShipping, serverShippingByStore, serverProd, shippingQuote };
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -474,9 +462,9 @@ const createCommande = async (req, res) => {
     }
 
     // ── Security: recalculate amounts from DB (outside transaction for clean reads) ──
-    let serverSubtotal, serverShipping, serverShippingByStore, serverProd;
+    let serverSubtotal, serverShipping, serverShippingByStore, serverProd, shippingQuote;
     try {
-      ({ serverSubtotal, serverShipping, serverShippingByStore, serverProd } = await recalculateOrderAmounts(
+      ({ serverSubtotal, serverShipping, serverShippingByStore, serverProd, shippingQuote } = await recalculateOrderAmounts(
         data.nbrProduits,
         data.customerZoneId || null
       ));
@@ -493,6 +481,20 @@ const createCommande = async (req, res) => {
         message: `Écart de prix détecté (${subtotalDiff} FCFA). Veuillez actualiser votre panier.`,
         serverSubtotal,
       });
+    }
+
+    // ── Livraison v3 : zone non desservie / livraison sur devis ──────────────
+    if (shippingQuote) {
+      const blocked = shippingQuote.parcels.filter((p) => !p.deliverable && !p.quoteRequired);
+      if (blocked.length) {
+        return res.status(400).json({ code: 'SHIPPING_UNAVAILABLE', message: `${blocked[0].storeName} : ${blocked[0].message}` });
+      }
+      if (shippingQuote.quoteRequired && !['payé à la livraison', 'payé par téléphone'].includes(data.statusPayment)) {
+        return res.status(400).json({
+          code: 'SHIPPING_QUOTE_REQUIRED',
+          message: 'Livraison sur devis : choisissez le paiement à la livraison ou le paiement assisté.',
+        });
+      }
     }
 
     if (serverShipping !== null) {
@@ -594,7 +596,8 @@ const createCommande = async (req, res) => {
         reference: data.reference,
         livraisonDetails: data.livraisonDetails,
         prod: serverProd,
-        shippingByStore: data.shippingByStore?.length ? data.shippingByStore : serverShippingByStore,
+        // Répartition calculée par le serveur (celle du client n'est qu'un repli pour les anciennes apps)
+        shippingByStore: serverShippingByStore.length ? serverShippingByStore : (data.shippingByStore || []),
         statusPayment: data?.statusPayment ? data.statusPayment : "en cours",
         pointsUsed,
         pointsDiscount,
@@ -2316,9 +2319,9 @@ const updateCommanderef = async (req, res) => {
     // ─────────────────────────────────────────────────────────────────────────
 
     // ── Security: recalculate amounts from DB ─────────────────────────────────
-    let serverSubtotal, serverShipping, serverShippingByStore, serverProd;
+    let serverSubtotal, serverShipping, serverShippingByStore, serverProd, shippingQuote;
     try {
-      ({ serverSubtotal, serverShipping, serverShippingByStore, serverProd } = await recalculateOrderAmounts(
+      ({ serverSubtotal, serverShipping, serverShippingByStore, serverProd, shippingQuote } = await recalculateOrderAmounts(
         data.nbrProduits,
         data.customerZoneId || null
       ));
@@ -2335,6 +2338,20 @@ const updateCommanderef = async (req, res) => {
         message: `Écart de prix détecté (${subtotalDiff} FCFA). Veuillez actualiser votre panier.`,
         serverSubtotal,
       });
+    }
+
+    // ── Livraison v3 : zone non desservie / livraison sur devis ──────────────
+    if (shippingQuote) {
+      const blocked = shippingQuote.parcels.filter((p) => !p.deliverable && !p.quoteRequired);
+      if (blocked.length) {
+        return res.status(400).json({ code: 'SHIPPING_UNAVAILABLE', message: `${blocked[0].storeName} : ${blocked[0].message}` });
+      }
+      if (shippingQuote.quoteRequired && !['payé à la livraison', 'payé par téléphone'].includes(data.statusPayment)) {
+        return res.status(400).json({
+          code: 'SHIPPING_QUOTE_REQUIRED',
+          message: 'Livraison sur devis : choisissez le paiement à la livraison ou le paiement assisté.',
+        });
+      }
     }
 
     if (serverShipping !== null) {
@@ -2483,7 +2500,8 @@ const updateCommanderef = async (req, res) => {
         reference: newReference,
         livraisonDetails: livraisonDetails,
         prod: serverProd,
-        shippingByStore: data.shippingByStore?.length ? data.shippingByStore : serverShippingByStore,
+        // Répartition calculée par le serveur (celle du client n'est qu'un repli pour les anciennes apps)
+        shippingByStore: serverShippingByStore.length ? serverShippingByStore : (data.shippingByStore || []),
         statusPayment: statusPayment || "en_attente",
         pointsUsed,
         pointsDiscount,

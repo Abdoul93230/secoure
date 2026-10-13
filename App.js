@@ -31,6 +31,8 @@ const adminZonesRoutes = require('./src/routes/adminZones');
 const adminShippingRoutes = require('./src/routes/adminShippingRoutes');
 const sellerShippingRoutes = require('./src/routes/sellerShipping');
 const publicShippingRoutes = require('./src/routes/publicShipping');
+const shippingV3Routes = require('./src/routes/shippingV3');
+const adminShippingV3Routes = require('./src/routes/adminShippingV3');
 const adminSellersRoutes = require('./src/routes/adminSellersRoutes');
 const enhancedAdminRoutes = require('./src/routes/enhancedAdminRoutes');
 const sellerSubscriptionRoutes = require('./src/routes/sellerSubscriptionRoutes');
@@ -232,6 +234,18 @@ app.use('/api/admin/zones', authMiddleware.requireAdmin, adminZonesRoutes);
 app.use('/api/admin/seller-shipping', authMiddleware.requireAdmin, adminShippingRoutes);
 app.use('/api/seller', authMiddleware.requireSeller, sellerShippingRoutes);
 app.use('/api/shipping2', publicShippingRoutes);
+// Moteur de livraison v3 : devis publics + configuration admin (modèles, campagnes, boutiques)
+app.use('/api/shipping-v3', shippingV3Routes);
+app.use('/api/admin/shipping-v3', authMiddleware.requireAdmin, adminShippingV3Routes);
+// Modèle « Standard Niger » créé au premier démarrage s'il n'existe pas (idempotent)
+{
+  const ensureShippingDefault = () => require('./src/services/shipping/quoteService').ensureDefaultTemplate()
+    .then((t) => console.log(`🚚 Modèle de livraison par défaut : ${t.name}`))
+    .catch((e) => console.error('🚚 Modèle de livraison par défaut non créé :', e.message));
+  const conn = require('mongoose').connection;
+  if (conn.readyState === 1) ensureShippingDefault();
+  else conn.once('open', ensureShippingDefault);
+}
 app.use('/api/adminSeller', authMiddleware.requireAdmin, adminSellersRoutes);
 app.use('/api/adminSeller', authMiddleware.requireAdmin, enhancedAdminRoutes);
 app.use('/api/seller/subscription', authMiddleware.requireSeller, sellerSubscriptionRoutes);

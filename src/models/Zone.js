@@ -45,7 +45,7 @@ const zoneSchema = new mongoose.Schema({
   },
   ancestors: [{
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Zone'
+    ref: 'ZoneF' // était 'Zone' (autre modèle) : le populate vidait la liste et tronquait les ancêtres
   }]
 }, {
   timestamps: true
