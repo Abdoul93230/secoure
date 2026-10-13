@@ -18,7 +18,7 @@ const q = (name, aliases = []) => ({ name, type: 'district', aliases });
 
 const NIAMEY_COMMUNES = [
   {
-    name: 'Commune 1', aliases: ['Niamey I', 'Niamey 1', 'Commune I', 'Arrondissement 1'],
+    name: 'Commune 1', center: c(13.528, 2.085), aliases: ['Niamey I', 'Niamey 1', 'Commune I', 'Arrondissement 1'],
     children: [
       q('Plateau'), q('Yantala Haut', ['Yantala']), q('Yantala Bas'), q('Koira Kano', ['Koirakano']), q('Koira Kano Nord'),
       q('Kouara Kano', ['Kwara Kano']), q('Goudel'), q('Bobiel'), q('Koubia'), q('Cité Chinoise'), q('Issa Béri'),
@@ -26,28 +26,28 @@ const NIAMEY_COMMUNES = [
     ],
   },
   {
-    name: 'Commune 2', aliases: ['Niamey II', 'Niamey 2', 'Commune II', 'Arrondissement 2'],
+    name: 'Commune 2', center: c(13.540, 2.112), aliases: ['Niamey II', 'Niamey 2', 'Commune II', 'Arrondissement 2'],
     children: [
       q('Boukoki'), q('Lazaret'), q('Banizoumbou'), q('Abidjan'), q('Zongo'), q('Bandabari'), q('Koira Tégui', ['Koira Tegui']),
       q('Kalley Est'), q('Couronne Nord'), q('Dar Es Salam', ['Dar Salam']), q('Wadata'),
     ],
   },
   {
-    name: 'Commune 3', aliases: ['Niamey III', 'Niamey 3', 'Commune III', 'Arrondissement 3'],
+    name: 'Commune 3', center: c(13.515, 2.118), aliases: ['Niamey III', 'Niamey 3', 'Commune III', 'Arrondissement 3'],
     children: [
       q('Maourey'), q('Kalley Centre'), q('Kalley Nord'), q('Lacouroussou'), q('Poudrière', ['Poudriere']), q('Liberté'),
       q('Deyzeibon'), q('Banifandou'), q('Grand Marché'), q('Nouveau Marché'), q('Terminus'), q('Gawèye', ['Gaweye']),
     ],
   },
   {
-    name: 'Commune 4', aliases: ['Niamey IV', 'Niamey 4', 'Commune IV', 'Arrondissement 4'],
+    name: 'Commune 4', center: c(13.500, 2.165), aliases: ['Niamey IV', 'Niamey 4', 'Commune IV', 'Arrondissement 4'],
     children: [
       q('Talladjé', ['Talladje']), q('Aéroport', ['Aeroport']), q('Saga'), q('Gamkallé', ['Gamkalé', 'Gamkale']), q('Nogaré'),
       q('Zarmagandey'), q('Gountou Yéna', ['Gountou Yena']), q('Cité Députés'),
     ],
   },
   {
-    name: 'Commune 5', aliases: ['Niamey V', 'Niamey 5', 'Commune V', 'Arrondissement 5', 'Rive droite'],
+    name: 'Commune 5', center: c(13.488, 2.100), aliases: ['Niamey V', 'Niamey 5', 'Commune V', 'Arrondissement 5', 'Rive droite'],
     children: [
       q('Harobanda'), q('Lamordé', ['Lamorde']), q('Kirkissoye'), q('Karadjé', ['Karadje']), q('Saguia'), q('Nordiré'),
       q('Banga Bana'), q('Tagabati'),
