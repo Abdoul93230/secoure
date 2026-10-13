@@ -21,19 +21,20 @@ router.get('/getCommandesByClefUser/:clefUser', middelware.auth, ownOrdersOnly, 
 router.get('/getCommandesByClefUser2/:clefUser', middelware.auth, ownOrdersOnly, userController.getCommandesByClefUser2);
 // Toutes les commandes de tous les clients : réservé à l'admin
 router.get('/getAllCommandes', middelware.authAdmin, userController.getAllCommandes);
-router.delete('/deleteCommandeById/:commandeId', userController.deleteCommandeById);
+router.delete('/deleteCommandeById/:commandeId', middelware.authAdmin, userController.deleteCommandeById);
 
 // Order status updates
-router.put('/mettreAJourStatuts/:commandeId', userController.mettreAJourStatuts);
-router.put('/commande/etatTraitement/:id', productControler.updateEtatTraitementCommande);
-router.put('/command/updateEtatTraitement/:commandeId', userController.updateEtatTraitement);
-router.put('/command/updateStatusLivraison/:commandeId', userController.updateStatusLivraison);
+// Changements d'état des commandes : admin uniquement
+router.put('/mettreAJourStatuts/:commandeId', middelware.authAdmin, userController.mettreAJourStatuts);
+router.put('/commande/etatTraitement/:id', middelware.authAdmin, productControler.updateEtatTraitementCommande);
+router.put('/command/updateEtatTraitement/:commandeId', middelware.authAdmin, userController.updateEtatTraitement);
+router.put('/command/updateStatusLivraison/:commandeId', middelware.authAdmin, userController.updateStatusLivraison);
 
 // Order reference update
 router.put('/updateCommande', orderActor(), userController.updateCommanderef);
 
 // Order status checking
-router.get('/checkOrderStatus/:orderId', async (req, res) => {
+router.get('/checkOrderStatus/:orderId', middelware.authAdmin, async (req, res) => {
   try {
     const order = await Commande.findById(req.params.orderId);
     console.log(req.params.orderId);

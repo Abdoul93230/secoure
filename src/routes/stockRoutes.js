@@ -2,13 +2,15 @@ const express = require('express');
 const router = express.Router();
 const StockService = require('../services/stockService');
 const { Produit } = require('../Models');
+const middelware = require('../auth/middelware');
+const { productOwnerOrAdmin, storeOwnerOrAdmin } = require('../auth/accessGuards');
 
 /**
  * Routes pour la gestion des stocks
  */
 
 // GET /api/stock/report/:productId - Obtenir un rapport de stock pour un produit
-router.get('/report/:productId', async (req, res) => {
+router.get('/report/:productId', productOwnerOrAdmin({ allowAgent: true }), async (req, res) => {
   try {
     const { productId } = req.params;
     const report = await StockService.getStockReport(productId);
@@ -28,7 +30,7 @@ router.get('/report/:productId', async (req, res) => {
 });
 
 // POST /api/stock/validate - Valider la disponibilité du stock
-router.post('/validate', async (req, res) => {
+router.post('/validate', middelware.authAdmin, async (req, res) => {
   try {
     const { nbrProduits } = req.body;
     
@@ -56,7 +58,7 @@ router.post('/validate', async (req, res) => {
 });
 
 // POST /api/stock/decrement - Décrémenter le stock manuellement (admin uniquement)
-router.post('/decrement', async (req, res) => {
+router.post('/decrement', middelware.authAdmin, async (req, res) => {
   try {
     const { nbrProduits, reason } = req.body;
     
@@ -87,7 +89,7 @@ router.post('/decrement', async (req, res) => {
 });
 
 // POST /api/stock/increment - Incrémenter le stock manuellement (admin uniquement)
-router.post('/increment', async (req, res) => {
+router.post('/increment', middelware.authAdmin, async (req, res) => {
   try {
     const { nbrProduits, reason } = req.body;
     
@@ -118,7 +120,7 @@ router.post('/increment', async (req, res) => {
 });
 
 // GET /api/stock/inventory/:sellerId — inventaire complet du seller
-router.get('/inventory/:sellerId', async (req, res) => {
+router.get('/inventory/:sellerId', storeOwnerOrAdmin((req) => req.params.sellerId, { allowAgent: true }), async (req, res) => {
   try {
     const { sellerId } = req.params;
     const { threshold } = req.query; // seuil d'alerte optionnel (défaut: 5)
@@ -172,7 +174,7 @@ router.get('/inventory/:sellerId', async (req, res) => {
 });
 
 // PATCH /api/stock/adjust/:productId — ajustement rapide du stock
-router.patch('/adjust/:productId', async (req, res) => {
+router.patch('/adjust/:productId', productOwnerOrAdmin({ allowAgent: true }), async (req, res) => {
   try {
     const { productId } = req.params;
     const { stock, variantId } = req.body;

@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const DeletionRequest = require('../models/DeletionRequest');
+const { requireAdmin } = require('../middleware/auth');
 
 // POST /api/deletion-request — public, pas d'auth requise
 router.post('/deletion-request', async (req, res) => {
@@ -30,7 +31,7 @@ router.post('/deletion-request', async (req, res) => {
 });
 
 // GET /api/admin/deletion-requests — admin uniquement
-router.get('/deletion-requests', async (req, res) => {
+router.get('/deletion-requests', requireAdmin, async (req, res) => {
   try {
     const { status, page = 1, limit = 20 } = req.query;
     const filter = status && status !== 'all' ? { status } : {};
@@ -49,7 +50,7 @@ router.get('/deletion-requests', async (req, res) => {
 });
 
 // PATCH /api/admin/deletion-requests/:id — admin uniquement
-router.patch('/deletion-requests/:id', async (req, res) => {
+router.patch('/deletion-requests/:id', requireAdmin, async (req, res) => {
   try {
     const { status, adminNote } = req.body;
     if (!['processed', 'rejected', 'pending'].includes(status)) {

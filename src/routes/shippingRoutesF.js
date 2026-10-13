@@ -5,15 +5,16 @@ const shippingZoneController = require("../controllers/shippingZoneController");
 const { calculateShippingCost } = require("../services/shippingService");
 const { ShippingZone } = require("../models/shippingZoneSchema");
 const { Produit } = require("../Models");
+const middelware = require("../auth/middelware");
 const jsonParser = express.json();
 const urlencodedParser = express.urlencoded({ extended: true });
 router.use(jsonParser, urlencodedParser);
 // Routes CRUD pour les zones d'expédition
-router.post("/zones", shippingZoneController.createShippingZone);
+router.post("/zones", middelware.authAdmin, shippingZoneController.createShippingZone);
 router.get("/zones", shippingZoneController.getAllShippingZones);
 router.get("/zones/:id", shippingZoneController.getShippingZoneById);
-router.put("/zones/:id", shippingZoneController.updateShippingZone);
-router.delete("/zones/:id", shippingZoneController.deleteShippingZone);
+router.put("/zones/:id", middelware.authAdmin, shippingZoneController.updateShippingZone);
+router.delete("/zones/:id", middelware.authAdmin, shippingZoneController.deleteShippingZone);
 router.get(
   "/zones/country/:countryCode",
   shippingZoneController.getZonesByCountry

@@ -7,20 +7,23 @@ const Retrait = require('../models/retraitSchema');
 const Transaction = require('../models/transactionSchema');
 const Portefeuille = require('../models/portefeuilleSchema');
 const { Commande } = require('../Models');
+const middelware = require('../auth/middelware');
+const { storeOwnerOrAdmin } = require('../auth/accessGuards');
+const ownStoreFinance = storeOwnerOrAdmin((req) => req.params.sellerId);
 const { getSellerDashboard, getHistoriqueTransactions, seller_orders_with_financial, demanderRetrait, getSellerOrdersWithFinancialInfo } = require('../controllers/financeController');
 
 // Dashboard financier du seller
-router.get('/seller/:sellerId/dashboard', getSellerDashboard);
+router.get('/seller/:sellerId/dashboard', ownStoreFinance, getSellerDashboard);
 
 // Historique des transactions
-router.get('/seller/:sellerId/transactions', getHistoriqueTransactions);
-router.get('/seller/:sellerId/orders-financial', seller_orders_with_financial);
+router.get('/seller/:sellerId/transactions', ownStoreFinance, getHistoriqueTransactions);
+router.get('/seller/:sellerId/orders-financial', ownStoreFinance, seller_orders_with_financial);
 
 // Demander un retrait
-router.post('/seller/:sellerId/retrait', demanderRetrait);
+router.post('/seller/:sellerId/retrait', ownStoreFinance, demanderRetrait);
 
 // Vérifier les mises à jour du portefeuille (polling)
-router.get('/seller/:sellerId/check-updates', async (req, res) => {
+router.get('/seller/:sellerId/check-updates', ownStoreFinance, async (req, res) => {
   try {
     const sellerId = req.params.sellerId;
     const { lastUpdate } = req.query;
@@ -60,7 +63,7 @@ router.get('/seller/:sellerId/check-updates', async (req, res) => {
 });
 
 // Obtenir les demandes de retrait
-router.get('/seller/:sellerId/retraits', async (req, res) => {
+router.get('/seller/:sellerId/retraits', ownStoreFinance, async (req, res) => {
   try {
     const sellerId = req.params.sellerId;
     const page  = parseInt(req.query.page)  || 1;
@@ -90,7 +93,7 @@ router.get('/seller/:sellerId/retraits', async (req, res) => {
 });
 
 // 🔥 NOUVEAU: Endpoint de test pour diagnostiquer les problèmes de portefeuille
-router.get('/seller/:sellerId/debug', async (req, res) => {
+router.get('/seller/:sellerId/debug', ownStoreFinance, async (req, res) => {
   try {
     const sellerId = req.params.sellerId;
     
@@ -158,7 +161,7 @@ router.get('/seller/:sellerId/debug', async (req, res) => {
 });
 
 // 🧪 ENDPOINT DE TEST: Créer une transaction manuelle pour tester
-router.post('/test/create-transaction/:sellerId', async (req, res) => {
+router.post('/test/create-transaction/:sellerId', middelware.authAdmin, async (req, res) => {
   try {
     const sellerId = req.params.sellerId;
     const { commandeId, commandeData, reference } = req.body;
@@ -190,7 +193,7 @@ router.post('/test/create-transaction/:sellerId', async (req, res) => {
 });
 
 // Évolution temporelle du portefeuille (depuis la création du seller)
-router.get('/seller/:sellerId/evolution', async (req, res) => {
+router.get('/seller/:sellerId/evolution', ownStoreFinance, async (req, res) => {
   try {
     const sellerId = req.params.sellerId;
 
@@ -270,7 +273,7 @@ router.get('/seller/:sellerId/evolution', async (req, res) => {
 // Query: periodes=7,30,90,365  limit=20  page=1
 // Retourne dashboard + txs + orders + retraits pour chaque période en une passe.
 // Usage : le mobile l'appelle une seule fois au démarrage pour précacher toutes les données.
-router.get('/seller/:sellerId/prefetch-bundle', async (req, res) => {
+router.get('/seller/:sellerId/prefetch-bundle', ownStoreFinance, async (req, res) => {
   try {
     const { sellerId } = req.params;
     const periodesParam = req.query.periodes || '7,30,90,365';
@@ -342,7 +345,7 @@ router.get('/seller/:sellerId/prefetch-bundle', async (req, res) => {
 });
 
 // 🔧 ENDPOINT DE RÉPARATION: Corriger les incohérences du portefeuille
-router.post('/seller/:sellerId/fix-coherence', async (req, res) => {
+router.post('/seller/:sellerId/fix-coherence', ownStoreFinance, async (req, res) => {
   try {
     const sellerId = req.params.sellerId;
     

@@ -30,7 +30,7 @@ createSellerWithSubscription
 
 router.get('/getSeller/:Id', sellerController.getSeller);
 router.get('/getSellerClients/:Id', sellerController.getSellerClients);
-router.get('/getSellerByName/:name', sellerController.getSellerByName);
+router.get('/getSellerByName/:name', middelware.authAdmin, sellerController.getSellerByName);
 router.get('/getSellerByNameClients/:name', sellerController.getSellerByNameClients);
 // Liste complète des vendeurs (y compris non validés) : réservée à l'admin
 router.get('/getSellers/', middelware.authAdmin, sellerController.getSellers);
@@ -46,7 +46,7 @@ router.put('/updateSeller/:id',
 router.delete('/deleteSeller/:id', middelware.authAdmin, sellerController.deleteSeller);
 
 // Seller search
-router.get('/findSellerByName/:name', sellerController.findSellerByName);
+router.get('/findSellerByName/:name', middelware.authAdmin, sellerController.findSellerByName);
 
 // Seller authentication and verification
 router.post('/SellerLogin', sellerAuthLimiter, loginWithSubscriptionCheck);

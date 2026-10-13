@@ -6,6 +6,7 @@ const VenteDirecte = require('../models/VenteDirecte');
 const StockService = require('../services/stockService');
 const SUBSCRIPTION_CONFIG = require('../config/subscriptionConfig');
 const { AGENT_PRIVATE_KEY, requireAgent, requireSeller } = require('../middleware/auth');
+const { storeActor, storeOwnerOrAdmin, posSaleOwnerOrAdmin } = require('../auth/accessGuards');
 
 // ─── Middleware : extrait sellerId depuis token seller OU token agent ─────────
 // Pour les ventes : un caissier agent peut vendre au nom de la boutique.
@@ -33,7 +34,18 @@ async function extractPosSeller(req, res, next) {
     }
   } catch (_) { /* pas un token agent */ }
 
-  // 2. Seller classique — sellerId vient du body (comportement existant)
+  // 2. Vendeur : jeton vérifié, la boutique vient du jeton (jamais du corps de la requête)
+  const actor = storeActor(req);
+  if (!actor || actor.kind === 'agent') {
+    return res.status(401).json({ success: false, message: 'Session expirée, veuillez vous reconnecter.' });
+  }
+  if (actor.kind === 'seller') {
+    if (req.body?.sellerId && String(req.body.sellerId) !== actor.storeId) {
+      return res.status(403).json({ success: false, message: 'Action non autorisée sur cette boutique.' });
+    }
+    req.resolvedSellerId = actor.storeId;
+    if (req.body) req.body.sellerId = actor.storeId;
+  }
   req.isAgent = false;
   return next();
 }
@@ -235,7 +247,7 @@ router.get('/receipt/:reference', async (req, res) => {
 // GET /api/pos/historique/:sellerId
 // Historique des ventes directes du seller avec pagination
 // ─────────────────────────────────────────────────────────────────────────────
-router.get('/historique/:sellerId', requirePosAccess, async (req, res) => {
+router.get('/historique/:sellerId', storeOwnerOrAdmin((req) => req.params.sellerId, { allowAgent: true }), requirePosAccess, async (req, res) => {
   try {
     const { sellerId } = req.params;
     const page = parseInt(req.query.page) || 1;
@@ -315,7 +327,7 @@ router.get('/historique/:sellerId', requirePosAccess, async (req, res) => {
 // POST /api/pos/annuler/:reference
 // Annuler une vente directe (remet le stock uniquement — pas de portefeuille à débiter)
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/annuler/:reference', async (req, res) => {
+router.post('/annuler/:reference', posSaleOwnerOrAdmin, async (req, res) => {
   const session = await mongoose.startSession();
   try {
     const vente = await VenteDirecte.findOne({ reference: req.params.reference });
@@ -352,7 +364,7 @@ router.post('/annuler/:reference', async (req, res) => {
 // GET /api/pos/access-check/:sellerId
 // Vérifie si le seller a accès au POS — utilisé par le frontend pour l'écran upgrade
 // ─────────────────────────────────────────────────────────────────────────────
-router.get('/access-check/:sellerId', async (req, res) => {
+router.get('/access-check/:sellerId', storeOwnerOrAdmin((req) => req.params.sellerId, { allowAgent: true }), async (req, res) => {
   try {
     const { SellerRequest, PricingPlan } = require('../Models');
     const seller = await SellerRequest.findById(req.params.sellerId).lean();

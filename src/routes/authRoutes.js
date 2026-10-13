@@ -89,7 +89,7 @@ router.get('/verify', middelware.auth, userController.verifyToken);
 router.get('/verifyAdmin', middelware.authAdmin, AdminController.verifyToken);
 
 // Admin routes
-router.get('/admin/:adminId', AdminController.getAdmin);
+router.get('/admin/:adminId', middelware.authAdmin, AdminController.getAdmin);
 
 // Password reset — protégé par rate limiter OTP
 router.post('/forgot_password', otpLimiter, forgotPassword.forgot_password);
