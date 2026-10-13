@@ -224,6 +224,61 @@ router.post('/sellers/bulk', wrap(async (req, res) => {
   return done(res, { updated: r.modifiedCount });
 }));
 
+// ─── Tailles des produits (attribution en masse par type de produit) ─────────
+
+const SIZE_KEYS = ['small', 'medium', 'large', 'xl'];
+
+router.get('/products/size-overview', wrap(async (_req, res) => {
+  const { TypeProduit, Categorie } = require('../Models');
+  const rows = await Produit.aggregate([
+    { $match: { isDeleted: { $ne: true } } },
+    {
+      $group: {
+        _id: '$ClefType',
+        total: { $sum: 1 },
+        small: { $sum: { $cond: [{ $eq: ['$shipping.sizeClass', 'small'] }, 1, 0] } },
+        medium: { $sum: { $cond: [{ $eq: ['$shipping.sizeClass', 'medium'] }, 1, 0] } },
+        large: { $sum: { $cond: [{ $eq: ['$shipping.sizeClass', 'large'] }, 1, 0] } },
+        xl: { $sum: { $cond: [{ $eq: ['$shipping.sizeClass', 'xl'] }, 1, 0] } },
+        noWeight: { $sum: { $cond: [{ $gt: [{ $ifNull: ['$shipping.weight', 0] }, 0] }, 0, 1] } },
+      },
+    },
+  ]);
+  const typeIds = rows.map((r) => r._id).filter(isId);
+  const types = await TypeProduit.find({ _id: { $in: typeIds } }, { name: 1, clefCategories: 1 }).lean();
+  const cats = await Categorie.find({ _id: { $in: types.map((t) => t.clefCategories).filter(isId) } }, { name: 1 }).lean();
+  const typeMap = new Map(types.map((t) => [String(t._id), t]));
+  const catMap = new Map(cats.map((c) => [String(c._id), c.name]));
+  const data = rows.map((r) => {
+    const t = typeMap.get(String(r._id));
+    const sized = r.small + r.medium + r.large + r.xl;
+    return {
+      typeId: r._id ? String(r._id) : null,
+      typeName: t?.name || 'Sans type',
+      categoryName: (t && catMap.get(String(t.clefCategories))) || 'Sans catégorie',
+      total: r.total,
+      bySize: { small: r.small, medium: r.medium, large: r.large, xl: r.xl },
+      missing: r.total - sized,
+      noWeight: r.noWeight,
+    };
+  }).sort((a, b) => a.categoryName.localeCompare(b.categoryName, 'fr') || a.typeName.localeCompare(b.typeName, 'fr'));
+  res.json({ success: true, data });
+}));
+
+router.post('/products/bulk-size', wrap(async (req, res) => {
+  const { typeIds, sizeClass, onlyMissing = true } = req.body || {};
+  const ids = (Array.isArray(typeIds) ? typeIds : []).map(String).filter((x) => x.length && x.length <= 64);
+  if (!ids.length) return res.status(400).json({ success: false, message: 'Choisissez au moins un type de produit.' });
+  if (!SIZE_KEYS.includes(sizeClass) && sizeClass !== null) return res.status(400).json({ success: false, message: 'Taille invalide.' });
+  const filter = {
+    ClefType: { $in: ids },
+    isDeleted: { $ne: true },
+    ...(onlyMissing ? { $or: [{ 'shipping.sizeClass': null }, { 'shipping.sizeClass': { $exists: false } }] } : {}),
+  };
+  const r = await Produit.updateMany(filter, { $set: { 'shipping.sizeClass': sizeClass } });
+  return done(res, { updated: r.modifiedCount });
+}));
+
 // ─── Simulateur ──────────────────────────────────────────────────────────────
 
 router.post('/simulate', wrap(async (req, res) => {
