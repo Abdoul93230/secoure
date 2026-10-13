@@ -1805,8 +1805,8 @@ const Send_email = async (req, res) => {
   const transporter = nodemailer.createTransport({
     service: "gmail",
     auth: {
-      user: "HabouNiger227@gmail.com",
-      pass: "lctrgorwycvjrqcv",
+      user: process.env.GMAIL_USER || "HabouNiger227@gmail.com",
+      pass: process.env.GMAIL_APP_PASSWORD || "lctrgorwycvjrqcv", // SÉCURITÉ : révoquer ce mot de passe et le définir dans .env
     },
     tls: {
       rejectUnauthorized: false, // C'est ici que vous désactivez la vérification du certificat
@@ -1857,8 +1857,8 @@ const Send_email_freind = async (req, res) => {
   const transporter = nodemailer.createTransport({
     service: "gmail",
     auth: {
-      user: "HabouNiger227@gmail.com",
-      pass: "lctrgorwycvjrqcv",
+      user: process.env.GMAIL_USER || "HabouNiger227@gmail.com",
+      pass: process.env.GMAIL_APP_PASSWORD || "lctrgorwycvjrqcv", // SÉCURITÉ : révoquer ce mot de passe et le définir dans .env
     },
     tls: {
       rejectUnauthorized: false, // C'est ici que vous désactivez la vérification du certificat

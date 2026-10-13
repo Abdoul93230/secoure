@@ -3,8 +3,8 @@ const jwt = require("jsonwebtoken");
 const { SellerRequest } = require("../../Models");
 const { User } = require("../../Models"); // Importe ton modèle d'utilisateur
 
-// Secret pour signer les tokens JWT - à stocker dans les variables d'environnement en production
-const JWT_SECRET = process.env.JWT_SECRET2 || "CUSTOM_PRIVATe_KEY";
+// Même clé que les jetons clients (auth/clef.js, USER_JWT_SECRET) pour rester synchronisé
+const JWT_SECRET = require("../clef");
 
 exports.protect = async (req, res, next) => {
   try {
