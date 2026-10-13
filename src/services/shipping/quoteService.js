@@ -34,6 +34,7 @@ async function listActiveZones() {
 
 function invalidateShippingCaches() {
   originBadgeCache.clear();
+  try { require('./nearby').clearNearbyCache(); } catch (_) { /* module non chargé */ }
   activeZonesCache = { at: 0, data: null };
   zonesCache = { at: 0, byId: null, pending: null };
   templatesCache = { at: 0, list: null };

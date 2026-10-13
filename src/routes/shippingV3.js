@@ -2,6 +2,7 @@
  * API publique du moteur de livraison v3 — /api/shipping/v3
  *   POST /quote      devis complet d'un panier (un colis par boutique)
  *   GET  /estimate   estimation pour une fiche produit
+ *   GET  /nearby     produits des boutiques les plus proches (?zoneId=…)
  *   GET  /origins    ville d'expédition des boutiques (?ids=…)
  *   GET  /zones      toutes les zones actives (arbre complet, pour les sélecteurs)
  */
@@ -39,6 +40,23 @@ router.get('/estimate', async (req, res) => {
   } catch (e) {
     console.error('[shipping/v3/estimate]', e);
     return res.status(500).json({ success: false, message: 'Estimation indisponible.' });
+  }
+});
+
+/** « Près de chez moi » : ?zoneId=…&page=1&limit=20 — produits des boutiques les plus proches */
+router.get('/nearby', async (req, res) => {
+  try {
+    const { zoneId } = req.query;
+    if (!isId(zoneId)) return res.status(400).json({ success: false, message: 'Zone invalide.' });
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(40, Math.max(1, parseInt(req.query.limit, 10) || 20));
+    const data = await require('../services/shipping/nearby').nearbyProducts(zoneId, { page, limit });
+    if (!data) return res.status(404).json({ success: false, message: 'Zone introuvable.' });
+    res.set('Cache-Control', 'public, max-age=120');
+    return res.json({ success: true, data });
+  } catch (e) {
+    console.error('[shipping/v3/nearby]', e);
+    return res.status(500).json({ success: false, message: 'Produits proches indisponibles.' });
   }
 });
 
