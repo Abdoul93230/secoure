@@ -4,6 +4,7 @@
  *   Campagnes : GET/POST /campaigns, PUT/DELETE /campaigns/:id
  *   Boutiques : GET /sellers, PATCH /sellers/:sellerId, POST /sellers/bulk
  *   Outils    : POST /simulate
+ *   Zones     : voir adminZonesV3.js (/zones)
  */
 const express = require('express');
 const ShippingTemplate = require('../models/ShippingTemplate');
@@ -19,6 +20,7 @@ const {
 } = require('../services/shipping/quoteService');
 
 const router = express.Router();
+router.use('/zones', require('./adminZonesV3'));
 const isId = (v) => /^[a-f\d]{24}$/i.test(String(v || ''));
 const RELATIONS = ['sameDistrict', 'sameCity', 'sameRegion', 'otherRegion', 'international'];
 

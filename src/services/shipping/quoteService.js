@@ -22,7 +22,18 @@ let templatesCache = { at: 0, list: null };
 let campaignsCache = { at: 0, list: null };
 
 /** À appeler après toute modification admin (zones, modèles, campagnes) */
+let activeZonesCache = { at: 0, data: null };
+
+/** Zones actives pour les sélecteurs (GET /api/shipping-v3/zones) — vidé à chaque modification admin */
+async function listActiveZones() {
+  if (activeZonesCache.data && Date.now() - activeZonesCache.at < 5 * 60 * 1000) return activeZonesCache.data;
+  const data = await Zone.find({ isActive: true }, { name: 1, type: 1, parent: 1, fullPath: 1, level: 1, aliases: 1, center: 1 }).sort({ fullPath: 1 }).lean();
+  activeZonesCache = { at: Date.now(), data };
+  return data;
+}
+
 function invalidateShippingCaches() {
+  activeZonesCache = { at: 0, data: null };
   zonesCache = { at: 0, byId: null, pending: null };
   templatesCache = { at: 0, list: null };
   campaignsCache = { at: 0, list: null };
@@ -265,4 +276,5 @@ module.exports = {
   ensureDefaultTemplate,
   invalidateShippingCaches,
   loadTemplates,
+  listActiveZones,
 };
