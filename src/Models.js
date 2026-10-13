@@ -89,6 +89,8 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    // Dernière demande de code invité (envoyée ou échouée) : ouvre la confirmation par appel
+    guestCallbackEligibleAt: { type: Date },
     guestVerifiedAt: {
       type: Date,
       default: null,
@@ -973,6 +975,8 @@ const commandeSchema = new mongoose.Schema(
     // Suivi partageable (lien /suivi/:reference?k=…) et commande passée sans compte
     trackingToken: { type: String, index: true, sparse: true },
     isGuestOrder: { type: Boolean, default: false },
+    // Invité dont le SMS n'est pas arrivé : l'équipe confirme la commande par appel avant préparation
+    phoneConfirmation: { type: String, enum: ['none', 'pending', 'confirmed'], default: 'none', index: true },
     livraisonDetails: {
       customerName: String,
       email: String,

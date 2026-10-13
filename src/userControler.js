@@ -470,8 +470,36 @@ const applyOrderActor = (req, data) => {
       return { status: 403, body: { code: 'PROMO_ACCOUNT_ONLY', message: 'Les codes promo sont réservés aux comptes. Créez votre compte en 1 minute pour en profiter.' } };
     }
     if (!actor.verified && ['payé à la livraison', 'payé par téléphone'].includes(data.statusPayment)) {
-      return { status: 403, body: { code: 'GUEST_OTP_REQUIRED', message: 'Vérifiez votre numéro (code par SMS) pour payer à la livraison.' } };
+      // SMS non reçu : commande acceptée, confirmée par appel avant préparation (voir checkPhoneCallback)
+      if (data.phoneCallback === true || data.phoneCallback === 'true') data._phoneCallback = true;
+      else return { status: 403, body: { code: 'GUEST_OTP_REQUIRED', message: 'Vérifiez votre numéro (code par SMS) pour payer à la livraison.' } };
     }
+  }
+  return null;
+};
+
+const CALLBACK_WINDOW_MS = 60 * 60 * 1000;
+const CLOSED_STATES = ['annulé', 'livré', 'livraison reçu', 'Traité'];
+
+/**
+ * Confirmation par appel (invité sans code) : seulement après une vraie demande de code récente,
+ * et une seule commande en attente d'appel à la fois par numéro.
+ */
+const checkPhoneCallback = async (req, data, excludeOrderId = null) => {
+  if (!data._phoneCallback) return null;
+  const u = await User.findById(req.actor.userId, { guestCallbackEligibleAt: 1 }).lean();
+  const at = u?.guestCallbackEligibleAt ? new Date(u.guestCallbackEligibleAt).getTime() : 0;
+  if (Date.now() - at > CALLBACK_WINDOW_MS) {
+    return { status: 403, body: { code: 'GUEST_OTP_REQUIRED', message: 'Demandez d\'abord un code par SMS pour payer à la livraison.' } };
+  }
+  const open = await Commande.countDocuments({
+    clefUser: String(req.actor.userId),
+    phoneConfirmation: 'pending',
+    etatTraitement: { $nin: CLOSED_STATES },
+    ...(excludeOrderId ? { _id: { $ne: excludeOrderId } } : {}),
+  });
+  if (open > 0) {
+    return { status: 429, body: { code: 'GUEST_CALLBACK_LIMIT', message: 'Vous avez déjà une commande en attente de confirmation par appel. Notre équipe vous contacte très vite.' } };
   }
   return null;
 };
@@ -527,7 +555,7 @@ const createCommande = async (req, res) => {
     }
 
     // ── Auteur : compte, invité ou admin (jamais le clefUser envoyé) ─────────
-    const actorError = applyOrderActor(req, data);
+    const actorError = applyOrderActor(req, data) || (await checkPhoneCallback(req, data));
     if (actorError) return res.status(actorError.status).json(actorError.body);
 
     // ── Livraison v3 : zone obligatoire, validée côté serveur ────────────────
@@ -677,6 +705,7 @@ const createCommande = async (req, res) => {
         // Suivi partageable + commande sans compte
         trackingToken: require('./auth/guestAuth').newTrackingToken(),
         isGuestOrder: req.actor?.kind === 'guest',
+        phoneConfirmation: data._phoneCallback ? 'pending' : 'none',
       });
 
       await commande.save({ session });
@@ -2429,6 +2458,8 @@ const updateCommanderef = async (req, res) => {
     if (req.actor.kind !== 'admin' && String(existingCheck.clefUser) !== String(req.actor.userId)) {
       return res.status(403).json({ message: 'Cette commande ne vous appartient pas.' });
     }
+    const callbackError = await checkPhoneCallback(req, data, existingCheck._id);
+    if (callbackError) return res.status(callbackError.status).json(callbackError.body);
 
     // ── Livraison v3 : zone obligatoire (celle de la commande d'origine à défaut) ──
     const zoneCheck = await prepareOrderZone(data, existingCheck);
@@ -2621,6 +2652,7 @@ const updateCommanderef = async (req, res) => {
         statusPayment: statusPayment || "en_attente",
         pointsUsed,
         pointsDiscount,
+        ...(data._phoneCallback ? { phoneConfirmation: 'pending' } : {}),
         // Si relance d'une commande annulée: remettre les statuts à zéro
         ...(wasAnnulee && {
           statusLivraison: "en cours",

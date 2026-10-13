@@ -55,4 +55,20 @@ router.get('/checkOrderStatus/:orderId', middelware.authAdmin, async (req, res) 
   }
 });
 
+// Invité sans code SMS : l'équipe confirme (ou remet en attente) la commande après l'appel
+router.put('/commande/:id/phone-confirmation', middelware.authAdmin, async (req, res) => {
+  try {
+    const value = req.body?.confirmed === false ? 'pending' : 'confirmed';
+    const c = await Commande.findOneAndUpdate(
+      { _id: req.params.id, phoneConfirmation: { $in: ['pending', 'confirmed'] } },
+      { $set: { phoneConfirmation: value } },
+      { new: true, projection: { phoneConfirmation: 1, reference: 1 } }
+    ).lean();
+    if (!c) return res.status(404).json({ success: false, message: 'Commande introuvable ou sans confirmation par appel.' });
+    return res.json({ success: true, data: c });
+  } catch (e) {
+    return res.status(400).json({ success: false, message: 'Commande invalide.' });
+  }
+});
+
 module.exports = router;

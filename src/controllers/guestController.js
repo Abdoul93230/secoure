@@ -73,6 +73,11 @@ const sendOtp = async (req, res) => {
     const existing = await User.findOne({ phoneNumber: phone });
     const user = isFullAccount(existing) ? existing : await findOrCreateGuest(phone, req.body?.name);
     const r = await quick.deliverOtpTo(user, phone, { purpose: "guest-order" });
+    // Code envoyé ou SMS en échec : si rien n'arrive, l'invité peut commander avec confirmation par appel
+    if ((r.status === 200 || r.status === 502) && !isFullAccount(user)) {
+      await User.updateOne({ _id: user._id }, { $set: { guestCallbackEligibleAt: new Date() } });
+      r.body = { ...r.body, data: { ...(r.body?.data || {}), callbackAvailable: true } };
+    }
     return res.status(r.status).json(r.body);
   } catch (e) {
     console.error("[guest/send-otp]", e);
@@ -99,6 +104,8 @@ const verifyOtp = async (req, res) => {
     user.quickAuthOtp = undefined;
     user.guestVerifiedAt = new Date();
     await user.save();
+    // Numéro vérifié : les commandes en attente d'appel sont confirmées
+    await Commande.updateMany({ clefUser: String(user._id), phoneConfirmation: "pending" }, { $set: { phoneConfirmation: "confirmed" } });
     return res.json({
       success: true,
       data: { verified: true, token: signGuestToken(user, { verified: true }), user: publicUser(user), accountExists: isFullAccount(user) },
@@ -125,6 +132,7 @@ function safeOrder(c, { owner = false } = {}) {
     fraisLivraison: c.fraisLivraison,
     reduction: c.reduction,
     isGuestOrder: !!c.isGuestOrder,
+    phoneConfirmation: c.phoneConfirmation || "none",
     shippingByStore: (c.shippingByStore || []).map((s) => ({ storeName: s.storeName, shippingCost: s.shippingCost, delay: s.delay || null, relation: s.relation || null })),
     items: (c.prod || []).map((p) => ({
       _id: String(p._id || ""),
