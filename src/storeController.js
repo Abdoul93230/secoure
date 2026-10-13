@@ -500,6 +500,23 @@ const updateSeller = async (req, res) => {
     if (openingHours !== undefined) updateData.openingHours = openingHours;
     if (minimumOrder !== undefined) updateData.minimumOrder = minimumOrder;
 
+    // Livraison v3 : lieu d'expédition choisi dans la liste officielle des zones
+    let shippingZoneChanged = false;
+    if (req.body.shippingOriginZoneId !== undefined) {
+      const zid = req.body.shippingOriginZoneId;
+      if (zid === null || zid === '' || zid === 'null') {
+        updateData.shippingOriginZoneId = null;
+      } else {
+        const { describeCustomerZone } = require('./services/shipping/customerZone');
+        const zone = await describeCustomerZone(zid).catch(() => null);
+        if (!zone) {
+          return res.status(400).json({ status: 'error', code: 'INVALID_ZONE', message: "Lieu d'expédition inconnu : choisissez votre quartier ou votre ville dans la liste." });
+        }
+        updateData.shippingOriginZoneId = zone.id;
+      }
+      shippingZoneChanged = true;
+    }
+
     // Validation des champs mis à jour
     const validations = [];
 
@@ -793,6 +810,11 @@ const updateSeller = async (req, res) => {
       { $set: updateData },
       { new: true, runValidators: true }
     );
+
+    // Ville affichée (📍) et devis : recalcul immédiat
+    if (shippingZoneChanged || updateData.city !== undefined || updateData.region !== undefined || updateData.address !== undefined) {
+      try { require('./services/shipping/quoteService').invalidateShippingCaches(); } catch (_) {}
+    }
 
     return res.status(200).json({
       status: "success",

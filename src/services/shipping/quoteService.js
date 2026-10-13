@@ -127,7 +127,8 @@ async function platformCountryZone() {
 /** Mots candidats depuis les champs libres du profil (« Niamey / Saga », « Niamey2 »…) */
 const locationTokens = (seller) => {
   const out = new Set();
-  for (const field of ['city', 'region']) {
+  // L'adresse contient souvent le quartier (« Niamey/Saga », « Bobiel », « Grand marché »)
+  for (const field of ['city', 'region', 'address']) {
     const raw = str(seller?.[field]);
     for (const part of [raw, ...raw.split(/[\/,;|>\-]+/)]) {
       const n = normalizeName(part);
@@ -202,7 +203,7 @@ async function quoteCart({ destinationZoneId, items, now = new Date() }) {
     });
   }
 
-  const sellers = await SellerRequest.find({ _id: { $in: [...groups.keys()].filter(isId) } }, { storeName: 1, name: 1, city: 1, region: 1, shippingOriginZoneId: 1, shippingTemplateId: 1 }).lean();
+  const sellers = await SellerRequest.find({ _id: { $in: [...groups.keys()].filter(isId) } }, { storeName: 1, name: 1, city: 1, region: 1, address: 1, shippingOriginZoneId: 1, shippingTemplateId: 1 }).lean();
   const sellerMap = new Map(sellers.map((s) => [str(s._id), s]));
   const [templates, campaigns] = await Promise.all([loadTemplates(), loadCampaigns()]);
 
@@ -248,7 +249,7 @@ async function quoteCart({ destinationZoneId, items, now = new Date() }) {
 async function legacyQuote(sellerId, customerZoneId, weight) {
   const { SellerRequest } = require('../../Models');
   const [seller, destination, templates] = await Promise.all([
-    isId(sellerId) ? SellerRequest.findById(sellerId, { city: 1, region: 1, shippingOriginZoneId: 1, shippingTemplateId: 1 }).lean() : null,
+    isId(sellerId) ? SellerRequest.findById(sellerId, { city: 1, region: 1, address: 1, shippingOriginZoneId: 1, shippingTemplateId: 1 }).lean() : null,
     zoneForEngine(customerZoneId),
     loadTemplates(),
   ]);
@@ -307,7 +308,7 @@ async function sellerOriginBadges(sellerIds) {
   }
   if (missing.length) {
     const { SellerRequest } = require('../../Models');
-    const sellers = await SellerRequest.find({ _id: { $in: missing } }, { city: 1, region: 1, shippingOriginZoneId: 1 }).lean();
+    const sellers = await SellerRequest.find({ _id: { $in: missing } }, { city: 1, region: 1, address: 1, shippingOriginZoneId: 1 }).lean();
     const byId = new Map(sellers.map((s) => [str(s._id), s]));
     for (const id of missing) {
       const s = byId.get(id);

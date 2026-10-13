@@ -50,3 +50,47 @@ const ownerOrAdmin = (pickUserId) => (req, res, next) => {
 };
 
 module.exports = { ownerOrAdmin };
+
+const SELLER_KEY = require("./clefSeller");
+
+/**
+ * SÉCURITÉ — « la boutique elle-même OU un administrateur ».
+ * Jeton vendeur : l'identifiant ciblé doit être celui du vendeur.
+ * Jeton caissier (agent) : accepté seulement si allowAgent et pour SA boutique.
+ * Pose req.isAdmin, req.userId (vendeur / admin) et req.agent (caissier).
+ * @param {(req) => string} pickSellerId  boutique concernée par la requête
+ */
+const sellerOrAdmin = (pickSellerId, { allowAgent = false } = {}) => (req, res, next) => {
+  const token = readToken(req);
+  if (!token) return res.status(401).json({ message: "Authentification requise." });
+
+  const admin = verifyWith(token, ADMIN_KEY);
+  if (admin) {
+    req.isAdmin = true;
+    req.userId = admin.userId;
+    return next();
+  }
+
+  const target = String(pickSellerId(req) || "");
+  const seller = verifyWith(token, SELLER_KEY);
+  if (seller) {
+    if (String(seller.userId) !== target) {
+      return res.status(403).json({ message: "Action non autorisée sur cette boutique." });
+    }
+    req.isAdmin = false;
+    req.userId = seller.userId;
+    return next();
+  }
+
+  if (allowAgent) {
+    const agent = verifyWith(token, require("../middleware/auth").AGENT_PRIVATE_KEY);
+    if (agent && agent.role === "agent" && String(agent.storeId) === target) {
+      req.isAdmin = false;
+      req.agent = agent;
+      return next();
+    }
+  }
+  return res.status(401).json({ message: "Session expirée, veuillez vous reconnecter." });
+};
+
+module.exports.sellerOrAdmin = sellerOrAdmin;

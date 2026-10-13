@@ -169,7 +169,7 @@ router.delete('/campaigns/:id', wrap(async (req, res) => {
 
 router.get('/sellers', wrap(async (_req, res) => {
   const [sellers, templates] = await Promise.all([
-    SellerRequest.find({}, { storeName: 1, name: 1, city: 1, region: 1, isvalid: 1, subscriptionStatus: 1, shippingOriginZoneId: 1, shippingTemplateId: 1, logo: 1 }).sort({ storeName: 1 }).lean(),
+    SellerRequest.find({}, { storeName: 1, name: 1, city: 1, region: 1, address: 1, isvalid: 1, subscriptionStatus: 1, shippingOriginZoneId: 1, shippingTemplateId: 1, logo: 1 }).sort({ storeName: 1 }).lean(),
     loadTemplates(),
   ]);
   const def = templates.find((t) => t.isDefault);
@@ -229,7 +229,7 @@ router.post('/sellers/bulk', wrap(async (req, res) => {
 router.post('/simulate', wrap(async (req, res) => {
   const { sellerId, originZoneId, destinationZoneId, templateId, items } = req.body || {};
   const templates = await loadTemplates();
-  const seller = isId(sellerId) ? await SellerRequest.findById(sellerId, { city: 1, region: 1, shippingOriginZoneId: 1, shippingTemplateId: 1 }).lean() : null;
+  const seller = isId(sellerId) ? await SellerRequest.findById(sellerId, { city: 1, region: 1, address: 1, shippingOriginZoneId: 1, shippingTemplateId: 1 }).lean() : null;
   const origin = isId(originZoneId) ? await zoneForEngine(originZoneId) : await resolveSellerOrigin(seller || {});
   const destination = await zoneForEngine(destinationZoneId);
   const template = templates.find((t) => String(t._id) === String(templateId))

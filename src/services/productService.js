@@ -14,6 +14,11 @@ const CLIENT_SORTS = {
 const cloudinary = require('../cloudinary');
 
 const fs = require("fs");
+
+/** Classe de taille d'un produit (livraison v3) : small | medium | large | xl, sinon null */
+const SIZE_CLASS_VALUES = ['small', 'medium', 'large', 'xl'];
+const normSizeClass = (v) => (SIZE_CLASS_VALUES.includes(String(v || '').toLowerCase()) ? String(v).toLowerCase() : null);
+
 class ProductService {
   async hasActiveSubscription(sellerId) {
     if (!sellerId) return false;
@@ -779,6 +784,7 @@ async checkProductCreationEligibility(sellerId) {
         height: data.height || 0,
       },
       zones: data.shippingZones ? JSON.parse(data.shippingZones) : [],
+      sizeClass: normSizeClass(data.sizeClass),
     },
     variants: [],
     createdBy: sellerOrAdmin_id,
@@ -903,6 +909,7 @@ async checkProductCreationEligibility(sellerId) {
         height: data.height || 0,
       },
     };
+    if (data.sizeClass !== undefined) updateData["shipping.sizeClass"] = normSizeClass(data.sizeClass);
 
     if (data.shippingZones) {
       updateData["shipping.zones"] = JSON.parse(data.shippingZones);
@@ -1390,6 +1397,7 @@ async checkProductCreationEligibility(sellerId) {
       height: data.height || 0,
     },
   };
+  if (data.sizeClass !== undefined) updateData["shipping.sizeClass"] = normSizeClass(data.sizeClass);
 
   // Gestion des zones d'expédition
   if (data.shippingZones) {
