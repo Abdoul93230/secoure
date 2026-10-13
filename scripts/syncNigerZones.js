@@ -1,13 +1,14 @@
 /**
- * Synchronise les zones avec le référentiel du Niger (src/services/zones/nigerReferential.js).
+ * Synchronise les zones avec les référentiels : Niger (src/services/zones/nigerReferential.js)
+ * et pays étrangers (src/services/zones/foreignReferential.js : Nigeria, Bénin, Burkina Faso, Mali).
  *
  *  - Réutilise les zones existantes de même type et de même nom (ou synonyme) dans la même région :
  *    leur identifiant est conservé → aucune référence cassée (boutiques, modèles, campagnes, commandes).
  *    Elles peuvent être renommées (graphie officielle) ou déplacées dans la bonne commune.
  *  - Crée les zones manquantes.
- *  - DÉSACTIVE (sans supprimer) les zones du Niger absentes du référentiel (données de démonstration :
- *    « Centre-ville », « Marché central »…) et, sauf --keep-foreign, les sous-zones des pays étrangers
- *    (la livraison internationale n'est pas ouverte ; les pays restent sélectionnables).
+ *  - DÉSACTIVE (sans supprimer) les zones des pays gérés absentes des référentiels (données de démonstration :
+ *    « Centre-ville », « Marché central »…) et, sauf --keep-foreign, les sous-zones des autres pays.
+ *    Une zone réapparue dans un référentiel est réactivée avec le même identifiant.
  *  - Recalcule level / fullPath / ancestors de toutes les zones.
  *
  * Usage :
@@ -19,6 +20,7 @@
 require('dotenv').config();
 const mongoose = require('mongoose');
 const { nigerTree } = require('../src/services/zones/nigerReferential');
+const { foreignTrees } = require('../src/services/zones/foreignReferential');
 
 const APPLY = process.argv.includes('--apply');
 const KEEP_FOREIGN = process.argv.includes('--keep-foreign');
@@ -31,7 +33,7 @@ const sid = (v) => (v ? String(v) : null);
  * Calcule le plan de synchronisation à partir des zones existantes (fonction pure, testable).
  * @returns {{ zones: Map, created: [], updated: [], deactivated: [], reactivated: [] }}
  */
-function planSync(existing, tree, { keepForeign = false, newId = () => new mongoose.Types.ObjectId() } = {}) {
+function planSync(existing, treeOrTrees, { keepForeign = false, newId = () => new mongoose.Types.ObjectId() } = {}) {
   const zones = new Map(existing.map((z) => [String(z._id), { ...z, _id: z._id, parent: sid(z.parent) }]));
   const before = new Map(existing.map((z) => [String(z._id), { name: z.name, parent: sid(z.parent), isActive: z.isActive !== false, fullPath: z.fullPath }]));
   const used = new Set();
@@ -91,7 +93,10 @@ function planSync(existing, tree, { keepForeign = false, newId = () => new mongo
     for (const child of node.children || []) walk(child, id, nextRegion);
     return id;
   };
-  const nigerId = walk(tree, null, null);
+  const trees = Array.isArray(treeOrTrees) ? treeOrTrees : [treeOrTrees];
+  const rootIds = trees.map((t) => walk(t, null, null));
+  const managedRoots = new Set(rootIds);
+  const nigerId = rootIds[0];
 
   // Chemins finaux
   const pathOf = (id) => {
@@ -111,9 +116,9 @@ function planSync(existing, tree, { keepForeign = false, newId = () => new mongo
   for (const z of zones.values()) {
     if (used.has(String(z._id)) || z.isActive === false) continue;
     const chain = pathOf(String(z._id));
-    const inNiger = String(chain[0]?._id) === nigerId;
-    const foreignSub = !inNiger && z.type !== 'country';
-    if (inNiger || (foreignSub && !keepForeign)) {
+    const managed = managedRoots.has(String(chain[0]?._id));
+    const otherSub = !managed && z.type !== 'country';
+    if (managed || (otherSub && !keepForeign)) {
       z.isActive = false;
       deactivated.push(z);
     }
@@ -145,7 +150,7 @@ async function main() {
   console.log(`Base : ${db.databaseName} — mode ${APPLY ? 'APPLICATION' : 'SIMULATION (aucune écriture)'}\n`);
 
   const existing = await db.collection('zonefs').find({}).toArray();
-  const plan = planSync(existing, nigerTree(), { keepForeign: KEEP_FOREIGN });
+  const plan = planSync(existing, [nigerTree(), ...foreignTrees()], { keepForeign: KEEP_FOREIGN });
 
   // Références vers les zones désactivées (à revoir dans l'admin)
   const refs = new Map();
@@ -158,13 +163,17 @@ async function main() {
   }
   for (const c of await db.collection('shippingcampaigns').find({}).toArray()) for (const id of c.destinationZoneIds || []) addRef(id, `campagne « ${c.name} »`);
 
-  const count = (type) => [...plan.zones.values()].filter((z) => z.isActive !== false && z.type === type && z.fullPath.startsWith('Niger')).length;
-  console.log(`Après synchronisation — Niger : ${count('region')} régions, ${count('city')} villes/communes, ${count('district')} quartiers actifs\n`);
+  console.log('Après synchronisation (zones actives) :');
+  for (const country of [nigerTree(), ...foreignTrees()].map((t) => t.name)) {
+    const count = (type) => [...plan.zones.values()].filter((z) => z.isActive !== false && z.type === type && (z.fullPath === country || z.fullPath.startsWith(`${country} >`))).length;
+    console.log(`  ${country.padEnd(13)} ${count('region')} régions, ${count('city')} villes/communes, ${count('district')} quartiers`);
+  }
+  console.log('');
 
   console.log(`== Zones créées : ${plan.created.length} ==`);
   for (const z of plan.created) console.log(`  + ${z.fullPath}`);
   console.log(`\n== Zones conservées mais renommées / déplacées : ${plan.updated.length} ==`);
-  for (const { z, before } of plan.updated) console.log(`  ~ ${before.fullPath}  →  ${z.fullPath}`);
+  for (const { z, before } of plan.updated.filter((u) => u.z.isActive !== false)) console.log(`  ~ ${before.fullPath}  →  ${z.fullPath}`);
   console.log(`\n== Zones réactivées : ${plan.reactivated.length} ==`);
   for (const z of plan.reactivated) console.log(`  ↺ ${z.fullPath}`);
   console.log(`\n== Zones désactivées (non supprimées) : ${plan.deactivated.length} ==`);
