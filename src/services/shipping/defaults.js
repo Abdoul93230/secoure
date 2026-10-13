@@ -20,7 +20,7 @@ function buildStandardTemplate({ niameyZoneId } = {}) {
       sameCity: { baseFee: 1000, available: true, delay: { sameDay: true } },
       sameRegion: { baseFee: 1000, available: true, delay: { sameDay: true } },
       otherRegion: { baseFee: 2000, available: true, delay: { minDays: 1, maxDays: 2 } },
-      international: { baseFee: 0, available: false, delay: { minDays: 3, maxDays: 7 } },
+      international: { baseFee: 5000, available: true, delay: { minDays: 3, maxDays: 7 } },
     },
     // Même quartier : 1 000 F à Niamey, 500 F ailleurs
     areaRates: niameyZoneId ? [{ zoneId: niameyZoneId, relation: 'sameDistrict', baseFee: 1000 }] : [],

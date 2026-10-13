@@ -125,6 +125,8 @@ const campaignIsLive = (c, now) =>
 /** Toutes les conditions d'une campagne sauf le montant minimum */
 const campaignScopeMatches = (c, { relation, destination, sellerId }) => {
   if (Array.isArray(c.relations) && c.relations.length && !c.relations.includes(relation)) return false;
+  // Sans distance ciblée : livraisons nationales uniquement (l'international doit être choisi explicitement)
+  if ((!Array.isArray(c.relations) || !c.relations.length) && relation === 'international') return false;
   if (Array.isArray(c.sellerIds) && c.sellerIds.length && !c.sellerIds.map(str).includes(str(sellerId))) return false;
   if (Array.isArray(c.destinationZoneIds) && c.destinationZoneIds.length) {
     const ids = (destination?.path || []).map((p) => str(p.id));
