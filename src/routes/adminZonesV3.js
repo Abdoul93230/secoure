@@ -5,6 +5,7 @@
  *   PUT    /:id             renommer, synonymes, point GPS, déplacer
  *   POST   /:id/status      activer / désactiver (désactivation en cascade)
  *   POST   /:id/merge       fusionner dans une autre zone du même type
+ *   GET    /requests        localités demandées par les clients ; POST /requests/:id/add | /status
  */
 const express = require('express');
 const { invalidateShippingCaches } = require('../services/shipping/quoteService');
@@ -91,18 +92,19 @@ router.get('/', wrap(async (_req, res) => {
   });
 }));
 
-router.post('/', wrap(async (req, res) => {
-  const fields = cleanFields(req.body);
-  if (!fields.name) return fail(res, 400, 'Le nom est requis.');
+/** Crée une zone sous `parent` (type déduit) — partagé par la création manuelle et les localités demandées */
+async function createZone({ name, parent: parentId, aliases, center }) {
+  const fields = cleanFields({ name, aliases, center });
+  if (!fields.name) throw Object.assign(new Error('Le nom est requis.'), { status: 400 });
   let parent = null;
-  if (req.body.parent) {
-    if (!isId(req.body.parent)) return fail(res, 400, 'Zone parente invalide.');
-    parent = await zonesCol().findOne({ _id: oid(req.body.parent) });
-    if (!parent) return fail(res, 404, 'Zone parente introuvable.');
-    if (parent.isActive === false) return fail(res, 400, 'Réactivez d’abord la zone parente.');
+  if (parentId) {
+    if (!isId(parentId)) throw Object.assign(new Error('Zone parente invalide.'), { status: 400 });
+    parent = await zonesCol().findOne({ _id: oid(parentId) });
+    if (!parent) throw Object.assign(new Error('Zone parente introuvable.'), { status: 404 });
+    if (parent.isActive === false) throw Object.assign(new Error('Réactivez d’abord la zone parente.'), { status: 400 });
   }
   const type = parent ? CHILD_TYPE[parent.type] : 'country';
-  if (!type) return fail(res, 400, 'Un quartier ne peut pas contenir de sous-zone.');
+  if (!type) throw Object.assign(new Error('Un quartier ne peut pas contenir de sous-zone.'), { status: 400 });
   await assertUniqueAmongSiblings(parent?._id, fields.name);
   const now = new Date();
   const doc = {
@@ -117,7 +119,49 @@ router.post('/', wrap(async (req, res) => {
     updatedAt: now,
   };
   const { insertedId } = await zonesCol().insertOne(doc);
-  return done(res, { _id: insertedId, ...doc }, { paths: true });
+  return { _id: insertedId, ...doc };
+}
+
+router.post('/', wrap(async (req, res) => {
+  const doc = await createZone(req.body || {});
+  return done(res, doc, { paths: true });
+}));
+
+// ─── Localités demandées par les clients ─────────────────────────────────────
+
+const zoneRequests = require('../services/zones/zoneRequests');
+
+/** Parent conseillé : la ville d'un quartier, sinon la zone elle-même (ville → quartier, région → ville) */
+async function suggestedParent(nearZoneId) {
+  const near = await zonesCol().findOne({ _id: oid(nearZoneId) }, { projection: { type: 1, parent: 1, fullPath: 1 } });
+  if (!near) return null;
+  if (near.type === 'district') {
+    const p = await zonesCol().findOne({ _id: near.parent }, { projection: { fullPath: 1, type: 1 } });
+    return p ? { _id: p._id, fullPath: p.fullPath, childType: CHILD_TYPE[p.type] } : null;
+  }
+  return { _id: near._id, fullPath: near.fullPath, childType: CHILD_TYPE[near.type] };
+}
+
+router.get('/requests', wrap(async (req, res) => {
+  const list = await zoneRequests.listZoneRequests({ status: req.query.status || undefined });
+  const data = [];
+  for (const r of list) data.push({ ...r, suggestedParent: await suggestedParent(r.nearZoneId) });
+  res.json({ success: true, data });
+}));
+
+router.post('/requests/:id/add', wrap(async (req, res) => {
+  const r = await zoneRequests.getZoneRequest(req.params.id);
+  if (!r) return fail(res, 404, 'Demande introuvable.');
+  const parentId = req.body?.parent || (await suggestedParent(r.nearZoneId))?._id;
+  const doc = await createZone({ name: req.body?.name || r.name, parent: parentId, aliases: req.body?.aliases });
+  await zoneRequests.setZoneRequestStatus(r._id, 'added', doc._id);
+  return done(res, doc, { paths: true });
+}));
+
+router.post('/requests/:id/status', wrap(async (req, res) => {
+  const ok = await zoneRequests.setZoneRequestStatus(req.params.id, req.body?.status);
+  if (!ok) return fail(res, 400, 'Statut ou demande invalide.');
+  return done(res, { updated: true });
 }));
 
 router.put('/:id', wrap(async (req, res) => {

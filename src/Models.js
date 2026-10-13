@@ -886,6 +886,8 @@ const adressShipping = new mongoose.Schema(
     zoneId: { type: mongoose.Schema.Types.ObjectId, ref: "ZoneF", default: null },
     zonePath: { type: String, default: null },
     landmark: { type: String, trim: true, maxlength: 200, default: "" },
+    // Localité absente de la liste (village, hameau…) : la zone choisie est la ville / région la plus proche
+    localityName: { type: String, trim: true, maxlength: 100, default: "" },
     location: {
       lat: { type: Number, min: -90, max: 90 },
       lng: { type: Number, min: -180, max: 180 },
@@ -968,6 +970,7 @@ const commandeSchema = new mongoose.Schema(
       zoneId: { type: mongoose.Schema.Types.ObjectId, ref: "ZoneF" },
       zonePath: String,
       landmark: String,
+      localityName: String,
       location: { lat: Number, lng: Number, accuracy: Number },
     },
     prix: {

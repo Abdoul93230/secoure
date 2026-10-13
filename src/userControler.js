@@ -470,13 +470,16 @@ const prepareOrderZone = async (data, existingOrder = null) => {
     };
   }
   const ld = data.livraisonDetails || {};
+  const locality = String(ld.localityName || '').replace(/\s+/g, ' ').trim().slice(0, 100);
   data.livraisonDetails = {
     ...ld,
     zoneId: zone.id,
     zonePath: zone.path,
     region: zone.region,
-    quartier: zone.quartier,
+    // Localité hors liste : visible telle quelle par la boutique, le livreur et l'admin
+    quartier: locality ? `${locality} (près de ${zone.quartier})` : zone.quartier,
     ...(ld.landmark !== undefined ? { landmark: String(ld.landmark || '').trim().slice(0, 200) } : {}),
+    ...(ld.localityName !== undefined ? { localityName: String(ld.localityName || '').replace(/\s+/g, ' ').trim().slice(0, 100) } : {}),
     ...(ld.location ? { location: cleanLocation(ld.location) } : {}),
   };
   data.customerZoneId = zone.id;
@@ -1120,6 +1123,7 @@ async function createOrUpdateAddress(req, res) {
     newAddressData.region = zone.region;
     newAddressData.quartier = zone.quartier;
     if (newAddressData.landmark !== undefined) newAddressData.landmark = String(newAddressData.landmark || '').trim().slice(0, 200);
+    if (newAddressData.localityName !== undefined) newAddressData.localityName = String(newAddressData.localityName || '').replace(/\s+/g, ' ').trim().slice(0, 100);
     if (newAddressData.location !== undefined) newAddressData.location = cleanLocation(newAddressData.location);
   } else {
     delete newAddressData.zoneId;

@@ -2,6 +2,7 @@
  * API publique du moteur de livraison v3 — /api/shipping/v3
  *   POST /quote      devis complet d'un panier (un colis par boutique)
  *   GET  /estimate   estimation pour une fiche produit
+ *   POST /zone-requests  localité absente de la liste (nom + zone la plus proche)
  *   GET  /nearby     produits des boutiques les plus proches (?zoneId=…)
  *   GET  /origins    ville d'expédition des boutiques (?ids=…)
  *   GET  /zones      toutes les zones actives (arbre complet, pour les sélecteurs)
@@ -40,6 +41,20 @@ router.get('/estimate', async (req, res) => {
   } catch (e) {
     console.error('[shipping/v3/estimate]', e);
     return res.status(500).json({ success: false, message: 'Estimation indisponible.' });
+  }
+});
+
+/** Localité absente de la liste : enregistrée pour que l'admin l'ajoute (20 / heure / IP) */
+const zoneRequestLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false });
+router.post('/zone-requests', zoneRequestLimiter, async (req, res) => {
+  try {
+    const { name, nearZoneId } = req.body || {};
+    const r = await require('../services/zones/zoneRequests').recordZoneRequest({ name, nearZoneId });
+    if (!r) return res.status(400).json({ success: false, message: 'Indiquez le nom de votre localité et la ville la plus proche.' });
+    return res.json({ success: true, data: r });
+  } catch (e) {
+    console.error('[shipping/v3/zone-requests]', e);
+    return res.status(500).json({ success: false, message: 'Enregistrement impossible.' });
   }
 });
 
