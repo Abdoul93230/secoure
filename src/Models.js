@@ -464,6 +464,10 @@ const produitSchema = new mongoose.Schema(
         height: { type: Number, default: 0 },
       },
       zones: [shippingZoneSchema],
+      // Moteur de livraison v3 : classe de taille (poids par défaut et tarif du kilo)
+      sizeClass: { type: String, enum: ["small", "medium", "large", "xl", null], default: null },
+      // Modèle de livraison propre au produit (ex. « Colis lourd »), sinon celui de la boutique
+      templateId: { type: mongoose.Schema.Types.ObjectId, ref: "ShippingTemplate", default: null },
       isPublished: {
         type: String,
         enum: ["Published", "UnPublished", "Attente", "Refuser"],
@@ -1025,6 +1029,12 @@ const commandeSchema = new mongoose.Schema(
           storeId: { type: String, required: true },
           storeName: { type: String, required: true },
           shippingCost: { type: Number, required: true },
+          // Moteur de livraison v3 (instantané au moment de la commande)
+          relation: { type: String, default: null },
+          delay: { type: String, default: null },
+          quoteRequired: { type: Boolean, default: false },
+          freeShippingCampaign: { type: String, default: null },
+          freeShippingAmount: { type: Number, default: 0 },
         },
       ],
       required: false,
@@ -1354,6 +1364,9 @@ const sellerRequestSchema = new mongoose.Schema(
       resetDate: { type: Date, default: null },
     },
     stockAlertSeuil: { type: Number, default: 5 },
+    // Moteur de livraison v3 : lieu d'expédition (zone) et modèle de livraison affecté par l'admin
+    shippingOriginZoneId: { type: mongoose.Schema.Types.ObjectId, ref: "ZoneF", default: null },
+    shippingTemplateId: { type: mongoose.Schema.Types.ObjectId, ref: "ShippingTemplate", default: null },
     expoPushTokens: { type: [String], default: [] },
   },
   { strict: false }
