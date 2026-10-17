@@ -1089,11 +1089,13 @@ const getSeller = (req, res) => {
  * SÉCURITÉ — Profil public d'un vendeur (endpoints *Clients) : liste blanche.
  * Exclut la pièce d'identité (ownerIdentity), l'email/téléphone personnels de connexion,
  * les quotas et modules internes.
+ * Exclut aussi tout moyen de contact direct (téléphone pro, WhatsApp, site, réseaux) :
+ * le client passe par la messagerie de la plateforme, qui répond au nom de la boutique.
  */
 const PUBLIC_SELLER_FIELDS = [
   "_id", "name", "storeName", "storeDescription", "category", "storeType", "businessProfile",
-  "logo", "coverImage", "banner", "openingHours", "businessPhone", "whatsapp", "website",
-  "facebook", "instagram", "address", "city", "region", "postalCode", "isvalid",
+  "logo", "coverImage", "banner", "openingHours",
+  "address", "city", "region", "postalCode", "isvalid",
   "subscriptionStatus", "rating", "reviewsCount", "likesCount", "followersCount",
   "productsCount", "minimumOrder", "delivery", "acceptsReturns", "createdAt",
 ];
