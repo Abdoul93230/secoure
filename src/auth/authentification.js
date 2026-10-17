@@ -83,13 +83,34 @@ const login = async (req, res) => {
 
 /////////////////////fonction  loginUser et creation du jeton JWT///////////////////////
 
+/** Connexion d'un manager (messagerie / modération de ses boutiques) — null si l'e-mail n'est pas un manager */
+const loginManager = async ({ email, password }) => {
+  const { Manager } = require("../messaging/models");
+  const { signManagerToken } = require("../messaging/staffAuth");
+  const manager = await Manager.findOne({ email: String(email || "").toLowerCase().trim() });
+  if (!manager) return null;
+  if (!(await bcrypt.compare(String(password || ""), manager.password))) {
+    return { status: 400, body: { message: "votre mot de passe est incorrect !" } };
+  }
+  if (!manager.isActive) return { status: 403, body: { message: "Votre accès a été désactivé. Contactez l'administrateur." } };
+  manager.lastLoginAt = new Date();
+  await manager.save();
+  return {
+    status: 200,
+    body: { message: "Connexion reusit !", token: signManagerToken(manager), id: manager._id, name: manager.name, role: "manager" },
+  };
+};
+
 const AdminLogin = async (req, res) => {
   data = req.body;
   // const hash = await bcrypt.hash(data.password, 10);
   // console.log(hash);
   Admin.findOne({ email: data.email })
-    .then((user) => {
+    .then(async (user) => {
       if (!user) {
+        // Pas un admin : peut-être un manager (même écran de connexion, accès limité)
+        const managerLogin = await loginManager(data);
+        if (managerLogin) return res.status(managerLogin.status).json(managerLogin.body);
         const message = "Cet Email N'est Pas Inscrit !";
         return res.status(400).json({ message: message });
       } else {

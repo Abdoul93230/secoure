@@ -263,6 +263,14 @@ app.use('/api/pos', posRoutes);
 // Gestion agents : protégée par requireSeller
 app.use('/api/agents', agentRoutes);
 
+// Messagerie boutiques : client ↔ boutique, réponses de l'équipe (managers) au nom de la boutique
+{
+  const { clientRouter, staffRouter } = require('./src/messaging/routes');
+  app.use('/api/messaging', clientRouter);
+  app.use('/api/staff', staffRouter);
+  require('./src/messaging/socket')(io);
+}
+
 // Modules métier (tous protégés par requireSeller)
 const { SellerRequest } = require('./src/Models');
 
