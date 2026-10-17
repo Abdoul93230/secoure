@@ -97,6 +97,7 @@ function setupMessagingSocket(io) {
           text: data.text,
           card,
           attachments: data.attachments,
+          audio: data.audio,
           internal: actor.kind !== "client" && !!data.internal,
           clientTempId: data.clientTempId,
         });
@@ -111,10 +112,11 @@ function setupMessagingSocket(io) {
       if (conv) svc.markRead({ conversation: conv, by: actor.kind === "client" ? "client" : "store" }).catch(() => {});
     });
 
-    const typing = (isTyping) => async ({ conversationId } = {}) => {
+    const typing = (isTyping) => async ({ conversationId, kind } = {}) => {
       const conv = await load(conversationId).catch(() => null);
       if (!conv) return;
-      const payload = { conversationId: String(conv._id), typing: isTyping };
+      // kind : « text » (écrit…) ou « audio » (enregistre un vocal…)
+      const payload = { conversationId: String(conv._id), typing: isTyping, kind: kind === "audio" ? "audio" : "text" };
       if (actor.kind === "client") {
         nsp.to([svc.sellerRoom(conv.sellerId), svc.STAFF_ALL]).emit("typing", { ...payload, from: "client" });
       } else {

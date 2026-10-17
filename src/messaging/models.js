@@ -91,6 +91,11 @@ const messageSchema = new Schema(
     originalText: { type: String, default: null },
     masked: { type: Boolean, default: false },
     attachments: [{ type: String }],
+    // Message vocal (MP3 sur Cloudinary)
+    audio: {
+      url: { type: String, default: null },
+      durationMs: { type: Number, default: 0 },
+    },
     // Carte jointe : produit ou commande (instantané au moment de l'envoi)
     card: {
       kind: { type: String, enum: ["product", "order", null], default: null },

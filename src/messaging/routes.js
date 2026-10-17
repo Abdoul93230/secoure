@@ -58,6 +58,24 @@ const uploadImage = asyncH(async (req, res) => {
 });
 client.post("/upload", anyMember, upload.single("image"), uploadImage);
 
+// Messages vocaux : converti en MP3 par Cloudinary (lisible sur Android, iPhone et navigateurs)
+const uploadAudioMw = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 12 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => cb(null, /^(audio|video)\//i.test(file.mimetype) || /\.(m4a|aac|mp3|webm|ogg|opus|wav|3gp|caf)$/i.test(file.originalname || "")),
+});
+client.post("/upload-audio", anyMember, uploadAudioMw.single("audio"), asyncH(async (req, res) => {
+  if (!req.file) return res.status(400).json({ success: false, message: "Enregistrement manquant ou trop long (12 Mo max)." });
+  const cloudinary = require("../cloudinary");
+  const result = await new Promise((resolve, reject) => {
+    cloudinary.uploader.upload_stream(
+      { folder: "messagerie/vocaux", resource_type: "video", format: "mp3", audio_codec: "mp3", bit_rate: "64k" },
+      (err, r) => (err ? reject(err) : resolve(r))
+    ).end(req.file.buffer);
+  });
+  res.json({ success: true, url: result.secure_url, durationMs: Math.round((result.duration || 0) * 1000) });
+}));
+
 // ═══ CLIENT ════════════════════════════════════════════════════════════════════
 const loadClientConv = async (req) => {
   if (!svc.isId(req.params.id)) throw Object.assign(new Error("Conversation introuvable."), { status: 404 });
@@ -98,9 +116,9 @@ client.get("/conversations/:id/messages", requireClient, asyncH(async (req, res)
 /** Envoi par HTTP (repli quand le socket n'est pas connecté) */
 client.post("/conversations/:id/messages", requireClient, sendLimiter, asyncH(async (req, res) => {
   const conv = await loadClientConv(req);
-  const { text, productId, orderId, attachments, clientTempId } = req.body || {};
+  const { text, productId, orderId, attachments, audio, clientTempId } = req.body || {};
   const card = productId ? await svc.productCard(productId, conv.sellerId) : orderId ? await svc.orderCard(orderId, req.client.id) : null;
-  const { message } = await svc.postMessage({ conversation: conv, actor: { kind: "client", id: req.client.id }, text, card, attachments, clientTempId });
+  const { message } = await svc.postMessage({ conversation: conv, actor: { kind: "client", id: req.client.id }, text, card, attachments, audio, clientTempId });
   res.json({ success: true, message: svc.messageForClient(message) });
 }));
 
@@ -233,9 +251,9 @@ staff.get("/conversations/:id/messages", requireStaff("messages"), asyncH(async 
 
 staff.post("/conversations/:id/messages", requireStaff("messages"), sendLimiter, asyncH(async (req, res) => {
   const conv = await loadStaffConv(req);
-  const { text, internal, productId, orderId, attachments, clientTempId } = req.body || {};
+  const { text, internal, productId, orderId, attachments, audio, clientTempId } = req.body || {};
   const card = productId ? await svc.productCard(productId, conv.sellerId) : orderId ? await svc.orderCard(orderId, conv.clientId) : null;
-  const { message } = await svc.postMessage({ conversation: conv, actor: req.staff, text, card, attachments, internal: !!internal, clientTempId });
+  const { message } = await svc.postMessage({ conversation: conv, actor: req.staff, text, card, attachments, audio, internal: !!internal, clientTempId });
   res.json({ success: true, message: svc.messageForStaff(message) });
 }));
 

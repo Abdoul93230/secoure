@@ -17,6 +17,11 @@ const getNamespace = () => nsp;
 
 const ESCALATE_AFTER_MS = Number(process.env.MESSAGING_ESCALATE_MIN || 15) * 60 * 1000;
 const isId = (v) => mongoose.Types.ObjectId.isValid(String(v || ""));
+const CLOUDINARY = /^https:\/\/res\.cloudinary\.com\//;
+const voiceLabel = (ms) => {
+  const t = Math.max(1, Math.round((ms || 0) / 1000));
+  return `🎤 Message vocal (${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")})`;
+};
 
 // ─── Rooms ─────────────────────────────────────────────────────────────────────
 const clientRoom = (id) => `client:${id}`;
@@ -53,6 +58,7 @@ const messageForClient = (m) => ({
   from: m.from, // client | store | system
   text: m.text,
   attachments: m.attachments || [],
+  audio: m.audio?.url ? { url: m.audio.url, durationMs: m.audio.durationMs || 0 } : null,
   card: m.card?.kind ? { ...m.card, id: m.card.id ? String(m.card.id) : null } : null,
   signature: m.signature || "",
   createdAt: m.createdAt,
@@ -178,11 +184,14 @@ async function openConversation({ clientId, sellerId, productId, orderId }) {
  * Enregistre un message et le diffuse.
  * actor : { kind: 'client', id } | staff (admin / manager)
  */
-async function postMessage({ conversation, actor, text, card = null, attachments = [], internal = false, clientTempId = null }) {
+async function postMessage({ conversation, actor, text, card = null, attachments = [], audio = null, internal = false, clientTempId = null }) {
   const isClient = actor.kind === "client";
   const raw = String(text || "").trim().slice(0, 2000);
-  const files = (attachments || []).filter((u) => /^https:\/\/res\.cloudinary\.com\//.test(String(u))).slice(0, 4);
-  if (!raw && !card && !files.length) throw Object.assign(new Error("Message vide."), { status: 400 });
+  const files = (attachments || []).filter((u) => CLOUDINARY.test(String(u))).slice(0, 4);
+  const voice = audio && CLOUDINARY.test(String(audio.url || ""))
+    ? { url: String(audio.url), durationMs: Math.min(Math.max(Number(audio.durationMs) || 0, 0), 15 * 60 * 1000) }
+    : null;
+  if (!raw && !card && !files.length && !voice) throw Object.assign(new Error("Message vide."), { status: 400 });
 
   // Renvoi du même message (réseau instable) : on rend celui déjà enregistré
   if (clientTempId) {
@@ -204,6 +213,7 @@ async function postMessage({ conversation, actor, text, card = null, attachments
     originalText: masked ? raw : null,
     masked,
     attachments: files,
+    audio: voice || undefined,
     card: card || undefined,
     signature,
     clientTempId: clientTempId ? String(clientTempId) : null,
@@ -216,7 +226,7 @@ async function postMessage({ conversation, actor, text, card = null, attachments
     return { message: plain };
   }
 
-  const preview = safeText || (card ? (card.kind === "product" ? `🛍️ ${card.title}` : `📦 ${card.title}`) : "📷 Photo");
+  const preview = safeText || (voice ? voiceLabel(voice.durationMs) : card ? (card.kind === "product" ? `🛍️ ${card.title}` : `📦 ${card.title}`) : "📷 Photo");
   const now = new Date();
   const update = { $set: { lastMessage: { text: preview.slice(0, 140), from, at: now }, clientArchived: false } };
   if (masked) update.$set.flagged = true;
