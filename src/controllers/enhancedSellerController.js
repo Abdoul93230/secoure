@@ -557,13 +557,50 @@ const createSellerWithSubscription = async (req, res) => {
 
 const loginWithSubscriptionCheck = async (req, res) => {
   try {
-    const { email, phoneNumber, password } = req.body;
+    const { email, phoneNumber, identifier, phone, password } = req.body;
 
-    // Recherche de l'utilisateur
-    let user = await SellerRequest.findOne({ email });
+    // Détection et nettoyage des identifiants (email ou téléphone)
+    const rawInput = (identifier || email || phoneNumber || phone || '').toString().trim();
+    const rawEmail = email ? String(email).trim() : (rawInput.includes('@') ? rawInput : null);
+    const rawPhone = (phoneNumber || phone) ? String(phoneNumber || phone).trim() : (!rawInput.includes('@') && /\d{5,}/.test(rawInput) ? rawInput : null);
 
-    if (!user && phoneNumber) {
-      user = await SellerRequest.findOne({ phone: phoneNumber });
+    let user = null;
+
+    // 1. Recherche par email (insensible à la casse)
+    if (rawEmail) {
+      user = await SellerRequest.findOne({
+        email: { $regex: new RegExp(`^${rawEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+      });
+    }
+
+    // 2. Recherche par numéro de téléphone (supporte les variantes avec ou sans +, avec ou sans indicatif pays +227)
+    if (!user && (rawPhone || rawInput)) {
+      const targetPhone = (rawPhone || rawInput).replace(/\s+/g, '');
+      const digitsOnly = targetPhone.replace(/\D/g, '');
+
+      const phoneConditions = [
+        { phone: targetPhone },
+        { phone: targetPhone.startsWith('+') ? targetPhone : `+${targetPhone}` },
+        { businessPhone: targetPhone },
+      ];
+
+      if (digitsOnly.length >= 8) {
+        const last8 = digitsOnly.slice(-8);
+        phoneConditions.push({ phone: { $regex: `${last8}$` } });
+        phoneConditions.push({ phone: `+227${last8}` });
+      }
+
+      user = await SellerRequest.findOne({ $or: phoneConditions });
+    }
+
+    // 3. Fallback direct si l'utilisateur a saisi son identifiant
+    if (!user && rawInput) {
+      user = await SellerRequest.findOne({
+        $or: [
+          { email: { $regex: new RegExp(`^${rawInput.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } },
+          { phone: rawInput }
+        ]
+      });
     }
 
     if (!user) {

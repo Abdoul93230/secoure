@@ -1,13 +1,19 @@
 const express = require('express');
 const router = express.Router();
+const bcrypt = require('bcrypt');
+const fs = require('fs');
+const cloudinary = require('../cloudinary');
+const middelware = require('../auth/middelware');
 const { 
   getSubscriptionStats,
   renewSubscription,
   changePlan,
   sendExpirationReminder,
-  PLAN_DEFAULTS
+  PLAN_DEFAULTS,
+  createInitialSubscription
 } = require('../controllers/subscriptionController');
 const { PricingPlan, SellerRequest } = require('../Models');
+const SubscriptionQueue = require('../models/Abonnements/SubscriptionQueue');
 const { suspendSellerProducts, restoreSellerProductsIfEligible } = require('../utils/sellerProductSync');
 const { features } = require('process');
 
@@ -828,5 +834,252 @@ router.post('/:sellerId/modules/reset-sms', async (req, res) => {
     return res.status(500).json({ status: 'error', message: err.message });
   }
 });
+
+/**
+ * 🆕 CRÉATION DIRECTE D'UN VENDEUR PAR L'ADMIN
+ * Permet à l'admin de créer un compte vendeur directement avec un mot de passe par défaut.
+ * Le compte est immédiatement validé (isvalid = true) et opérationnel.
+ * Le vendeur peut se connecter avec son email ou son téléphone et le mot de passe défini.
+ */
+router.post(
+  '/create-seller',
+  requireAdmin,
+  middelware.uploadsecond.fields([
+    { name: 'logo', maxCount: 1 },
+    { name: 'ownerIdentity', maxCount: 1 },
+  ]),
+  async (req, res) => {
+    try {
+      let {
+        name,
+        userName2,
+        email,
+        phone,
+        password,
+        storeName,
+        storeDescription,
+        category,
+        storeType,
+        businessProfile,
+        city,
+        region,
+        address,
+        planType,
+        trialMonths,
+        shippingOriginZoneId,
+      } = req.body;
+
+      // Nettoyage et validation de base
+      name = name ? String(name).trim() : '';
+      userName2 = userName2 ? String(userName2).trim() : '';
+      storeName = storeName ? String(storeName).trim() : '';
+      password = password ? String(password).trim() : '';
+
+      const errors = [];
+      if (!name || name.length < 2) errors.push('Le nom doit contenir au moins 2 caractères.');
+      if (!userName2 || userName2.length < 2) errors.push('Le prénom doit contenir au moins 2 caractères.');
+      if (!storeName || storeName.length < 2) errors.push('Le nom de la boutique doit contenir au moins 2 caractères.');
+      if (!password || password.length < 6) errors.push('Le mot de passe par défaut doit contenir au moins 6 caractères.');
+
+      // Au moins un identifiant (email ou phone) requis
+      let cleanEmail = email ? String(email).trim().toLowerCase() : null;
+      let cleanPhone = phone ? String(phone).replace(/\s+/g, '').trim() : null;
+
+      if (!cleanEmail && !cleanPhone) {
+        errors.push("Au moins un moyen de connexion est requis (email ou numéro de téléphone).");
+      }
+
+      if (cleanEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+        errors.push("L'adresse email saisie est invalide.");
+      }
+
+      if (cleanPhone) {
+        // Normalisation au format international (+...)
+        if (!cleanPhone.startsWith('+')) {
+          if (cleanPhone.startsWith('227') || cleanPhone.startsWith('229')) {
+            cleanPhone = '+' + cleanPhone;
+          } else if (/^\d{8}$/.test(cleanPhone)) {
+            cleanPhone = '+227' + cleanPhone;
+          } else {
+            cleanPhone = '+' + cleanPhone;
+          }
+        }
+        if (!/^\+[1-9]\d{7,14}$/.test(cleanPhone)) {
+          errors.push("Le numéro de téléphone doit être au format international (ex: +22787727501).");
+        }
+      }
+
+      if (errors.length > 0) {
+        return res.status(400).json({
+          status: 'error',
+          code: 'VALIDATION_ERROR',
+          message: errors.join(' '),
+          errors,
+        });
+      }
+
+      // Vérification des doublons (storeName, email, phone)
+      const duplicateConditions = [{ storeName }];
+      if (cleanEmail) duplicateConditions.push({ email: cleanEmail });
+      if (cleanPhone) duplicateConditions.push({ phone: cleanPhone });
+
+      const existingSeller = await SellerRequest.findOne({ $or: duplicateConditions });
+      if (existingSeller) {
+        let field = 'storeName';
+        let msg = 'Ce nom de boutique est déjà utilisé.';
+        if (cleanEmail && existingSeller.email === cleanEmail) {
+          field = 'email';
+          msg = 'Cette adresse email est déjà associée à un compte vendeur.';
+        } else if (cleanPhone && existingSeller.phone === cleanPhone) {
+          field = 'phone';
+          msg = 'Ce numéro de téléphone est déjà associé à un compte vendeur.';
+        }
+        return res.status(409).json({
+          status: 'error',
+          code: 'DUPLICATE_ENTRY',
+          error: { field, message: msg },
+          message: msg,
+        });
+      }
+
+      // Gestion des fichiers (logo et pièce d'identité)
+      let logoUrl = null;
+      let ownerIdentityUrl = 'ADMIN_CREATED_VERIFIED'; // Satisfait le required: true du schéma Mongoose
+
+      if (req.files?.logo?.[0]?.path) {
+        try {
+          const uploadRes = await cloudinary.uploader.upload(req.files.logo[0].path, { folder: 'seller-logos' });
+          logoUrl = uploadRes.secure_url;
+          try { fs.unlinkSync(req.files.logo[0].path); } catch (_) {}
+        } catch (uploadErr) {
+          console.error("Erreur upload logo admin:", uploadErr);
+        }
+      }
+
+      if (req.files?.ownerIdentity?.[0]?.path) {
+        try {
+          const uploadRes = await cloudinary.uploader.upload(req.files.ownerIdentity[0].path, { folder: 'seller-documents' });
+          ownerIdentityUrl = uploadRes.secure_url;
+          try { fs.unlinkSync(req.files.ownerIdentity[0].path); } catch (_) {}
+        } catch (uploadErr) {
+          console.error("Erreur upload ownerIdentity admin:", uploadErr);
+        }
+      }
+
+      // Hachage du mot de passe
+      const hashedPassword = await bcrypt.hash(password, 10);
+
+      const resolvedCategory = category && String(category).trim() ? String(category).trim() : 'autre';
+      const resolvedStoreType = ['physique', 'enligne', 'hybride'].includes(storeType) ? storeType : 'hybride';
+      const resolvedProfile = ['commercant', 'createur', 'hybride'].includes(businessProfile) ? businessProfile : 'hybride';
+      const resolvedPlan = ['Starter', 'Pro', 'Business'].includes(planType) ? planType : 'Starter';
+
+      // Création du compte vendeur
+      const newSeller = new SellerRequest({
+        name,
+        userName2,
+        ...(cleanEmail ? { email: cleanEmail } : {}),
+        ...(cleanPhone ? { phone: cleanPhone } : {}),
+        password: hashedPassword,
+        storeName,
+        storeDescription: storeDescription && String(storeDescription).trim()
+          ? String(storeDescription).trim()
+          : `Boutique officielle ${storeName}`,
+        category: resolvedCategory,
+        storeType: resolvedStoreType,
+        businessProfile: resolvedProfile,
+        city: city && String(city).trim() ? String(city).trim() : 'Niger',
+        region: region && String(region).trim() ? String(region).trim() : 'Niamey',
+        address: address && String(address).trim() ? String(address).trim() : '',
+        ownerIdentity: ownerIdentityUrl,
+        ...(logoUrl ? { logo: logoUrl } : {}),
+        ...(shippingOriginZoneId ? { shippingOriginZoneId } : {}),
+        // ⚡ Immédiatement validé et actif
+        isvalid: true,
+        validatedAt: new Date(),
+        validatedBy: req.user?.id || req.user?._id,
+        validationNotes: "Compte créé et validé directement par l'administrateur",
+        subscriptionStatus: 'trial',
+        suspensionReason: null,
+        onboardingCompleted: true,
+        accountCreatedAt: new Date(),
+        modules: {
+          bilanJournalier: true,
+          alertesStock: true,
+          performanceProduits: true,
+          carnetCreances: true,
+          rapportPeriodique: true,
+        },
+      });
+
+      const savedSeller = await newSeller.save();
+
+      // Initialisation de l'abonnement complet (PricingPlan + SubscriptionQueue + History)
+      try {
+        const subResult = await createInitialSubscription(savedSeller._id, resolvedPlan);
+
+        // Assurer que le compte reste validé (createInitialSubscription met isvalid: false par défaut)
+        await SellerRequest.findByIdAndUpdate(savedSeller._id, {
+          isvalid: true,
+          subscriptionStatus: 'trial',
+          suspensionReason: null,
+          subscriptionId: subResult.subscription._id,
+          trialEndsAt: subResult.subscription.endDate,
+        });
+
+        await SubscriptionQueue.findOneAndUpdate(
+          { storeId: savedSeller._id },
+          { accountStatus: 'trial', lastUpdated: new Date() }
+        );
+      } catch (subErr) {
+        console.error("Avertissement initialisation abonnement:", subErr);
+      }
+
+      return res.status(201).json({
+        status: 'success',
+        message: `Compte vendeur "${savedSeller.storeName}" créé et activé avec succès !`,
+        data: {
+          seller: {
+            id: savedSeller._id,
+            name: savedSeller.name,
+            userName2: savedSeller.userName2,
+            storeName: savedSeller.storeName,
+            email: savedSeller.email || null,
+            phone: savedSeller.phone || null,
+            category: savedSeller.category,
+            storeType: savedSeller.storeType,
+            businessProfile: savedSeller.businessProfile,
+            city: savedSeller.city,
+            region: savedSeller.region,
+            logo: savedSeller.logo || null,
+            isvalid: true,
+            subscriptionStatus: 'trial',
+            planType: resolvedPlan,
+          },
+          credentials: {
+            identifier: savedSeller.email || savedSeller.phone,
+            email: savedSeller.email || null,
+            phone: savedSeller.phone || null,
+            defaultPassword: password,
+          },
+        },
+      });
+    } catch (err) {
+      console.error("Erreur création vendeur par admin:", err);
+      if (err.code === 11000) {
+        const field = Object.keys(err.keyPattern || {})[0] || 'champ';
+        return res.status(409).json({
+          status: 'error',
+          code: 'DUPLICATE_ENTRY',
+          message: `Ce ${field} existe déjà dans notre système.`,
+        });
+      }
+      return res.status(500).json({
+        status: 'error',
+        message: "Erreur serveur lors de la création du vendeur: " + err.message,
+      });
+    }
+  }
+);
 
 module.exports = router;
