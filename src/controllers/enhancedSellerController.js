@@ -566,41 +566,37 @@ const loginWithSubscriptionCheck = async (req, res) => {
 
     let user = null;
 
-    // 1. Recherche par email (insensible à la casse)
+    // 1. Recherche par email (insensible à la casse, correspondance exacte)
     if (rawEmail) {
       user = await SellerRequest.findOne({
         email: { $regex: new RegExp(`^${rawEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
       });
     }
 
-    // 2. Recherche par numéro de téléphone (supporte les variantes avec ou sans +, avec ou sans indicatif pays +227)
-    if (!user && (rawPhone || rawInput)) {
-      const targetPhone = (rawPhone || rawInput).replace(/\s+/g, '');
-      const digitsOnly = targetPhone.replace(/\D/g, '');
-
-      const phoneConditions = [
-        { phone: targetPhone },
-        { phone: targetPhone.startsWith('+') ? targetPhone : `+${targetPhone}` },
-        { businessPhone: targetPhone },
-      ];
-
-      if (digitsOnly.length >= 8) {
-        const last8 = digitsOnly.slice(-8);
-        phoneConditions.push({ phone: { $regex: `${last8}$` } });
-        phoneConditions.push({ phone: `+227${last8}` });
-      }
-
-      user = await SellerRequest.findOne({ $or: phoneConditions });
+    // 2. Recherche par téléphone : correspondance EXACTE sur le numéro de connexion (E.164).
+    //    Pas de numéro pro de la boutique ni de comparaison sur les derniers chiffres :
+    //    deux vendeurs de pays différents peuvent partager les 8 derniers chiffres.
+    let phoneMatches = [];
+    if (!user && rawPhone) {
+      const compact = rawPhone.replace(/[\s.()-]/g, '');
+      let digits = compact.replace(/\D/g, '');
+      if (!compact.startsWith('+') && digits.startsWith('00')) digits = digits.slice(2); // 00227… → 227…
+      const candidates = new Set([compact]); // format saisi, au cas où un ancien compte l'aurait gardé
+      if (compact.startsWith('+') || compact.startsWith('00') || digits.length > 8) candidates.add(`+${digits}`);
+      if (digits.length === 8) candidates.add(`+227${digits}`); // numéro nigérien saisi sans indicatif
+      phoneMatches = await SellerRequest.find({ phone: { $in: [...candidates] } }).limit(5);
+      if (phoneMatches.length === 1) user = phoneMatches[0];
     }
 
-    // 3. Fallback direct si l'utilisateur a saisi son identifiant
-    if (!user && rawInput) {
-      user = await SellerRequest.findOne({
-        $or: [
-          { email: { $regex: new RegExp(`^${rawInput.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } },
-          { phone: rawInput }
-        ]
-      });
+    // Plusieurs comptes pour le même numéro (anciens formats) : le mot de passe désigne le bon
+    if (!user && phoneMatches.length > 1) {
+      for (const candidate of phoneMatches) {
+        if (candidate.password && (await bcrypt.compare(password || '', candidate.password))) {
+          user = candidate;
+          break;
+        }
+      }
+      if (!user) return res.status(400).json({ message: "Mot de passe incorrect !" });
     }
 
     if (!user) {

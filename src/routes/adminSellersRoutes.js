@@ -849,6 +849,7 @@ router.post(
     { name: 'ownerIdentity', maxCount: 1 },
   ]),
   async (req, res) => {
+    const warnings = []; // problèmes non bloquants à afficher à l'admin
     try {
       let {
         name,
@@ -953,6 +954,7 @@ router.post(
           try { fs.unlinkSync(req.files.logo[0].path); } catch (_) {}
         } catch (uploadErr) {
           console.error("Erreur upload logo admin:", uploadErr);
+          warnings.push("Le logo n'a pas pu être enregistré : ajoutez-le depuis la fiche du vendeur.");
         }
       }
 
@@ -963,6 +965,7 @@ router.post(
           try { fs.unlinkSync(req.files.ownerIdentity[0].path); } catch (_) {}
         } catch (uploadErr) {
           console.error("Erreur upload ownerIdentity admin:", uploadErr);
+          warnings.push("La pièce d'identité n'a pas pu être enregistrée.");
         }
       }
 
@@ -1033,11 +1036,14 @@ router.post(
         );
       } catch (subErr) {
         console.error("Avertissement initialisation abonnement:", subErr);
+        // Sans abonnement actif, la boutique n'apparaît pas aux clients
+        warnings.push("L'abonnement d'essai n'a pas pu être créé : la boutique restera invisible aux clients tant qu'un abonnement n'est pas activé (onglet Abonnements).");
       }
 
       return res.status(201).json({
         status: 'success',
         message: `Compte vendeur "${savedSeller.storeName}" créé et activé avec succès !`,
+        warnings,
         data: {
           seller: {
             id: savedSeller._id,
@@ -1078,6 +1084,11 @@ router.post(
         status: 'error',
         message: "Erreur serveur lors de la création du vendeur: " + err.message,
       });
+    } finally {
+      // Fichiers temporaires de multer : supprimés aussi quand la création est refusée
+      for (const f of [...(req.files?.logo || []), ...(req.files?.ownerIdentity || [])]) {
+        fs.unlink(f.path, () => {});
+      }
     }
   }
 );
