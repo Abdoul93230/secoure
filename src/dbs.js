@@ -56,6 +56,17 @@ mongoose
     // Vendeurs : email unique seulement s'il est renseigné (création admin par téléphone seul)
     await require('./utils/fixSellerEmailIndex')(models.SellerRequest);
 
+    // Articles : prix promo ≥ prix normal = pas de promo (sinon le site affichait et facturait le prix le plus haut)
+    try {
+      const r = await models.Produit.collection.updateMany(
+        { $expr: { $and: [{ $gt: ['$prix', 0] }, { $gt: ['$prixPromo', 0] }, { $gte: ['$prixPromo', '$prix'] }] } },
+        { $set: { prixPromo: 0 } }
+      );
+      if (r.modifiedCount) console.log(`✅ Articles : ${r.modifiedCount} prix promo incohérent(s) remis à 0`);
+    } catch (err) {
+      console.error('⚠️ Articles : correction des prix promo impossible —', err.message);
+    }
+
     // Synchroniser les commissions PricingPlan avec SUBSCRIPTION_CONFIG au démarrage
     await syncPlanCommissions();
 
