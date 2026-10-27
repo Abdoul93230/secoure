@@ -771,7 +771,8 @@ const searchProductByName = handleAsyncError(async (req, res) => {
   const { name } = req.params;
   const page = parseInt(req.query.page) || 1;
   const limit = Math.min(parseInt(req.query.limit) || 40, 100);
-  const result = await productService.searchByName(name, { page, limit });
+  const { minPrice, maxPrice, sort } = req.query;
+  const result = await productService.searchByName(name, { page, limit, minPrice, maxPrice, sort });
   res.json({ ...result, data: result.products });
 });
 

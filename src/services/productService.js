@@ -463,18 +463,26 @@ class ProductService {
     return { products, total, page, limit, pages: Math.ceil(total / limit) };
   }
 
-  async searchByName(name, { page = 1, limit = 40 } = {}) {
+  async searchByName(name, { page = 1, limit = 40, minPrice, maxPrice, sort } = {}) {
+    // Filtre sur le prix payé : prix promo s'il est valide (0 < promo < prix), sinon prix normal
+    const paid = { $cond: [{ $and: [{ $gt: ['$prixPromo', 0] }, { $lt: ['$prixPromo', '$prix'] }] }, '$prixPromo', '$prix'] };
+    const bounds = [];
+    if (Number(minPrice) > 0) bounds.push({ $gte: [paid, Number(minPrice)] });
+    if (Number(maxPrice) > 0) bounds.push({ $lte: [paid, Number(maxPrice)] });
+    const priceFilter = bounds.length ? { $expr: bounds.length === 1 ? bounds[0] : { $and: bounds } } : {};
+    const opts = { page, limit, ...(CLIENT_SORTS[sort] ? { sort } : {}) };
+
     const result = await this.getClientVisibleProducts(
-      { $text: { $search: name } },
-      { page, limit }
+      { $text: { $search: name }, ...priceFilter },
+      opts
     );
     // La recherche plein texte ne trouve que des mots entiers : si rien, on tente
     // une recherche par début de mot (« rob » → « robe »), insensible à la casse.
     if (result.total === 0 && String(name).trim().length >= 2) {
       const escaped = String(name).trim().slice(0, 60).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       return await this.getClientVisibleProducts(
-        { $or: [{ name: { $regex: `(^|\\s)${escaped}`, $options: 'i' } }, { marque: { $regex: `^${escaped}`, $options: 'i' } }] },
-        { page, limit }
+        { $or: [{ name: { $regex: `(^|\\s)${escaped}`, $options: 'i' } }, { marque: { $regex: `^${escaped}`, $options: 'i' } }], ...priceFilter },
+        opts
       );
     }
     return result;

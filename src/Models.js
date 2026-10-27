@@ -569,6 +569,31 @@ produitSchema.index({ ClefType: 1, isDeleted: 1, isPublished: 1 });
 produitSchema.index({ name: 'text', description: 'text' }); // full-text search
 
 
+// Prix promo incohérent (≥ prix normal) : traité comme « pas de promo », pour que le site,
+// l'app et la commande affichent et facturent tous le prix normal.
+produitSchema.pre("save", function (next) {
+  if (Number(this.prixPromo) > 0 && Number(this.prix) > 0 && Number(this.prixPromo) >= Number(this.prix)) this.prixPromo = 0;
+  next();
+});
+produitSchema.pre(["findOneAndUpdate", "updateOne"], async function () {
+  const u = this.getUpdate() || {};
+  const set = u.$set || u;
+  if (set.prixPromo === undefined && set.prix === undefined) return;
+  let promo = Number(set.prixPromo);
+  let prix = Number(set.prix);
+  // Un seul des deux champs modifié : l'autre vient du document actuel
+  if (set.prixPromo === undefined || set.prix === undefined) {
+    const doc = await this.model.findOne(this.getQuery()).select("prix prixPromo").lean();
+    if (!doc) return;
+    if (set.prixPromo === undefined) promo = Number(doc.prixPromo);
+    if (set.prix === undefined) prix = Number(doc.prix);
+  }
+  if (promo > 0 && prix > 0 && promo >= prix) {
+    if (u.$set) u.$set.prixPromo = 0; else u.prixPromo = 0;
+    this.setUpdate(u);
+  }
+});
+
 const Produit = mongoose.model("Produit", produitSchema);
 ////////////////////////////////////////////////////////////////////////////////required message///////////////////////////
 const typeProduits = new mongoose.Schema({
