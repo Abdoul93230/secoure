@@ -53,6 +53,9 @@ mongoose
   .then(async () => {
     console.log("Connexion à MongoDB établie");
 
+    // Vendeurs : email unique seulement s'il est renseigné (création admin par téléphone seul)
+    await require('./utils/fixSellerEmailIndex')(models.SellerRequest);
+
     // Synchroniser les commissions PricingPlan avec SUBSCRIPTION_CONFIG au démarrage
     await syncPlanCommissions();
 

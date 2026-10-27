@@ -1221,12 +1221,13 @@ const sellerRequestSchema = new mongoose.Schema(
   {
     // Informations de base
     email: {
+      // Unicité : index partiel plus bas (seulement quand l'email est renseigné —
+      // un vendeur créé avec son seul téléphone n'a pas d'email)
       type: String,
       required: false,
-      unique: true,
       validate: {
         validator: (v) =>
-          /^[\w-]+(\.[\w-]+)*@([\w-]+\.)+[a-zA-Z]{2,7}$/.test(v),
+          v == null || /^[\w-]+(\.[\w-]+)*@([\w-]+\.)+[a-zA-Z]{2,7}$/.test(v),
         message: "Format d'email invalide",
       },
     },
@@ -1406,6 +1407,13 @@ const sellerRequestSchema = new mongoose.Schema(
 );
 
 hideSecrets(sellerRequestSchema);
+// Email unique uniquement s'il est renseigné : avec un index unique classique, deux vendeurs
+// sans email entraient en conflit (« email déjà utilisé ») car MongoDB les indexe tous comme null.
+sellerRequestSchema.index(
+  { email: 1 },
+  { unique: true, name: "email_unique_si_renseigne", partialFilterExpression: { email: { $gt: "" } } }
+);
+
 const SellerRequest = mongoose.model("SellerRequest", sellerRequestSchema);
 
 // ─── Notifications vendeur ────────────────────────────────────────────────────

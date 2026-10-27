@@ -877,7 +877,7 @@ router.post(
       password = password ? String(password).trim() : '';
 
       const errors = [];
-      if (!name || name.length < 2) errors.push('Le nom doit contenir au moins 2 caractères.');
+      if (!name || name.length < 3) errors.push('Le nom doit contenir au moins 3 caractères.');
       if (!userName2 || userName2.length < 2) errors.push('Le prénom doit contenir au moins 2 caractères.');
       if (!storeName || storeName.length < 2) errors.push('Le nom de la boutique doit contenir au moins 2 caractères.');
       if (!password || password.length < 6) errors.push('Le mot de passe par défaut doit contenir au moins 6 caractères.');
@@ -1074,10 +1074,12 @@ router.post(
       console.error("Erreur création vendeur par admin:", err);
       if (err.code === 11000) {
         const field = Object.keys(err.keyPattern || {})[0] || 'champ';
+        const labels = { email: 'Cette adresse email', phone: 'Ce numéro de téléphone', storeName: 'Ce nom de boutique' };
         return res.status(409).json({
           status: 'error',
           code: 'DUPLICATE_ENTRY',
-          message: `Ce ${field} existe déjà dans notre système.`,
+          error: { field },
+          message: `${labels[field] || `Ce ${field}`} est déjà utilisé par un autre vendeur.`,
         });
       }
       return res.status(500).json({
