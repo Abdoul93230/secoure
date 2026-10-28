@@ -161,8 +161,13 @@ const trackProductView = handleAsyncError(async (req, res) => {
 const createProduct = handleAsyncError(async (req, res) => {
   try {
     // Validation des données
+    // Route vendeur (authSeller) : le vendeur est celui du jeton, jamais celui du formulaire
+    // (évite « undefined » si le portail a perdu la session, et la création au nom d'un autre)
+    req.body.sellerOrAdmin = "seller";
+    req.body.sellerOrAdmin_id = req.userId;
+    req.body.Clefournisseur = req.userId;
     console.log({data : req.body});
-    
+
     const validationError = validateProduct && validateProduct(req.body);
     if (validationError) {
       return res.status(400).json({ errors: validationError });
