@@ -73,39 +73,4 @@ async function sendToClient(userId, { title, body, data = {} }) {
   }
 }
 
-/**
- * Diagnostic : envoie une notification de test au compte et renvoie, pour chaque jeton,
- * le ticket Expo puis le reçu (réponse de FCM), pour savoir où la chaîne casse.
- */
-async function testClient(userId) {
-  const { User } = require("../Models");
-  const user = await User.findById(userId).select("pushToken expoPushTokens").lean();
-  const tokens = [...new Set([...(user?.expoPushTokens || []), user?.pushToken].filter(Boolean))];
-  const valid = tokens.filter((t) => Expo.isExpoPushToken(t));
-  const report = { tokens: tokens.length, valid: valid.length, results: [] };
-  if (!valid.length) return report;
-
-  const messages = valid.map((to) => ({
-    to, title: "Test Iham Baobab", body: "Les notifications fonctionnent ✅",
-    data: { type: "push_test" }, sound: "default", channelId: "messages", priority: "high",
-  }));
-  const tickets = await sendGrouped(messages);
-  tickets.forEach((t, i) => report.results.push({
-    token: `${valid[i].slice(0, 22)}…`, ticket: t.status, error: t.details?.error || t.message || null, id: t.id,
-  }));
-  // Le reçu arrive quelques secondes après le ticket
-  const ids = report.results.map((r) => r.id).filter(Boolean);
-  if (ids.length) {
-    await new Promise((r) => setTimeout(r, 4000));
-    const receipts = await expo.getPushNotificationReceiptsAsync(ids).catch((e) => ({ _err: e.message }));
-    report.results.forEach((r) => {
-      const rc = receipts[r.id];
-      r.receipt = rc ? rc.status : receipts._err ? `erreur: ${receipts._err}` : "en attente";
-      if (rc?.status === "error") r.error = `${rc.details?.error || ""} ${rc.message || ""}`.trim();
-    });
-  }
-  report.results.forEach((r) => delete r.id);
-  return report;
-}
-
-module.exports = { sendToClient, testClient, isExpoPushToken: (t) => Expo.isExpoPushToken(t) };
+module.exports = { sendToClient, isExpoPushToken: (t) => Expo.isExpoPushToken(t) };

@@ -155,11 +155,6 @@ client.post("/push-token", requireClient, asyncH(async (req, res) => {
   res.json({ success: true });
 }));
 
-/** Diagnostic des notifications : push de test au compte connecté */
-client.post("/push-test", requireClient, asyncH(async (req, res) => {
-  res.json({ success: true, ...(await push.testClient(req.client.id)) });
-}));
-
 client.delete("/push-token", requireClient, asyncH(async (req, res) => {
   const { User } = require("../Models");
   await User.updateOne({ _id: req.client.id }, { $pull: { expoPushTokens: String(req.body?.token || "") } });
