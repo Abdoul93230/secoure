@@ -71,6 +71,15 @@ mongoose
     require('./messaging/support').migrateLegacySupport()
       .catch((err) => console.error("⚠️ Support : reprise de l'ancien chat impossible —", err.message));
 
+    // Paiement en ligne non abouti : commande annulée, stock / code promo / points rendus (toutes les 10 min)
+    const { expireUnpaidOrders } = require('./services/orderPaymentLifecycle');
+    const runExpiry = () => {
+      if (mongoose.connection.readyState !== 1) return;
+      expireUnpaidOrders().catch((err) => console.error("⚠️ Commandes impayées :", err.message));
+    };
+    new cron.CronJob("*/10 * * * *", runExpiry, null, true);
+    setTimeout(runExpiry, 60 * 1000);
+
     // Synchroniser les commissions PricingPlan avec SUBSCRIPTION_CONFIG au démarrage
     await syncPlanCommissions();
 

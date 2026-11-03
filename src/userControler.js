@@ -700,6 +700,9 @@ const createCommande = async (req, res) => {
         // Répartition calculée par le serveur (celle du client n'est qu'un repli pour les anciennes apps)
         shippingByStore: serverShippingByStore.length ? serverShippingByStore : (data.shippingByStore || []),
         statusPayment: data?.statusPayment ? data.statusPayment : "en cours",
+        // Paiement en ligne : invisible pour le vendeur jusqu'à confirmation iPay (voir orderPaymentLifecycle)
+        awaitingPayment: require('./services/orderPaymentLifecycle').isOnlinePayment(data?.statusPayment || "en cours"),
+        paymentStartedAt: new Date(),
         pointsUsed,
         pointsDiscount,
         // Suivi partageable + commande sans compte
@@ -754,75 +757,11 @@ const createCommande = async (req, res) => {
       }
     }
 
-    // Notifier chaque vendeur concerné via Socket.io + Expo Push
-    try {
-      const io = req?.app?.get?.('io');
-      const { Produit, SellerRequest } = require('./Models');
-      const { sendExpoPushToSellers } = require('./utils/expoNotifications');
-
-      const produitIds = commande.nbrProduits.map(p => p.produit);
-      const produits = await Produit.find({ _id: { $in: produitIds } }, { Clefournisseur: 1, name: 1, image1: 1, pictures: 1 }).lean();
-      const sellerIds = [...new Set(produits.map(p => String(p.Clefournisseur)).filter(Boolean))];
-
-      // Images des 3 premiers produits pour la notification (max 3 URLs)
-      const productImages = produits
-        .slice(0, 3)
-        .map(p => p.image1 || (p.pictures && p.pictures[0]) || null)
-        .filter(Boolean);
-
-      // Nombre total d'articles commandés
-      const totalArticles = commande.nbrProduits.reduce((s, p) => s + (p.quantite || 1), 0);
-
-      // Montant sans frais de livraison
-      const montantProduits = commande.prixTotal || (commande.prix - (commande.fraisLivraison || 0));
-      const montantFormate = Number(montantProduits || 0).toLocaleString('fr-FR');
-
-      if (io) {
-        const heartbeatCache = require('./services/heartbeatCache');
-        const articleLabel = totalArticles > 1 ? `${totalArticles} articles` : `1 article`;
-        sellerIds.forEach(sid => {
-          heartbeatCache.invalidate(sid);
-          io.to(`seller:${sid}`).emit('new_order', {
-            commandeId: commande._id,
-            reference: commande.reference,
-            total: montantProduits,
-            date: commande.date || new Date(),
-            // Notification inline — le mobile peut l'ajouter sans fetch réseau
-            notif: {
-              id: `notif_${commande._id}_${sid}`,
-              type: 'new_order',
-              title: '🛍️ Nouvelle commande !',
-              body: `${articleLabel} — ${montantFormate} FCFA · Réf ${commande.reference}`,
-              data: { type: 'new_order', orderId: String(commande._id), reference: commande.reference },
-              readAt: null,
-              receivedAt: new Date().toISOString(),
-            },
-          });
-        });
-      }
-
-      // Push Expo + sauvegarde DB vers l'app mobile du vendeur
-      if (sellerIds.length > 0) {
-        const sellers = await SellerRequest.find(
-          { _id: { $in: sellerIds } },
-          { expoPushTokens: 1 }
-        ).lean();
-        const allTokens = sellers.flatMap(s => s.expoPushTokens || []);
-        const articleLabel = totalArticles > 1 ? `${totalArticles} articles` : `1 article`;
-        await sendExpoPushToSellers(sellerIds, allTokens, {
-          title: '🛍️ Nouvelle commande !',
-          body: `${articleLabel} — ${montantFormate} FCFA · Réf ${commande.reference}`,
-          data: {
-            type: 'new_order',
-            orderId: String(commande._id),
-            reference: commande.reference,
-            montant: montantProduits,
-            totalArticles,
-            productImages,
-          },
-        });
-      }
-    } catch (_) { }
+    // Vendeurs prévenus tout de suite pour un paiement à la livraison / par téléphone ;
+    // pour un paiement en ligne, seulement quand iPay confirme le paiement
+    if (!commande.awaitingPayment) {
+      await require('./services/orderPaymentLifecycle').notifySellersNewOrder(commande, req?.app?.get?.('io'));
+    }
 
     const message = "Commande créée avec succès et stock mis à jour.";
     return res.json({
@@ -2261,6 +2200,13 @@ const payment_callback = async (req, res) => {
           amount,
         });
 
+        // Commande visible pour les vendeurs, qui sont prévenus maintenant
+        try {
+          await require('./services/orderPaymentLifecycle').onPaymentConfirmed(updatedCommande || commande, req?.app?.get?.('io'));
+        } catch (e) {
+          console.error('⚠️ Suite du paiement confirmé :', e.message);
+        }
+
         // Si un code promo a été utilisé
         if (commande.codePro && commande.idCodePro) {
           await PromoCode.findByIdAndUpdate(commande.idCodePro, {
@@ -2396,8 +2342,10 @@ const updateCommanderef = async (req, res) => {
     // on n'y touche pas, une nouvelle commande est créée pour le client connecté
     const notMine = existingCheck && req.actor && req.actor.kind !== 'admin'
       && String(existingCheck.clefUser) !== String(req.actor.userId);
-    if (!existingCheck || notMine) {
-      console.warn(`⚠️ Commande ${notMine ? "d'un autre compte" : 'introuvable'} (ref: "${data.oldReference}") — bascule vers createCommande`);
+    // Déjà payée, ou annulée faute de paiement (stock, promo et points déjà rendus) : nouvelle commande
+    const closed = existingCheck && (existingCheck.statusPayment === 'payé' || existingCheck.paymentExpired);
+    if (!existingCheck || notMine || closed) {
+      console.warn(`⚠️ Commande ${notMine ? "d'un autre compte" : closed ? 'close' : 'introuvable'} (ref: "${data.oldReference}") — bascule vers createCommande`);
       session._sessionClosed = true;
       await session.endSession();
       // Utiliser la nouvelle référence comme référence de la commande créée
@@ -2604,6 +2552,8 @@ const updateCommanderef = async (req, res) => {
         // Répartition calculée par le serveur (celle du client n'est qu'un repli pour les anciennes apps)
         shippingByStore: serverShippingByStore.length ? serverShippingByStore : (data.shippingByStore || []),
         statusPayment: statusPayment || "en_attente",
+        awaitingPayment: require('./services/orderPaymentLifecycle').isOnlinePayment(statusPayment || "en_attente"),
+        paymentStartedAt: new Date(), // nouvel essai : nouveau délai de paiement
         pointsUsed,
         pointsDiscount,
         ...(data._phoneCallback ? { phoneConfirmation: 'pending' } : {}),
@@ -2690,6 +2640,12 @@ const updateCommanderef = async (req, res) => {
       } catch (pErr) {
         console.error('⚠️ Erreur débit BP relance:', pErr.message);
       }
+    }
+
+    // Relance passée au paiement à la livraison / par téléphone : vendeurs prévenus maintenant
+    const updatedForNotif = await Commande.findOne({ reference: req.body.newReference }).lean();
+    if (updatedForNotif && !updatedForNotif.awaitingPayment) {
+      await require('./services/orderPaymentLifecycle').notifySellersNewOrder(updatedForNotif, req?.app?.get?.('io'));
     }
 
     res.status(200).json({
@@ -2857,6 +2813,15 @@ const updateEtatTraitement = async (req, res) => {
       await gererChangementEtatCommande(commandeId, ancienEtat, nouvelEtat, updatedOrder);
     } catch (financialError) {
       console.error('❌ Erreur financière:', financialError);
+    }
+
+    // Code promo : l'utilisation est rendue au client
+    if (nouvelEtat === "annulé" && ancienEtat !== "annulé" && updatedOrder.idCodePro) {
+      try {
+        await require('./controllers/promoCodeController').restorePromoUsage(updatedOrder.idCodePro, updatedOrder._id);
+      } catch (pErr) {
+        console.error('⚠️ Restitution du code promo (annulation):', pErr.message);
+      }
     }
 
     // Gamification: restituer les points si annulation

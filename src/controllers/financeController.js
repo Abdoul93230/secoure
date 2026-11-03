@@ -199,7 +199,10 @@ async function getSellerOrdersWithFinancialInfo(sellerId, options = {}) {
       ? { _id: new mongoose.Types.ObjectId(options.commandeId) }
       : null;
 
+    // Paiement en ligne pas encore confirmé : le vendeur ne la voit pas
+    const { SELLER_VISIBLE } = require('../services/orderPaymentLifecycle');
     const pipeline = [
+      { $match: SELLER_VISIBLE },
       ...(idFilter ? [{ $match: idFilter }] : Object.keys(dateFilter).length ? [{ $match: { date: dateFilter } }] : []),
       { $unwind: "$nbrProduits" },
       {

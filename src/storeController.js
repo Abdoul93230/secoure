@@ -1765,6 +1765,8 @@ async function getSellerOrders(sellerId, options = {}) {
       {
         $match: {
           statusPayment: { $exists: true }, // Pour s'assurer qu'on ne prend que des commandes valides
+          // Paiement en ligne pas encore confirmé : le vendeur ne la voit pas
+          ...require("./services/orderPaymentLifecycle").SELLER_VISIBLE,
         },
       },
 
