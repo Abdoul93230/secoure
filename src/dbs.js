@@ -67,6 +67,10 @@ mongoose
       console.error('⚠️ Articles : correction des prix promo impossible —', err.message);
     }
 
+    // Support : historique de l'ancien chat repris dans la messagerie (idempotent, en arrière-plan)
+    require('./messaging/support').migrateLegacySupport()
+      .catch((err) => console.error('⚠️ Support : reprise de l'ancien chat impossible —', err.message));
+
     // Synchroniser les commissions PricingPlan avec SUBSCRIPTION_CONFIG au démarrage
     await syncPlanCommissions();
 

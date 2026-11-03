@@ -10,6 +10,7 @@ const mongoose = require("mongoose");
 const { Manager, StoreConversation, StoreMessage } = require("./models");
 const { filterContacts } = require("./contactFilter");
 const push = require("./push");
+const support = require("./support");
 
 let nsp = null; // namespace Socket.IO, branché par socket.js
 const setNamespace = (n) => { nsp = n; };
@@ -34,6 +35,7 @@ const toClient = (clientId) => nsp?.to(clientRoom(clientId));
 // ─── Boutiques (nom + logo, cache court) ───────────────────────────────────────
 const storeCache = new Map();
 async function storeInfo(sellerId) {
+  if (support.isSupport(sellerId)) return support.SUPPORT_STORE;
   const key = String(sellerId);
   const hit = storeCache.get(key);
   if (hit && hit.exp > Date.now()) return hit.v;
@@ -114,6 +116,7 @@ async function conversationForStaff(c, { client, assigned } = {}) {
 // ─── Cartes produit / commande ─────────────────────────────────────────────────
 async function productCard(productId, sellerId) {
   if (!isId(productId)) return null;
+  if (support.isSupport(sellerId)) sellerId = null; // le support peut parler de n'importe quel article
   const { Produit } = require("../Models");
   const p = await Produit.findById(productId).select("name image1 prix prixPromo Clefournisseur").lean();
   if (!p || (sellerId && String(p.Clefournisseur) !== String(sellerId))) return null;
@@ -154,6 +157,7 @@ async function pickManager(sellerId) {
 // ─── Conversations ─────────────────────────────────────────────────────────────
 /** Ouvre (ou retrouve) la conversation client ↔ boutique */
 async function openConversation({ clientId, sellerId, productId, orderId }) {
+  sellerId = support.supportId(sellerId);
   if (!isId(sellerId)) throw Object.assign(new Error("Boutique invalide."), { status: 400 });
   const store = await storeInfo(sellerId);
   if (!store) throw Object.assign(new Error("Boutique introuvable."), { status: 404 });
@@ -184,7 +188,7 @@ async function openConversation({ clientId, sellerId, productId, orderId }) {
  * Enregistre un message et le diffuse.
  * actor : { kind: 'client', id } | staff (admin / manager)
  */
-async function postMessage({ conversation, actor, text, card = null, attachments = [], audio = null, internal = false, clientTempId = null }) {
+async function postMessage({ conversation, actor, text, card = null, attachments = [], audio = null, internal = false, clientTempId = null, legacy = false }) {
   const isClient = actor.kind === "client";
   const raw = String(text || "").trim().slice(0, 2000);
   const files = (attachments || []).filter((u) => CLOUDINARY.test(String(u))).slice(0, 4);
@@ -199,7 +203,9 @@ async function postMessage({ conversation, actor, text, card = null, attachments
     if (dup) return { message: dup, duplicate: true };
   }
 
-  const { text: safeText, masked } = internal ? { text: raw, masked: false } : filterContacts(raw);
+  // Support : la plateforme elle-même, les coordonnées ne sont pas masquées
+  const isSupportConv = support.isSupport(conversation.sellerId);
+  const { text: safeText, masked } = internal || isSupportConv ? { text: raw, masked: false } : filterContacts(raw);
   const store = await storeInfo(conversation.sellerId);
   const from = isClient ? "client" : "store";
   const signature = !isClient && !internal && actor.displayName ? `${actor.displayName} · équipe ${store?.name || ""}`.trim() : "";
@@ -246,6 +252,7 @@ async function postMessage({ conversation, actor, text, card = null, attachments
     if (!conversation.assignedTo && actor.kind === "manager") update.$set.assignedTo = actor.id;
   }
   const conv = await StoreConversation.findByIdAndUpdate(conversation._id, update, { new: true }).lean();
+  if (isSupportConv && !legacy) support.mirrorToLegacy(conv, plain);
 
   // Diffusion temps réel
   const convId = String(conv._id);
@@ -292,6 +299,11 @@ async function markRead({ conversation, by }) {
   if (r.modifiedCount > 0) {
     if (by === "client") toStaff(conversation.sellerId)?.emit("message:read", payload);
     else toClient(conversation.clientId)?.emit("message:read", payload);
+  }
+  if (support.isSupport(conversation.sellerId) && r.modifiedCount > 0) {
+    const { UserMessage } = require("../Models");
+    UserMessage.updateMany({ clefUser: String(conversation.clientId), [by === "client" ? "lusUser" : "lusAdmin"]: false },
+      { $set: { [by === "client" ? "lusUser" : "lusAdmin"]: true } }).catch(() => {});
   }
   if (by === "client") emitClientUnread(conversation.clientId);
   else toStaff(conversation.sellerId)?.emit("conversation:read", { conversationId: String(conversation._id) });

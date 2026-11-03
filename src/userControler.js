@@ -1389,80 +1389,25 @@ const getUsers = async (req, res) => {
 };
 
 const createUserMessage = async (req, res) => {
-  const { date, message, clefUser, provenance, utlisateur } = req.body;
+  const { date, message, clefUser, provenance } = req.body;
 
   try {
-    // Créer une nouvelle instance de UserMessage avec les données fournies
     const newUserMessage = new UserMessage({
-      date: date,
+      date: date || new Date(),
       message: message,
       clefUser: clefUser,
       provenance: provenance,
     });
-
-    // Sauvegarder le message
     await newUserMessage.save();
 
-    // Récupérer l'utilisateur destinataire pour obtenir son pushToken
-    const user = await User.findById(clefUser);
-
-    if (user && user.pushToken) {
-      // Vérifier si le token est valide
-      if (!Expo.isExpoPushToken(user.pushToken)) {
-        console.error(
-          `Push token ${user.pushToken} is not a valid Expo push token`
-        );
-        return res
-          .status(201)
-          .json("message envoyé mais notification impossible");
-      }
-
-      // Préparer le message de notification
-      const cleanMessage = message.replace(/<[^>]*>/g, "");
-
-      const messages = [
-        {
-          to: user.pushToken,
-          sound: "default",
-          title: "IHAM Baobab message",
-          body:
-            cleanMessage.length > 70
-              ? cleanMessage.substring(0, 47) + "..."
-              : cleanMessage,
-          data: {
-            messageId: newUserMessage._id,
-            clefUser: clefUser,
-            provenance: provenance,
-          },
-          icon: "https://res.cloudinary.com/dkfddtykk/image/upload/v1730637067/images/djbqrcbhunhdoeucxbyb.png",
-        },
-      ];
-
-      try {
-        if (!utlisateur) {
-          // Envoyer les notifications en chunks (Expo recommande des chunks de 100 notifications max)
-          const chunks = expo.chunkPushNotifications(messages);
-          const tickets = [];
-
-          for (let chunk of chunks) {
-            try {
-              const ticketChunk = await expo.sendPushNotificationsAsync(chunk);
-              tickets.push(...ticketChunk);
-            } catch (error) {
-              console.error("Erreur lors de l'envoi des notifications:", error);
-            }
-          }
-
-          console.log("Notifications envoyées:", tickets);
-        } else {
-          console.log("condition non verifier");
-        }
-      } catch (error) {
-        console.error(
-          "Erreur lors de la préparation des notifications:",
-          error
-        );
-      }
+    // Ancien chat (anciennes versions de l'app, ancienne page admin) : recopié dans la
+    // conversation « Support Ihambaobab » de la messagerie, qui envoie temps réel et push
+    try {
+      await require("./messaging/support").fromLegacy(newUserMessage, {
+        staff: req.isAdmin && provenance === false ? { kind: "admin", id: req.userId, name: "Admin" } : null,
+      });
+    } catch (e) {
+      console.error("[Support] reprise du message dans la messagerie impossible :", e.message);
     }
 
     res.status(201).json("message envoyé");
@@ -1588,6 +1533,11 @@ function deleteUserMessageById(req, res) {
 
   UserMessage.findByIdAndDelete(messageId)
     .then((deletedMessage) => {
+      if (deletedMessage?.storeMessageId) {
+        // Même message dans la conversation support de la messagerie
+        const { StoreMessage } = require("./messaging/models");
+        StoreMessage.deleteOne({ _id: deletedMessage.storeMessageId }).catch(() => {});
+      }
       if (deletedMessage) {
         res.status(200).json({ message: "Message supprimé avec succès." });
       } else {

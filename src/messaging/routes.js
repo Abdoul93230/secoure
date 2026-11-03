@@ -18,6 +18,7 @@ const {
 } = require("./staffAuth");
 const svc = require("./service");
 const push = require("./push");
+const support = require("./support");
 
 const client = express.Router();
 const staff = express.Router();
@@ -84,7 +85,7 @@ const loadClientConv = async (req) => {
   return conv;
 };
 
-/** Ouvre la conversation avec une boutique (depuis un produit, une boutique ou une commande) */
+/** Ouvre la conversation avec une boutique (depuis un produit, une boutique ou une commande) ; sellerId « support » : le support Ihambaobab */
 client.post("/conversations", requireClient, asyncH(async (req, res) => {
   const { sellerId, productId, orderId } = req.body || {};
   const { conversation, card } = await svc.openConversation({ clientId: req.client.id, sellerId, productId, orderId });
@@ -92,7 +93,7 @@ client.post("/conversations", requireClient, asyncH(async (req, res) => {
     success: true,
     conversation: await svc.conversationForClient(conversation.toObject()),
     context: card ? { ...card, id: String(card.id) } : null,
-    storeOnline: await svc.isStoreOnline(sellerId),
+    storeOnline: await svc.isStoreOnline(conversation.sellerId),
   });
 }));
 
@@ -174,10 +175,12 @@ staff.get("/me", requireStaff(), asyncH(async (req, res) => {
   const { SellerRequest } = require("../Models");
   const q = req.staff.sellerIds === null ? {} : { _id: { $in: req.staff.sellerIds } };
   const sellers = await SellerRequest.find(q).select("storeName name logo isvalid").sort({ storeName: 1 }).limit(req.staff.sellerIds === null ? 0 : 500).lean();
+  const list = sellers.map((s) => ({ id: String(s._id), name: s.storeName || s.name, logo: s.logo || null, active: s.isvalid !== false }));
+  if (canAccessSeller(req.staff, support.SUPPORT_ID)) list.unshift(support.SUPPORT_STORE);
   res.json({
     success: true,
     staff: { kind: req.staff.kind, id: req.staff.id, name: req.staff.name, displayName: req.staff.displayName, permissions: req.staff.permissions },
-    sellers: sellers.map((s) => ({ id: String(s._id), name: s.storeName || s.name, logo: s.logo || null, active: s.isvalid !== false })),
+    sellers: list,
   });
 }));
 
@@ -228,7 +231,7 @@ staff.get("/conversations/:id", requireStaff("messages"), asyncH(async (req, res
     User.findById(conv.clientId).select("name dateCreating createdAt").lean(),
     conv.assignedTo ? Manager.findById(conv.assignedTo).select("name").lean() : null,
     req.staff.permissions.orders !== false
-      ? Commande.find({ clefUser: String(conv.clientId), "shippingByStore.storeId": String(conv.sellerId) })
+      ? Commande.find({ clefUser: String(conv.clientId), ...(support.isSupport(conv.sellerId) ? {} : { "shippingByStore.storeId": String(conv.sellerId) }) })
         .select("reference prixTotal prix etatTraitement statusPayment date").sort({ date: -1 }).limit(5).lean()
       : [],
     conv.context?.productId ? svc.productCard(conv.context.productId) : null,
@@ -327,13 +330,15 @@ staff.get("/sellers", requireStaff(), asyncH(async (req, res) => {
   ]);
   const p = new Map(pending.map((x) => [String(x._id), x.n]));
   const o = new Map(open.map((x) => [String(x._id), x.n]));
-  res.json({
-    success: true,
-    data: sellers.map((s) => ({
-      id: String(s._id), name: s.storeName || s.name, logo: s.logo || null, city: s.city || "", active: s.isvalid !== false,
-      pendingProducts: p.get(String(s._id)) || 0, openConversations: o.get(String(s._id)) || 0,
-    })),
-  });
+  const data = sellers.map((s) => ({
+    id: String(s._id), name: s.storeName || s.name, logo: s.logo || null, city: s.city || "", active: s.isvalid !== false,
+    pendingProducts: p.get(String(s._id)) || 0, openConversations: o.get(String(s._id)) || 0,
+  }));
+  if (canAccessSeller(req.staff, support.SUPPORT_ID)) {
+    const n = await StoreConversation.countDocuments({ sellerId: support.SUPPORT_ID, status: "open" });
+    data.unshift({ ...support.SUPPORT_STORE, city: "", pendingProducts: 0, openConversations: n });
+  }
+  res.json({ success: true, data });
 }));
 
 // ─── Modération des produits des boutiques du périmètre ────────────────────────
@@ -448,7 +453,10 @@ const managerJSON = async (m) => {
   return {
     id: String(m._id), name: m.name, email: m.email, phone: m.phone, displayName: m.displayName, isActive: m.isActive,
     permissions: m.permissions, lastLoginAt: m.lastLoginAt, lastSeenAt: m.lastSeenAt, createdAt: m.createdAt,
-    sellers: sellers.map((s) => ({ id: String(s._id), name: s.storeName || s.name })),
+    sellers: [
+      ...((m.sellerIds || []).some((id) => support.isSupport(id)) ? [{ id: support.SUPPORT_ID, name: support.SUPPORT_STORE.name }] : []),
+      ...sellers.map((s) => ({ id: String(s._id), name: s.storeName || s.name })),
+    ],
   };
 };
 const cleanSellerIds = (ids) => [...new Set((Array.isArray(ids) ? ids : []).map(String).filter(svc.isId))];

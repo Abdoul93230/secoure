@@ -186,12 +186,15 @@ io.on("connection", (socket) => {
     }
   });
 
+  // Ancien chat support : simple signal « rechargez » (chacun relit ses messages via l'API
+  // authentifiée). Le texte n'est plus diffusé à toutes les connexions.
+  const legacyPing = (data) => ({ data: { clefUser: data?.data?.clefUser ? String(data.data.clefUser) : undefined } });
   socket.on("delete_message", (data) => {
-    io.emit("delete_message", data);
+    io.emit("delete_message", legacyPing(data));
   });
 
   socket.on("new_message_u", (data) => {
-    io.emit("new_message_user", data);
+    io.emit("new_message_user", legacyPing(data));
   });
 });
 
