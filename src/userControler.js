@@ -2392,8 +2392,12 @@ const updateCommanderef = async (req, res) => {
 
     // ── Fallback: si la commande n'existe pas, créer plutôt que mettre à jour ──
     const existingCheck = await Commande.findOne({ reference: data.oldReference }).lean();
-    if (!existingCheck) {
-      console.warn(`⚠️ Commande introuvable (ref: "${data.oldReference}") — bascule vers createCommande`);
+    // Commande mémorisée sur le téléphone mais d'un autre compte (ou passée sans compte) :
+    // on n'y touche pas, une nouvelle commande est créée pour le client connecté
+    const notMine = existingCheck && req.actor && req.actor.kind !== 'admin'
+      && String(existingCheck.clefUser) !== String(req.actor.userId);
+    if (!existingCheck || notMine) {
+      console.warn(`⚠️ Commande ${notMine ? "d'un autre compte" : 'introuvable'} (ref: "${data.oldReference}") — bascule vers createCommande`);
       session._sessionClosed = true;
       await session.endSession();
       // Utiliser la nouvelle référence comme référence de la commande créée
