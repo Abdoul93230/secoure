@@ -94,7 +94,10 @@ async function releaseUnpaidOrder(orderId, reason = "paiement_non_abouti") {
       etatTraitement: { $ne: "annulé" },
       statusPayment: { $nin: ["payé", ...OFFLINE_PAYMENTS] },
     },
-    { $set: { etatTraitement: "annulé", cancelReason: reason, cancelledAt: new Date(), paymentExpired: true } },
+    { $set: {
+      etatTraitement: "annulé", cancelReason: reason, cancelledAt: new Date(), paymentExpired: true,
+      cancel: { reason, byKind: "system", byLabel: "Ihambaobab (automatique)", note: "", at: new Date() },
+    } },
     { new: false }
   ).lean();
   if (!before) return false;
@@ -123,6 +126,21 @@ async function releaseUnpaidOrder(orderId, reason = "paiement_non_abouti") {
     }
   }
   await Commande.updateOne({ _id: before._id }, { $set: { stockRestored: restored.stock, releasedOnExpiry: restored } });
+
+  const trace = require("./orderTrace");
+  const back = [before.codePromo || before.idCodePro ? "votre code promo" : null, before.pointsUsed > 0 ? `vos ${before.pointsUsed} Baobab Points` : null].filter(Boolean);
+  await trace.logEvent(before._id, {
+    type: "expired", by: { kind: "system" },
+    note: `Aucun paiement reçu dans les ${PAYMENT_WINDOW_MIN} min. Stock${back.length ? `, ${back.join(" et ")}` : ""} rendu${back.length ? "s" : ""}.`,
+  });
+  await trace.notifyClient(before, {
+    title: "Commande annulée : paiement non reçu",
+    body: `Rien n'a été débité.${back.length ? ` ${back.join(" et ").replace(/^./, (c) => c.toUpperCase())} vous ${back.length > 1 ? "ont" : "a"} été rendu${back.length > 1 ? "s" : ""}.` : ""} Réf ${before.reference}`,
+  });
+  // Commandes d'avant ce système : le vendeur avait été prévenu à la création
+  if (before.sellerNotifiedAt || before.awaitingPayment === undefined) {
+    await trace.notifySellers(before, { type: "order_cancelled", title: "Commande annulée", body: `Réf ${before.reference} · paiement non abouti. Le stock de vos articles a été remis.` });
+  }
   console.log(`🧾 Commande ${before.reference} annulée (${reason}) : stock ${restored.stock ? "✓" : "✗"}, promo ${before.idCodePro ? (restored.promo ? "✓" : "✗") : "—"}, points ${before.pointsUsed > 0 ? (restored.points ? "✓" : "✗") : "—"}`);
   return true;
 }
@@ -173,6 +191,12 @@ async function onPaymentConfirmed(commande, io) {
     console.warn(`⚠️ Commande ${commande.reference} payée après expiration : rétablie, à vérifier`);
   }
   await Commande.updateOne({ _id: commande._id }, { $set: set });
+  const trace = require("./orderTrace");
+  if (!commande.history?.some((e) => e.type === "paid")) {
+    await trace.logEvent(commande._id, { type: "paid", by: { kind: "ipay" }, note: commande.paymentDetails?.amount ? `${Number(commande.paymentDetails.amount).toLocaleString("fr-FR")} F` : "" });
+  }
+  if (set.needsReview) await trace.logEvent(commande._id, { type: "reactivated", by: { kind: "system" }, note: "Paiement reçu après l'annulation automatique." });
+  await trace.ensureHandover(commande);
   await notifySellersNewOrder(commande, io);
 }
 

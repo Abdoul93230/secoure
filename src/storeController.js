@@ -1872,6 +1872,8 @@ async function getSellerOrders(sellerId, options = {}) {
     const orders = await Commande.aggregate(pipeline)
       .skip(skip)
       .limit(limit);
+    // Code de retrait, journal et raison d'annulation
+    await require("./services/orderTrace").decorateForSeller(orders, sellerId);
 
     // 🔥 NOUVEAU: Compter le total pour la pagination
     const totalPipeline = [
@@ -2007,6 +2009,7 @@ const validate_seller_products = async (req, res) => {
     const sellerId = req.params.sellerId; // ou req.seller._id selon votre implémentation d'authentification
 
     const result = await validateSellerProducts(orderId, sellerId);
+    await require("./services/orderTrace").logEvent(orderId, { type: "accepted", by: { kind: "seller", id: sellerId }, storeId: sellerId });
 
     res.status(200).json(result);
   } catch (error) {

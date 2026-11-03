@@ -225,7 +225,10 @@ const trackOrder = async (req, res) => {
       && crypto.timingSafeEqual(Buffer.from(c.trackingToken), Buffer.from(k));
     if (!ok) return fail(res, 404, "Commande introuvable ou lien expiré.");
     res.set("Cache-Control", "no-store");
-    return res.json({ success: true, data: safeOrder(c) });
+    // Lien de suivi partageable : pas de code de livraison (il ne sert qu'au client lui-même)
+    const trace = await require("../services/orderTrace").clientTrace(c);
+    delete trace.deliveryCode;
+    return res.json({ success: true, data: { ...safeOrder(c), trace } });
   } catch (e) {
     console.error("[track]", e);
     return fail(res, 500, "Suivi indisponible.");

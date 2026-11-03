@@ -266,6 +266,13 @@ app.use('/api/pos', posRoutes);
 // Gestion agents : protégée par requireSeller
 app.use('/api/agents', agentRoutes);
 
+// Livreurs : page /livreur du site (retrait + livraison par codes), comptes gérés par l'admin
+{
+  const { courierRouter, courierAdminRouter } = require('./src/routes/courierRoutes');
+  app.use('/api/courier/admin', courierAdminRouter);
+  app.use('/api/courier', courierRouter);
+}
+
 // Messagerie boutiques : client ↔ boutique, réponses de l'équipe (managers) au nom de la boutique
 {
   const { clientRouter, staffRouter } = require('./src/messaging/routes');

@@ -757,9 +757,18 @@ const createCommande = async (req, res) => {
       }
     }
 
+    // Journal : commande passée (client, invité ou équipe)
+    const trace = require('./services/orderTrace');
+    await trace.logEvent(commande._id, {
+      type: 'created',
+      by: req.actor?.kind === 'admin' ? { kind: 'admin' } : { kind: 'client', id: data.clefUser },
+      note: commande.awaitingPayment ? 'En attente du paiement en ligne' : (commande.statusPayment === 'payé par téléphone' ? 'Paiement assisté par téléphone' : 'Paiement à la livraison'),
+    });
+
     // Vendeurs prévenus tout de suite pour un paiement à la livraison / par téléphone ;
     // pour un paiement en ligne, seulement quand iPay confirme le paiement
     if (!commande.awaitingPayment) {
+      await trace.ensureHandover(commande);
       await require('./services/orderPaymentLifecycle').notifySellersNewOrder(commande, req?.app?.get?.('io'));
     }
 
@@ -815,7 +824,10 @@ const getCommandesById = async (req, res) => {
       }
     }
 
-    return res.json({ commande });
+    // Montants, réservation du paiement, code de livraison, étapes : lisibles par le client
+    const trace = await require('./services/orderTrace').clientTrace(commande.toObject ? commande.toObject() : commande);
+    if (req.actor?.kind === 'admin') delete trace.deliveryCode;
+    return res.json({ commande: { ...(commande.toObject ? commande.toObject() : commande), history: undefined, handover: undefined }, trace });
   } catch (error) {
     const message =
       "Erreur lors de la récupération des commandes pour la clefUser spécifiée.";
@@ -853,7 +865,10 @@ const getCommandeByReference = async (req, res) => {
       return res.status(403).json({ message: "Accès non autorisé à cette commande." });
     }
 
-    return res.json({ commande });
+    // Montants, réservation du paiement, code de livraison, étapes : lisibles par le client
+    const trace = await require('./services/orderTrace').clientTrace(commande.toObject ? commande.toObject() : commande);
+    if (req.actor?.kind === 'admin') delete trace.deliveryCode;
+    return res.json({ commande: { ...(commande.toObject ? commande.toObject() : commande), history: undefined, handover: undefined }, trace });
   } catch (error) {
     const message = "Erreur lors de la récupération de la commande pour la référence spécifiée.";
     return res.status(500).json({ message, error });
@@ -2260,6 +2275,10 @@ const payment_callback = async (req, res) => {
           failureDetails: req.body,
         });
 
+        await require('./services/orderTrace').logEvent(commande._id, {
+          type: 'payment_failed', by: { kind: 'ipay' }, note: failureReason ? String(failureReason) : '',
+        });
+
         console.log("Paiement échoué pour la transaction", {
           externalReference,
           commandeId: commande._id,
@@ -2758,8 +2777,19 @@ const updateCommanderef = async (req, res) => {
 const updateEtatTraitement = async (req, res) => {
   try {
     const { commandeId } = req.params;
-    const { nouvelEtat } = req.body;
+    const { nouvelEtat, cancelReason, cancelNote } = req.body;
+    const trace = require('./services/orderTrace');
+    // Auteur du changement (livreur via /api/courier, sinon l'équipe)
+    const by = req.traceBy || { kind: 'admin' };
 
+    if (nouvelEtat === "annulé") {
+      if (cancelReason && !trace.CANCEL_REASONS[cancelReason]) {
+        return res.status(400).json({ success: false, message: "Raison d'annulation inconnue." });
+      }
+      if (cancelReason === 'autre' && !String(cancelNote || '').trim()) {
+        return res.status(400).json({ success: false, message: "Précisez la raison de l'annulation." });
+      }
+    }
 
     // Récupérer l'état actuel avant mise à jour
     const currentOrder = await Commande.findById(commandeId);
@@ -2775,8 +2805,20 @@ const updateEtatTraitement = async (req, res) => {
     // Préparer les champs de mise à jour
     const updateFields = { etatTraitement: nouvelEtat };
 
-    // Si la commande est annulée, restaurer le stock
-    if (nouvelEtat === "annulé") {
+    if (nouvelEtat === "annulé" && ancienEtat !== "annulé") {
+      updateFields.cancel = {
+        reason: cancelReason || 'autre',
+        byKind: by.kind,
+        byLabel: by.name || trace.ACTOR_LABEL[by.kind] || '',
+        note: String(cancelNote || '').trim().slice(0, 300),
+        at: new Date(),
+      };
+      updateFields.cancelReason = cancelReason || 'autre';
+      updateFields.cancelledAt = new Date();
+    }
+
+    // Si la commande est annulée, restaurer le stock (une seule fois)
+    if (nouvelEtat === "annulé" && ancienEtat !== "annulé" && !currentOrder.stockRestored) {
       console.log('🔄 Annulation de commande - Restauration du stock...');
 
       try {
@@ -2813,6 +2855,26 @@ const updateEtatTraitement = async (req, res) => {
       await gererChangementEtatCommande(commandeId, ancienEtat, nouvelEtat, updatedOrder);
     } catch (financialError) {
       console.error('❌ Erreur financière:', financialError);
+    }
+
+    // Journal + notifications
+    if (nouvelEtat !== ancienEtat) {
+      const TYPE = { 'annulé': 'cancelled', 'reçu par le livreur': 'picked_up', 'en cours de livraison': 'in_delivery', 'livré': 'delivered', 'livraison reçu': 'delivered', 'Traité': 'delivered', 'traitement': 'processing' };
+      const label = nouvelEtat === 'annulé'
+        ? `${trace.CANCEL_REASONS[updateFields.cancel?.reason] || 'Annulée'}${updateFields.cancel?.note ? ` — ${updateFields.cancel.note}` : ''}`
+        : '';
+      if (!req.skipTraceLog) await trace.logEvent(updatedOrder._id, { type: TYPE[nouvelEtat] || 'status', by, note: label || (TYPE[nouvelEtat] ? '' : nouvelEtat) });
+      if (nouvelEtat === 'annulé') {
+        await trace.notifySellers(updatedOrder, {
+          type: 'order_cancelled',
+          title: 'Commande annulée',
+          body: `Réf ${updatedOrder.reference} · ${label}. Annulée par : ${updateFields.cancel?.byLabel || 'Équipe Ihambaobab'}. Le stock de vos articles a été remis.`,
+        }, req?.app?.get?.('io'));
+        await trace.notifyClient(updatedOrder, {
+          title: 'Commande annulée',
+          body: `Réf ${updatedOrder.reference} · ${label}.${updatedOrder.statusPayment === 'payé' ? " Notre équipe vous contacte pour le remboursement." : ''}`,
+        });
+      }
     }
 
     // Code promo : l'utilisation est rendue au client

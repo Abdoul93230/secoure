@@ -345,6 +345,9 @@ async function getSellerOrdersWithFinancialInfo(sellerId, options = {}) {
       tauxCommission: order.tauxCommission || tauxCommission,
     }));
 
+    // Code de retrait, journal et raison d'annulation
+    await require('../services/orderTrace').decorateForSeller(orders, sellerId);
+
     const totalPipeline = [...pipeline.slice(0, -1), { $count: "total" }];
     const totalResult = await Commande.aggregate(totalPipeline);
     const total = totalResult.length > 0 ? totalResult[0].total : 0;
