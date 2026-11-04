@@ -22,6 +22,7 @@ const isOnlinePayment = (statusPayment) => !OFFLINE_PAYMENTS.includes(statusPaym
 const SELLER_VISIBLE = {
   awaitingPayment: { $ne: true },
   statusPayment: { $nin: LEGACY_UNPAID },
+  isDemo: { $ne: true }, // commandes de démonstration du compte de test des stores
 };
 
 /** Prévient les vendeurs concernés (socket + push), une seule fois par commande */
@@ -152,6 +153,7 @@ async function expireUnpaidOrders() {
   const cutoff = new Date(now - PAYMENT_WINDOW_MIN * 60 * 1000);
   const rows = await Commande.find({
     etatTraitement: { $ne: "annulé" },
+    isDemo: { $ne: true },
     date: { $gte: new Date(now - RELEASE_LOOKBACK_DAYS * 864e5) },
     $and: [
       { $or: [
