@@ -97,17 +97,30 @@ const redeemPoints = async (req, res) => {
 // GET /api/gamification/redeem-preview
 const redeemPreview = async (req, res) => {
   try {
-    const { userId, orderAmountFcfa } = req.query;
+    const { userId, orderAmountFcfa, orderReference } = req.query;
     const wallet = await pointsService.getWallet(userId);
     const cfg = await configService.getConfig();
     const maxPct = cfg.redemption?.maxPercentPerOrder || 30;
     const rate = cfg.redemption?.pointsToFcfaRate || 20;
     const maxFcfa = Math.floor(parseFloat(orderAmountFcfa) * maxPct / 100);
     const maxPoints = Math.floor(maxFcfa / rate);
-    const usablePoints = Math.min(wallet.balance, maxPoints);
+    // Nouvel essai de paiement : les points réservés par cette commande lui reviennent, donc réutilisables
+    let reserved = 0;
+    if (orderReference && userId) {
+      const { Commande } = require("../Models");
+      const o = await Commande.findOne({
+        reference: String(orderReference).slice(0, 64),
+        clefUser: String(userId),
+        etatTraitement: { $ne: "annulé" },
+        statusPayment: { $nin: ["payé", "payé à la livraison", "payé par téléphone"] },
+      }).select("pointsUsed").lean();
+      reserved = o?.pointsUsed || 0;
+    }
+    const usablePoints = Math.min(wallet.balance + reserved, maxPoints);
     res.json({
       success: true,
-      balance: wallet.balance,
+      balance: wallet.balance + reserved,
+      reserved,
       usablePoints,
       usableFcfa: usablePoints * rate,
       maxPercent: maxPct
