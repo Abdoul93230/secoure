@@ -36,6 +36,9 @@ const reviewSchema = new mongoose.Schema({
     type: Number,
     default: 0,
   },
+  // Le client a été livré par cette boutique (badge « Achat vérifié »)
+  verifiedPurchase: { type: Boolean, default: false },
+  updatedAt: { type: Date, default: null },
   createdAt: {
     type: Date,
     default: Date.now,

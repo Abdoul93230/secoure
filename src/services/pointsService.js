@@ -311,7 +311,7 @@ const creditFirstOrderBonus = async ({ userId, orderId }) => {
 
 // ─── Review points ────────────────────────────────────────────────────────────
 
-const creditReviewPoints = async ({ userId, reviewId, hasPhoto }) => {
+const creditReviewPoints = async ({ userId, reviewId, hasPhoto, idempotencyKey }) => {
   const enabled = await configService.isModuleEnabled("REVIEW_POINTS");
   if (!enabled) return null;
 
@@ -325,7 +325,7 @@ const creditReviewPoints = async ({ userId, reviewId, hasPhoto }) => {
     delta,
     type: "REVIEW",
     reason: `${hasPhoto ? "Avis produit avec photo" : "Avis produit texte"}${eventMultiplier > 1 ? ` (×${eventMultiplier} événement)` : ""}`,
-    idempotencyKey: `REVIEW_${reviewId}`,
+    idempotencyKey: idempotencyKey || `REVIEW_${reviewId}`,
     reviewId,
     eventId: eventIds[0] || null,
     metadata: { hasPhoto, eventMultiplier }

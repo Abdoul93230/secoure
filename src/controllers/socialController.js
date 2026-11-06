@@ -112,64 +112,81 @@ exports.getSellerFollowers = async (req, res) => {
 };
 
 // Créer un avis/review
+/** Note moyenne et nombre d'avis d'une boutique, recalculés depuis la base */
+async function refreshSellerRating(sellerId) {
+  const [agg] = await Review.aggregate([
+    { $match: { seller: new mongoose.Types.ObjectId(String(sellerId)) } },
+    { $group: { _id: null, avg: { $avg: "$rating" }, n: { $sum: 1 } } },
+  ]);
+  await SellerRequest.updateOne(
+    { _id: sellerId },
+    { $set: { rating: agg ? Math.round(agg.avg * 10) / 10 : 0, reviewsCount: agg ? agg.n : 0 } }
+  );
+}
+
+/** Le client a-t-il déjà été livré par cette boutique ? */
+async function hasDeliveredOrder(userId, sellerId) {
+  const { Commande } = require("../Models");
+  return !!(await Commande.exists({
+    clefUser: String(userId),
+    isDemo: { $ne: true },
+    etatTraitement: { $in: ["livré", "livraison reçu", "Traité"] },
+    $or: [{ "shippingByStore.storeId": String(sellerId) }, { "prod.Clefournisseur": new mongoose.Types.ObjectId(String(sellerId)) }],
+  }));
+}
+
+const cleanRating = (v) => {
+  const n = Number(v);
+  return Number.isInteger(n) && n >= 1 && n <= 5 ? n : null;
+};
+
 exports.createReview = async (req, res) => {
   try {
     const { sellerId } = req.params;
-    const { rating, comment } = req.body;
     const userId = req.user._id;
+    if (!mongoose.Types.ObjectId.isValid(sellerId) || !(await SellerRequest.exists({ _id: sellerId }))) {
+      return res.status(404).json({ success: false, message: "Boutique introuvable." });
+    }
+    const rating = cleanRating(req.body?.rating);
+    if (!rating) return res.status(400).json({ success: false, message: "Choisissez une note de 1 à 5 étoiles." });
+    const comment = String(req.body?.comment || "").trim().slice(0, 1000);
+    if (comment.length < 5) return res.status(400).json({ success: false, message: "Votre commentaire doit contenir au moins 5 caractères." });
 
-    // Vérifier si l'utilisateur a déjà laissé un avis
-    const existingReview = await Review.findOne({
-      seller: sellerId,
-      user: userId,
-    });
-    // if (existingReview) {
-    //   return res.status(400).json({
-    //     success: false,
-    //     message: "Vous avez déjà laissé un avis pour ce vendeur",
-    //   });
-    // }
+    const verifiedPurchase = await hasDeliveredOrder(userId, sellerId);
 
-    // Créer le nouvel avis
-    const newReview = new Review({
-      seller: sellerId,
-      user: userId,
-      rating,
-      comment,
-    });
-
-    await newReview.save();
-
-    // Gamification: créditer les points d'avis
-    try {
-      const pointsService = require("../services/pointsService");
-      const hasPhoto = !!(req.body?.image || req.body?.photo || req.body?.imageUrl);
-      await pointsService.creditReviewPoints({
-        userId: String(userId),
-        reviewId: newReview._id,
-        hasPhoto,
-      });
-    } catch (gErr) {
-      console.error("Gamification creditReviewPoints:", gErr.message);
+    // Un seul avis par client et par boutique : le republier le met à jour
+    let review = await Review.findOne({ seller: sellerId, user: userId }).sort({ createdAt: -1 });
+    const created = !review;
+    if (review) {
+      review.rating = rating;
+      review.comment = comment;
+      review.verifiedPurchase = verifiedPurchase;
+      review.updatedAt = new Date();
+      await review.save();
+    } else {
+      review = await Review.create({ seller: sellerId, user: userId, rating, comment, verifiedPurchase });
     }
 
-    // Mettre à jour la note moyenne du vendeur
-    const seller = await SellerRequest.findById(sellerId);
-    const allReviews = await Review.find({ seller: sellerId });
+    // Points d'avis : une seule fois par boutique (même après suppression puis nouvel avis)
+    if (created) {
+      try {
+        const pointsService = require("../services/pointsService");
+        await pointsService.creditReviewPoints({
+          userId: String(userId),
+          reviewId: review._id,
+          hasPhoto: false,
+          idempotencyKey: `REVIEW_SELLER_${userId}_${sellerId}`,
+        });
+      } catch (gErr) {
+        console.error("Gamification creditReviewPoints:", gErr.message);
+      }
+    }
 
-    const totalRating = allReviews.reduce(
-      (sum, review) => sum + review.rating,
-      0
-    );
-    seller.rating = totalRating / allReviews.length;
-    seller.reviewsCount = allReviews.length;
-
-    await seller.save();
-
-    res.status(201).json({ success: true, review: newReview });
+    await refreshSellerRating(sellerId);
+    res.status(created ? 201 : 200).json({ success: true, updated: !created, review });
   } catch (error) {
     console.log(error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: "Avis non enregistré, réessayez." });
   }
 };
 
@@ -196,19 +213,19 @@ exports.updateReview = async (req, res) => {
     }
 
     // Mettre à jour l'avis
-    review.rating = rating || review.rating;
-    review.comment = comment || review.comment;
-
+    if (rating !== undefined) {
+      const r = cleanRating(rating);
+      if (!r) return res.status(400).json({ success: false, message: "Choisissez une note de 1 à 5 étoiles." });
+      review.rating = r;
+    }
+    if (comment !== undefined) {
+      const c = String(comment).trim().slice(0, 1000);
+      if (c.length < 5) return res.status(400).json({ success: false, message: "Votre commentaire doit contenir au moins 5 caractères." });
+      review.comment = c;
+    }
+    review.updatedAt = new Date();
     await review.save();
-
-    // Recalculer la note moyenne du vendeur
-    const seller = await SellerRequest.findById(review.seller);
-    const allReviews = await Review.find({ seller: review.seller });
-
-    const totalRating = allReviews.reduce((sum, rev) => sum + rev.rating, 0);
-    seller.rating = totalRating / allReviews.length;
-
-    await seller.save();
+    await refreshSellerRating(review.seller);
 
     res.status(200).json({ success: true, review });
   } catch (error) {
@@ -242,20 +259,7 @@ exports.deleteReview = async (req, res) => {
     // Supprimer l'avis
     await Review.findByIdAndDelete(reviewId);
 
-    // Recalculer la note moyenne du vendeur
-    const seller = await SellerRequest.findById(sellerId);
-    const allReviews = await Review.find({ seller: sellerId });
-
-    if (allReviews.length === 0) {
-      seller.rating = 0;
-      seller.reviewsCount = 0;
-    } else {
-      const totalRating = allReviews.reduce((sum, rev) => sum + rev.rating, 0);
-      seller.rating = totalRating / allReviews.length;
-      seller.reviewsCount = allReviews.length;
-    }
-
-    await seller.save();
+    await refreshSellerRating(sellerId);
 
     res
       .status(200)
