@@ -10,7 +10,7 @@ const PromoCode = require('../models/PromoCode');
  */
 const validatePromoCode = async (req, res) => {
   try {
-    const { code, orderAmount, userId, products } = req.body;
+    const { code, orderAmount, userId, products, orderReference } = req.body;
 
     if (!code) {
       return res.status(400).json({
@@ -45,6 +45,23 @@ const validatePromoCode = async (req, res) => {
         valid: false,
         message: "Ce code promo n'existe pas",
       });
+    }
+
+    // Nouvelle tentative de paiement d'une commande : l'utilisation déjà enregistrée par cette commande
+    // ne compte pas (elle sera remplacée, pas ajoutée). Vérification en mémoire, rien n'est enregistré.
+    if (orderReference && userId) {
+      const { Commande } = require("../Models");
+      const pending = await Commande.findOne({
+        reference: String(orderReference).slice(0, 64),
+        clefUser: String(userId),
+        etatTraitement: { $ne: "annulé" },
+        statusPayment: { $nin: ["payé", "payé à la livraison", "payé par téléphone"] },
+      }).select("_id idCodePro").lean();
+      if (pending && String(pending.idCodePro || "") === String(promoCode._id)) {
+        const before = promoCode.usageHistory.length;
+        promoCode.usageHistory = promoCode.usageHistory.filter((e) => String(e.orderId) !== String(pending._id));
+        promoCode.currentUsage = Math.max(0, (promoCode.currentUsage || 0) - (before - promoCode.usageHistory.length));
+      }
     }
 
     // 2. Vérifier la validité globale

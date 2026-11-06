@@ -13,6 +13,13 @@ const getWallet = async (req, res) => {
     const wallet = await pointsService.getWallet(userId);
     const cfg = await configService.getConfig();
     const rate = cfg.redemption?.pointsToFcfaRate || 20;
+    // Points réservés par des commandes en attente de paiement (rendus automatiquement si non payées)
+    let reserved = [];
+    try {
+      reserved = (await require("../services/orderPaymentLifecycle").pendingReservations(userId)).filter((r) => r.points > 0);
+    } catch (e) {
+      console.error("Réservations de points :", e.message);
+    }
     res.json({
       success: true,
       wallet: {
@@ -24,7 +31,9 @@ const getWallet = async (req, res) => {
         checkinStreak: wallet.checkinStreak,
         lastCheckinDate: wallet.lastCheckinDate,
         referralCode: wallet.referralCode,
-        totalValidatedReferrals: wallet.totalValidatedReferrals
+        totalValidatedReferrals: wallet.totalValidatedReferrals,
+        reserved,
+        reservedTotal: reserved.reduce((s, r) => s + r.points, 0),
       }
     });
   } catch (err) {

@@ -202,7 +202,34 @@ async function onPaymentConfirmed(commande, io) {
   await notifySellersNewOrder(commande, io);
 }
 
+/**
+ * Commandes en ligne d'un client encore en attente de paiement (dans le délai) :
+ * ce qu'elles réservent (points, code promo) et jusqu'à quand. Pour le portefeuille et la reprise du paiement.
+ */
+async function pendingReservations(clientId) {
+  const { Commande } = require("../Models");
+  const now = Date.now();
+  const rows = await Commande.find({
+    clefUser: String(clientId),
+    etatTraitement: { $ne: "annulé" },
+    isDemo: { $ne: true },
+    statusPayment: { $nin: ["payé", ...OFFLINE_PAYMENTS] },
+    date: { $gte: new Date(now - RELEASE_LOOKBACK_DAYS * 864e5) },
+    $or: [{ awaitingPayment: true }, { awaitingPayment: { $exists: false }, statusPayment: { $in: LEGACY_UNPAID } }],
+  }).select("_id reference pointsUsed codePromo reduction prix paymentStartedAt date").sort({ date: -1 }).limit(10).lean();
+  return rows.map((o) => ({
+    orderId: String(o._id),
+    reference: o.reference,
+    points: o.pointsUsed || 0,
+    promoCode: o.codePromo || null,
+    promoDiscount: o.reduction || 0,
+    total: o.prix || 0,
+    expiresAt: new Date(new Date(o.paymentStartedAt || o.date).getTime() + PAYMENT_WINDOW_MIN * 60000),
+  }));
+}
+
 module.exports = {
+  pendingReservations,
   OFFLINE_PAYMENTS,
   PAYMENT_WINDOW_MIN,
   SELLER_VISIBLE,

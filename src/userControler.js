@@ -2524,7 +2524,10 @@ const updateCommanderef = async (req, res) => {
           const actualPoints = Math.min(data.pointsToUse, maxPoints);
           if (actualPoints > 0) {
             const wallet = await pointsService.getWallet(data.clefUser);
-            const deductible = Math.min(actualPoints, wallet.balance);
+            // Les points réservés par cette commande lui sont rendus juste avant le nouveau débit :
+            // ils restent utilisables pour ce nouvel essai
+            const restored = _bpToRestore && String(commande.clefUser) === String(data.clefUser) ? _bpToRestoreAmount : 0;
+            const deductible = Math.min(actualPoints, wallet.balance + restored);
             if (deductible > 0) {
               pointsUsed = deductible;
               pointsDiscount = deductible * rate;
