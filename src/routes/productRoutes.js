@@ -43,7 +43,9 @@ router.get('/products/missing-type/:sellerId', middelware.authAdmin, productCont
 router.put('/products/admin-bulk-update', middelware.authAdmin, productControler.adminBulkUpdateProducts);
 
 // Product view tracking (public — clients uniquement)
-router.post('/productView/:productId', productControler.trackProductView);
+// Vues d'articles : 60 / minute / IP (un visiteur réel n'en fait que quelques-unes)
+const viewLimiter = require('express-rate-limit')({ windowMs: 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false });
+router.post('/productView/:productId', viewLimiter, productControler.trackProductView);
 
 // Product pub
 router.get('/productPubget', productControler.productPubget);

@@ -91,22 +91,48 @@ const getProductByIdAdmin = handleAsyncError(async (req, res) => {
   res.json({ message: "Produit trouvé", data: product });
 });
 
-// Incrémente le compteur de vues — appelé côté client uniquement
+// Vue d'un article (site et app) : une par visiteur et par jour.
+// Renvoie le nombre de personnes l'ayant vu sur 7 jours (affiché aux clients à partir de 10).
 const trackProductView = handleAsyncError(async (req, res) => {
   const { Produit } = require('./Models');
+  const ProductView = require('./models/ProductView');
+  const crypto = require('crypto');
+  const jwt = require('jsonwebtoken');
   const { productId } = req.params;
 
   if (!mongoose.Types.ObjectId.isValid(productId)) {
     return res.status(400).json({ message: "ID invalide" });
   }
 
-  await Produit.findByIdAndUpdate(
-    productId,
-    { $inc: { views: 1 } },
-    { new: false } // pas besoin du doc retourné, perf optimisée
-  );
+  // Qui regarde : compte client si connecté, sinon identifiant d'appareil, sinon IP + navigateur
+  let visitorKey = null;
+  const auth = req.headers.authorization || '';
+  if (auth.startsWith('Bearer ')) {
+    try {
+      const d = jwt.verify(auth.slice(7), require('./auth/clef'));
+      if (d?.userId) visitorKey = `u:${d.userId}`;
+    } catch { /* jeton absent ou invalide : visiteur anonyme */ }
+  }
+  if (!visitorKey) {
+    const device = String(req.headers['x-visitor-id'] || '').trim().slice(0, 64);
+    const raw = device ? `d:${device}` : `ip:${req.ip}|${req.headers['user-agent'] || ''}`;
+    visitorKey = crypto.createHash('sha256').update(raw).digest('hex').slice(0, 32);
+  }
+  const day = new Date(Date.now() + 3600e3).toISOString().slice(0, 10); // Niamey : UTC+1
 
-  res.json({ success: true });
+  try {
+    await ProductView.create({ productId, visitorKey, day });
+    await Produit.updateOne({ _id: productId }, { $inc: { views: 1 } });
+  } catch (e) {
+    if (e.code !== 11000) throw e; // déjà compté aujourd'hui
+  }
+
+  const weekViewers = (await ProductView.distinct('visitorKey', {
+    productId: new mongoose.Types.ObjectId(productId),
+    createdAt: { $gte: new Date(Date.now() - 7 * 864e5) },
+  })).length;
+
+  res.json({ success: true, weekViewers });
 });
 
 // const createProduct = handleAsyncError(async (req, res) => {
