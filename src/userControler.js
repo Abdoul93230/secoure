@@ -2896,6 +2896,12 @@ const updateEtatTraitement = async (req, res) => {
       }
     }
 
+    // Commande livrée (livreur par code ou équipe) : points d'achat, bonus de 1re commande, parrainage
+    {
+      const { isDelivered, creditDeliveredOrder } = require('./services/orderDelivered');
+      if (isDelivered(nouvelEtat) && !isDelivered(ancienEtat)) await creditDeliveredOrder(updatedOrder);
+    }
+
     // Gamification: restituer les points si annulation
     if (nouvelEtat === "annulé" && updatedOrder.clefUser) {
       try {
