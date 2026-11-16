@@ -1102,6 +1102,10 @@ const commandeSchema = new mongoose.Schema(
   { strict: false }
 );
 
+commandeSchema.index({ clefUser: 1, date: -1 });
+commandeSchema.index({ reference: 1 });
+commandeSchema.index({ date: -1 });
+
 const Commande = mongoose.model("Commande", commandeSchema);
 
 const productComment = new mongoose.Schema(

@@ -66,6 +66,9 @@ const server = http.createServer(app);
 // Sans ça, express-rate-limit voit l'IP du proxy au lieu de l'IP du client réel → ValidationError.
 app.set('trust proxy', 1);
 
+// Réponses compressées (listes de produits 5 à 8 fois plus légères sur réseau lent)
+try { app.use(require('compression')({ threshold: 1024 })); } catch (e) { console.warn('compression indisponible :', e.message); }
+
 // Absorb abrupt client disconnections (ECONNRESET) at the TCP level
 server.on("connection", (socket) => {
   socket.on("error", (err) => {
@@ -265,6 +268,9 @@ app.use('/api/pos', posRoutes);
 // Login agent : public (pas de requireSeller)
 // Gestion agents : protégée par requireSeller
 app.use('/api/agents', agentRoutes);
+
+// Mesure du tunnel d'achat (app + site)
+app.use('/api/events', require('./src/routes/eventRoutes'));
 
 // Livreurs : page /livreur du site (retrait + livraison par codes), comptes gérés par l'admin
 {

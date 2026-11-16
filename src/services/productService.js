@@ -113,9 +113,12 @@ class ProductService {
       'subscriptionControl.forcedHidden': { $ne: true }
     };
 
+    // Pertinence : seulement pour une recherche plein texte ; sinon on retombe sur les plus récents
+    const byRelevance = sort === 'relevance' && !!filter.$text;
     const [products, total] = await Promise.all([
-      Produit.find(filter)
-        .sort(CLIENT_SORTS[sort] || CLIENT_SORTS.newest)
+      (byRelevance
+        ? Produit.find(filter, { score: { $meta: 'textScore' } }).sort({ score: { $meta: 'textScore' }, views: -1, _id: -1 })
+        : Produit.find(filter).sort(CLIENT_SORTS[sort] || CLIENT_SORTS.newest))
         .skip(skip)
         .limit(limit)
         .populate('Clefournisseur', 'name storeName logo subscriptionStatus isvalid')
@@ -470,7 +473,7 @@ class ProductService {
     if (Number(minPrice) > 0) bounds.push({ $gte: [paid, Number(minPrice)] });
     if (Number(maxPrice) > 0) bounds.push({ $lte: [paid, Number(maxPrice)] });
     const priceFilter = bounds.length ? { $expr: bounds.length === 1 ? bounds[0] : { $and: bounds } } : {};
-    const opts = { page, limit, ...(CLIENT_SORTS[sort] ? { sort } : {}) };
+    const opts = { page, limit, sort: CLIENT_SORTS[sort] ? sort : 'relevance' };
 
     const result = await this.getClientVisibleProducts(
       { $text: { $search: name }, ...priceFilter },
