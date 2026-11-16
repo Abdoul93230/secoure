@@ -8,24 +8,33 @@ const { checkGamificationEnabled, checkModuleEnabled } = require("../middleware/
 router.get("/config/public", ctrl.getPublicConfig);
 
 // ─── Client routes (require user token) ──────────────────────────────────────
-router.get("/wallet/:userId", extractToken, checkGamificationEnabled, ctrl.getWallet);
-router.get("/transactions/:userId", extractToken, checkGamificationEnabled, ctrl.getTransactions);
-router.get("/redeem-preview", extractToken, checkGamificationEnabled, ctrl.redeemPreview);
+// SÉCURITÉ : le compte est celui du jeton. L'identifiant envoyé (URL, corps, requête) est ignoré,
+// sinon n'importe qui pouvait lire le portefeuille d'un autre ou pointer à sa place.
+const ownAccount = (req, res, next) => {
+  if (req.user?.role === "admin") return next();
+  if (req.user?.role !== "user") return res.status(403).json({ success: false, message: "Réservé aux comptes clients." });
+  const id = String(req.user._id);
+  if (req.params.userId !== undefined) req.params.userId = id;
+  if (req.body && typeof req.body === "object") req.body.userId = id;
+  req.query.userId = id;
+  next();
+};
+router.get("/wallet/:userId", extractToken, ownAccount, checkGamificationEnabled, ctrl.getWallet);
+router.get("/transactions/:userId", extractToken, ownAccount, checkGamificationEnabled, ctrl.getTransactions);
+router.get("/redeem-preview", extractToken, ownAccount, checkGamificationEnabled, ctrl.redeemPreview);
 
 router.post(
   "/checkin",
   extractToken,
+  ownAccount,
   checkGamificationEnabled,
   checkModuleEnabled("DAILY_CHECKIN"),
   ctrl.dailyCheckin
 );
 
-router.post(
-  "/redeem",
-  extractToken,
-  checkGamificationEnabled,
-  ctrl.redeemPoints
-);
+// Débit direct de points : réservé à l'admin. Les clients utilisent leurs points à la commande
+// (createCommande), où la remise est réellement appliquée.
+router.post("/redeem", requireAdmin, checkGamificationEnabled, ctrl.redeemPoints);
 
 // ─── Admin routes ─────────────────────────────────────────────────────────────
 router.get("/admin/config", requireAdmin, ctrl.adminGetConfig);

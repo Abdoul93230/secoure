@@ -1,7 +1,8 @@
+require('dotenv').config();
 const mongoose = require('mongoose');
 
 // Remplacez par votre URL de connexion MongoDB
-const MONGODB_URI = 'mongodb+srv://abdoulrazak9323:qrru0xfJGmJG0TSc@cluster0.mvrgous.mongodb.net/?retryWrites=true&w=majority';
+const MONGODB_URI = process.env.MONGODB_URI;
 
 // Fonction principale pour mettre à jour les produits
 async function updateAllProducts() {

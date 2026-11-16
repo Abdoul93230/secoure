@@ -13,7 +13,7 @@ const PointsTransaction = require("../src/models/PointsTransaction");
 const PointsWallet = require("../src/models/PointsWallet");
 
 const MONGODB_URI = process.env.MONGODB_URI ||
-  "mongodb+srv://abdoulrazak9323:qrru0xfJGmJG0TSc@cluster0.mvrgous.mongodb.net/?retryWrites=true&w=majority";
+  process.env.MONGODB_URI;
 
 const userId = process.argv[2];
 const correctBalance = parseInt(process.argv[3], 10);

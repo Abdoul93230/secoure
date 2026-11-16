@@ -27,16 +27,18 @@ router.post('/generate_payment_page', middelware.authAdmin, userController.gener
 router.post('/payment_callback', verifyIpayWebhook, userController.payment_callback);
 router.post('/payment_callback2', verifyIpayWebhook, userController.payment_callback2);
 
+// Anciens moyens de paiement directs (Komipay, carte, STA) : tout passe désormais par la page iPay.
+// Fermés au public (montant libre, numéro de carte transitant par le serveur).
 // Mobile payment
-router.post('/processMobilePayment', processMobilePayment);
+router.post('/processMobilePayment', middelware.authAdmin, processMobilePayment);
 
 // Card payment
-router.post('/pay-with-card', processBankCardPayment);
-router.get('/payment_status_card', checkPaymentStatusReq);
+router.post('/pay-with-card', middelware.authAdmin, processBankCardPayment);
+router.get('/payment_status_card', middelware.authAdmin, checkPaymentStatusReq);
 
 // STA payment
-router.post('/processSTAPayment', processSTAPayment);
-router.post('/requestZeynaCashSecurityCode', requestZeynaCashSecurityCode);
+router.post('/processSTAPayment', middelware.authAdmin, processSTAPayment);
+router.post('/requestZeynaCashSecurityCode', middelware.authAdmin, requestZeynaCashSecurityCode);
 
 // Token generation
 // Jeton du fournisseur de paiement : jamais exposé publiquement

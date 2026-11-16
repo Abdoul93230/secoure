@@ -81,7 +81,7 @@ Le script traite automatiquement ces collections:
 
 ```
 🚀 Début de la migration des numéros de téléphone...
-📡 Connexion à: mongodb+srv://abdoulrazak9323:***@cluster0.mvrgous.mongodb.net/
+📡 Connexion à: mongodb+srv://UTILISATEUR:MOT_DE_PASSE@HOTE/
 
 📱 Migration de la collection USERS...
    Trouvé 35 utilisateurs avec numéro de téléphone
@@ -135,7 +135,7 @@ Le script traite automatiquement ces collections:
 ## 🔧 Configuration Utilisée
 
 ```javascript
-const MONGODB_URI = "mongodb+srv://abdoulrazak9323:***@cluster0.mvrgous.mongodb.net/";
+const MONGODB_URI = "mongodb+srv://UTILISATEUR:MOT_DE_PASSE@HOTE/";
 const DEFAULT_COUNTRY_CODE = '+227'; // Niger
 ```
 

@@ -1,7 +1,8 @@
+require('dotenv').config();
 const mongoose = require('mongoose');
 
 // Configuration de la base de données
-const DB_URL = 'mongodb+srv://abdoulrazak9323:qrru0xfJGmJG0TSc@cluster0.mvrgous.mongodb.net/?retryWrites=true&w=majority'; // Remplace par ton URL de DB
+const DB_URL = process.env.MONGODB_URI; // Remplace par ton URL de DB
 
 // Schéma du produit (simplifié pour la mise à jour)
 const produitSchema = new mongoose.Schema({}, { strict: false });

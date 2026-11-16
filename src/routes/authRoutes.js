@@ -76,13 +76,20 @@ router.post('/auth/register-otp/resend', regOtpLimiter, registerOtp.resendOtp);
 router.post('/auth/register-otp/verify', otpLimiter,    registerOtp.verifyOtp);
 
 // QuickAuth (phone/email first flow)
-router.post('/auth/check-phone', quickAuthController.checkPhone);
-router.post('/auth/send-otp', quickAuthController.sendOtp);
-router.post('/auth/resend-otp', quickAuthController.resendOtp);
-router.post('/auth/verify-otp', quickAuthController.verifyOtp);
-router.post('/auth/quick-register', quickAuthController.quickRegister);
-router.post('/auth/request-password-reset-otp', quickAuthController.requestPasswordResetOtp);
-router.post('/auth/reset-password-phone', quickAuthController.resetPasswordWithPhoneOtp);
+// Connexion rapide par téléphone : limites par IP (en plus des 5 essais par code et des quotas d'envoi par numéro)
+const phoneCheckLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false,
+  message: { success: false, message: "Trop de demandes. Réessayez dans quelques minutes." } });
+const codeSendLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false,
+  message: { success: false, message: "Trop de demandes de code. Réessayez dans 1 heure." } });
+const codeVerifyLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false,
+  message: { success: false, message: "Trop d'essais. Réessayez dans 15 minutes." } });
+router.post('/auth/check-phone', phoneCheckLimiter, quickAuthController.checkPhone);
+router.post('/auth/send-otp', codeSendLimiter, quickAuthController.sendOtp);
+router.post('/auth/resend-otp', codeSendLimiter, quickAuthController.resendOtp);
+router.post('/auth/verify-otp', codeVerifyLimiter, quickAuthController.verifyOtp);
+router.post('/auth/quick-register', codeVerifyLimiter, quickAuthController.quickRegister);
+router.post('/auth/request-password-reset-otp', codeSendLimiter, quickAuthController.requestPasswordResetOtp);
+router.post('/auth/reset-password-phone', codeVerifyLimiter, quickAuthController.resetPasswordWithPhoneOtp);
 
 // Token verification
 router.get('/verify', middelware.auth, userController.verifyToken);

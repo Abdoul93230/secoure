@@ -1,3 +1,4 @@
+require('dotenv').config();
 const mongoose = require('mongoose');
 const { Commande } = require('./src/Models');
 const Transaction = require('./src/models/transactionSchema');
@@ -9,7 +10,7 @@ async function runRigorousValidationTests() {
     console.log('🔗 Connexion à MongoDB Atlas...');
     
     await mongoose.connect(
-      "mongodb+srv://abdoulrazak9323:qrru0xfJGmJG0TSc@cluster0.mvrgous.mongodb.net/?retryWrites=true&w=majority",
+      process.env.MONGODB_URI,
       {
         useNewUrlParser: true,
         useUnifiedTopology: true,

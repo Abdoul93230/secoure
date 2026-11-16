@@ -622,7 +622,8 @@ const createCommande = async (req, res) => {
       // Shipping : utiliser le montant recalculé par le serveur s'il est disponible
       let shipping = serverShipping !== null ? serverShipping : (data.fraisLivraison || 0);
       let finalPrice = subtotal + shipping;
-      let finalReduction = data.reduction || 0;
+      // SÉCURITÉ : la réduction vient uniquement d'un code promo validé par le serveur (jamais du client)
+      let finalReduction = 0;
 
       let promoResult = null;
       if (data.idCodePro) {
@@ -1913,7 +1914,7 @@ const Send_email_freind = async (req, res) => {
 
 async function requetteGet(req, res) {
   try {
-    const authToken = "sk_ef56606cf6f3420bbf844fe60d06b6c0";
+    const authToken = process.env.IPAY_SECRET_KEY; // jamais dans le code
     const requestOptions = {
       url: `https://i-pay.money/api/v1/payments`,
       headers: {
@@ -1962,7 +1963,7 @@ async function requette(req, res) {
           ? req.body.numeroCard
           : req.body.phone,
     };
-    const authToken = "sk_ef56606cf6f3420bbf844fe60d06b6c0";
+    const authToken = process.env.IPAY_SECRET_KEY; // jamais dans le code
     const requestOptions = {
       method: "post",
       url: "https://i-pay.money/api/v1/payments",
@@ -2050,7 +2051,7 @@ const createCommande2 = async (data) => {
 const generate_payment_page = async (req, res) => {
   try {
     const { total, transaction_id, redirect_url, callback_url } = req.body;
-    const publicKey = "pk_f83a240bd0df4393b35a819925863e16"; // Assurez-vous de sécuriser cette clé
+    const publicKey = process.env.IPAY_PUBLIC_KEY;
     const paymentPageHTML = `
       <!DOCTYPE html>
       <html lang="en">
@@ -2238,6 +2239,11 @@ const payment_callback = async (req, res) => {
         });
         res.status(200).json({ message: "Paiement traité avec succès" });
       } else {
+        // Commande déjà payée : un échec reçu ensuite (webhook en retard ou rejoué) ne la rétrograde pas
+        if (commande.statusPayment === "payé") {
+          console.warn("Callback d'échec ignoré : commande déjà payée", { reference: commande.reference });
+          return res.status(200).json({ message: "Commande déjà payée" });
+        }
         // En cas d'échec
         const updatedCommande = await Commande.findOneAndUpdate(
           { _id: commande._id },
@@ -2460,7 +2466,8 @@ const updateCommanderef = async (req, res) => {
       // Shipping : utiliser le montant recalculé par le serveur s'il est disponible
       let shipping = serverShipping !== null ? serverShipping : (data.fraisLivraison || 0);
       let finalPrice = subtotal + shipping;
-      let finalReduction = data.reduction || 0;
+      // SÉCURITÉ : la réduction vient uniquement d'un code promo validé par le serveur (jamais du client)
+      let finalReduction = 0;
 
       // Restaurer l'usage de l'ancien code s'il existait
       if (commande.idCodePro) {

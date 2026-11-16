@@ -15,7 +15,7 @@ const phoneRegex = /^\+[1-9]\d{7,14}$/;
 
 const normalizePhone = (value = "") => value.replace(/\s+/g, "").trim();
 
-const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString();
+const generateOtp = () => String(require("crypto").randomInt(100000, 1000000));
 
 const buildOtpSmsText = ({ code, purpose }) => {
   const base = `Votre code IhamBaobab est ${code}. Il expire dans ${OTP_EXPIRY_MINUTES} minutes.`;
@@ -436,7 +436,13 @@ const quickRegister = async (req, res) => {
         });
       }
 
+      if ((otpData.verifyAttempts || 0) >= OTP_MAX_VERIFY_ATTEMPTS) {
+        return res.status(429).json({ success: false, message: "Trop d'essais. Demandez un nouveau code." });
+      }
+
       if (otpData.code !== code) {
+        user.quickAuthOtp.verifyAttempts = (otpData.verifyAttempts || 0) + 1;
+        await user.save();
         return res.status(401).json({
           success: false,
           message: "Code OTP incorrect",
@@ -680,6 +686,14 @@ const resetPasswordWithPhoneOtp = async (req, res) => {
       return res.status(410).json({
         success: false,
         message: "Le code OTP a expire",
+      });
+    }
+
+    // SÉCURITÉ : 5 essais par code, puis il faut en redemander un (sinon le code à 6 chiffres se devine)
+    if ((otpData.verifyAttempts || 0) >= OTP_MAX_VERIFY_ATTEMPTS) {
+      return res.status(429).json({
+        success: false,
+        message: "Trop d'essais. Demandez un nouveau code.",
       });
     }
 

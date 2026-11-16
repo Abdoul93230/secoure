@@ -90,10 +90,8 @@ exports.getSellerFollowers = async (req, res) => {
   try {
     const { sellerId } = req.params;
 
-    const seller = await SellerRequest.findById(sellerId).populate(
-      "followers",
-      "name email"
-    ); // Ajuste les champs selon ton modèle User
+    // Liste publique : uniquement les identifiants (pour « suis-je abonné ? »), jamais le nom ni l'e-mail
+    const seller = await SellerRequest.findById(sellerId).select("followers followersCount").lean();
 
     if (!seller) {
       return res
@@ -103,8 +101,8 @@ exports.getSellerFollowers = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      followersCount: seller.followersCount,
-      followers: seller.followers,
+      followersCount: seller.followersCount || (seller.followers || []).length,
+      followers: (seller.followers || []).map((id) => ({ _id: String(id) })),
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

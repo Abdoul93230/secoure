@@ -28,3 +28,6 @@ src/logs/
 # Environment files
 .env
 .env.*
+
+# Données clients exportées : jamais dans le dépôt
+backup_phone_numbers_*.json

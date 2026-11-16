@@ -34,7 +34,7 @@ const SMS_ALLOWED     = ['+227', '+229'];
 // Stockage en mémoire { key → { otp, expiresAt, sentAt, attempts } }
 const store = new Map();
 
-const gen6 = () => Math.floor(100000 + Math.random() * 900000).toString();
+const gen6 = () => String(require("crypto").randomInt(100000, 1000000));
 
 const normalizeIdentifier = (raw, method) =>
   method === 'email'

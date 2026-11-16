@@ -12,7 +12,7 @@ const PointsTransaction = require("../src/models/PointsTransaction");
 
 const MONGODB_URI =
   process.env.MONGODB_URI ||
-  "mongodb+srv://abdoulrazak9323:qrru0xfJGmJG0TSc@cluster0.mvrgous.mongodb.net/?retryWrites=true&w=majority";
+  process.env.MONGODB_URI;
 
 async function main() {
   await mongoose.connect(MONGODB_URI, {
