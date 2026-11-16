@@ -1048,11 +1048,39 @@ const getAllCommenteProduitById = handleAsyncError(async (req, res) => {
 });
 
 const createCommenteProduit = handleAsyncError(async (req, res) => {
-  const newComment = await commentService.createComment(req.body);
-  res.status(201).json({ 
-    message: "Commentaire créé avec succès", 
-    data: newComment 
-  });
+  const { ProductComment, Commande, User, Produit } = require('./Models');
+  const userId = String(req.userId || '');
+  const productId = String(req.body?.clefProduct || '');
+  if (!mongoose.Types.ObjectId.isValid(productId)) return res.status(400).json({ message: "Article invalide." });
+  const rating = Number(req.body?.etoil);
+  if (!Number.isInteger(rating) || rating < 1 || rating > 5) return res.status(400).json({ message: "Choisissez une note de 1 à 5 étoiles." });
+  const description = String(req.body?.description || '').trim().slice(0, 1000);
+  if (description.length < 5) return res.status(400).json({ message: "Votre avis doit contenir au moins 5 caractères." });
+
+  const [user, product] = await Promise.all([
+    User.findById(userId).select('name').lean(),
+    Produit.findById(productId).select('ClefType').lean(),
+  ]);
+  if (!user || !product) return res.status(404).json({ message: "Article introuvable." });
+
+  // Le client a-t-il été livré de cet article ? (badge « Achat vérifié »)
+  const verifiedPurchase = !!(await Commande.exists({
+    clefUser: userId,
+    isDemo: { $ne: true },
+    $or: [{ etatTraitement: { $in: ['livré', 'livraison reçu', 'Traité'] } }, { 'handover.deliveredAt': { $ne: null } }],
+    'nbrProduits.produit': new mongoose.Types.ObjectId(productId),
+  }));
+
+  // Un avis par client et par article : le republier le met à jour. Le nom vient du compte, jamais du client.
+  const data = await ProductComment.findOneAndUpdate(
+    { clefProduct: productId, clefUser: userId },
+    {
+      $set: { description, etoil: rating, userName: user.name || 'Client', clefType: String(product.ClefType || req.body?.clefType || ''), verifiedPurchase, date: new Date() },
+      $setOnInsert: { clefProduct: productId, clefUser: userId },
+    },
+    { new: true, upsert: true }
+  );
+  res.status(201).json({ message: "Avis enregistré", data });
 });
 
 // Like Operations

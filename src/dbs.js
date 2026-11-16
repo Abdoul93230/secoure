@@ -78,6 +78,12 @@ mongoose
       expireUnpaidOrders().catch((err) => console.error("⚠️ Commandes impayées :", err.message));
     };
     new cron.CronJob("*/10 * * * *", runExpiry, null, true);
+
+    // Relance d'avis 2 jours après la livraison (chaque jour à 10 h, heure de Niamey)
+    new cron.CronJob("0 10 * * *", () => {
+      if (mongoose.connection.readyState !== 1) return;
+      require('./services/orderDelivered').sendReviewReminders().catch((err) => console.error("⚠️ Relances d'avis :", err.message));
+    }, null, true, "Africa/Niamey");
     setTimeout(runExpiry, 60 * 1000);
 
     // Synchroniser les commissions PricingPlan avec SUBSCRIPTION_CONFIG au démarrage
