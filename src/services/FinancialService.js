@@ -569,7 +569,9 @@ class FinancialService {
         if (t.type === 'CREDIT_COMMANDE') {
           if (t.statut === 'EN_ATTENTE') {
             soldeEnAttenteCalcule += t.montantNet;
-            // EN_ATTENTE ne contribue pas encore au soldeTotal
+            // Le total inclut l'argent en attente : c'est ainsi que la création, la confirmation et
+            // l'annulation d'une commande le font évoluer (total = attente + bloqué + disponible + réservé)
+            soldeCalcule += t.montantNet;
           } else if (t.statut === 'CONFIRME') {
             soldeCalcule += t.montantNet;
             if (t.estDisponible) {
@@ -921,7 +923,9 @@ class FinancialService {
                 soldeBloqueTemporairement += transaction.montantNet;
               }
             }
-            // EN_ATTENTE → compté dans soldeEnAttente uniquement
+            // EN_ATTENTE : compté dans le total (et dans soldeEnAttente, calculé plus bas), comme à la
+            // création de la commande. L'exclure faisait passer le total en négatif à l'annulation.
+            if (transaction.statut === 'EN_ATTENTE') soldeTotal += transaction.montantNet;
           } else if (transaction.type === 'RETRAIT' && transaction.statut === 'CONFIRME') {
             // Utiliser montant (= -montantDemande, frais compris) et non montantNet
             soldeTotal += transaction.montant;
