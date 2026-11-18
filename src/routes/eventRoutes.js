@@ -81,7 +81,53 @@ router.get("/funnel", middelware.authAdmin, async (req, res) => {
       { $project: { _id: 0, source: "$_id", visitors: { $size: "$visitors" } } },
       { $sort: { visitors: -1 } }, { $limit: 20 },
     ]);
-    res.json({ success: true, days, funnel, sources });
+    // Chiffres de commandes réelles (payées ou à la livraison, hors annulées et démonstrations)
+    const { Commande } = require("../Models");
+    const { SELLER_VISIBLE } = require("../services/orderPaymentLifecycle");
+    const realOrder = { ...SELLER_VISIBLE, etatTraitement: { $ne: "annulé" } };
+    const [orderStats] = await Commande.aggregate([
+      { $match: { ...realOrder, date: { $gte: since } } },
+      { $group: { _id: null, orders: { $sum: 1 }, revenue: { $sum: { $ifNull: ["$prix", 0] } }, clients: { $addToSet: "$clefUser" } } },
+      { $project: { _id: 0, orders: 1, revenue: 1, clients: { $size: "$clients" } } },
+    ]);
+
+    // Réachat à 30 jours : parmi les clients dont la 1re commande date de plus de 30 jours (dans la période),
+    // part de ceux qui ont recommandé dans les 30 jours suivants
+    const cohortEnd = new Date(Date.now() - 30 * 864e5);
+    const [repeat] = await Commande.aggregate([
+      { $match: { ...realOrder, clefUser: { $nin: [null, ""] } } },
+      { $sort: { date: 1 } },
+      { $group: { _id: "$clefUser", dates: { $push: "$date" } } },
+      { $project: { first: { $arrayElemAt: ["$dates", 0] }, second: { $ifNull: [{ $arrayElemAt: ["$dates", 1] }, null] } } },
+      { $match: { first: { $gte: since, $lte: cohortEnd } } },
+      { $group: {
+        _id: null,
+        cohort: { $sum: 1 },
+        repeaters: { $sum: { $cond: [{ $and: [{ $ne: ["$second", null] }, { $lte: [{ $subtract: ["$second", "$first"] }, 30 * 864e5] }] }, 1, 0] } },
+      } },
+    ]);
+
+    // Évolution jour par jour (toutes plateformes) : visiteurs d'articles, paniers, achats
+    const daily = await AppEvent.aggregate([
+      { $match: { createdAt: { $gte: since }, name: { $in: ["product_view", "add_to_cart", "purchase", "app_open"] } } },
+      { $group: { _id: { day: "$day", name: "$name" }, visitors: { $addToSet: "$visitorKey" } } },
+      { $project: { _id: 0, day: "$_id.day", name: "$_id.name", visitors: { $size: "$visitors" } } },
+      { $sort: { day: 1 } },
+    ]);
+    const byDay = {};
+    for (const r of daily) (byDay[r.day] = byDay[r.day] || { day: r.day })[r.name] = r.visitors;
+
+    res.json({
+      success: true, days, funnel, sources,
+      orders: {
+        count: orderStats?.orders || 0,
+        revenue: orderStats?.revenue || 0,
+        clients: orderStats?.clients || 0,
+        averageOrder: orderStats?.orders ? Math.round(orderStats.revenue / orderStats.orders) : 0,
+      },
+      repeat30: { cohort: repeat?.cohort || 0, repeaters: repeat?.repeaters || 0, rate: repeat?.cohort ? Math.round((repeat.repeaters / repeat.cohort) * 1000) / 10 : null },
+      daily: Object.values(byDay),
+    });
   } catch (e) {
     res.status(500).json({ success: false, message: e.message });
   }
