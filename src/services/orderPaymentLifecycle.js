@@ -37,26 +37,53 @@ async function notifySellersNewOrder(commande, io) {
   try {
     const { sendExpoPushToSellers } = require("../utils/expoNotifications");
     const produitIds = claimed.nbrProduits.map((p) => p.produit);
-    const produits = await Produit.find({ _id: { $in: produitIds } }, { Clefournisseur: 1, image1: 1, pictures: 1 }).lean();
-    const sellerIds = [...new Set(produits.map((p) => String(p.Clefournisseur)).filter(Boolean))];
-    if (!sellerIds.length) return;
+    const produits = await Produit.find({ _id: { $in: produitIds } }, { Clefournisseur: 1, image1: 1, pictures: 1, prix: 1, prixPromo: 1 }).lean();
+    const productById = new Map(produits.map((p) => [String(p._id), p]));
+    // Prix facturé enregistré dans la commande (promo comprise au moment de l'achat)
+    const snapshotById = new Map((claimed.prod || []).filter((p) => p && p._id).map((p) => [String(p._id), p]));
+    const unitPrice = (id) => {
+      const snap = snapshotById.get(id);
+      if (Number(snap?.prixSnapshot) > 0) return Number(snap.prixSnapshot);
+      const p = productById.get(id) || snap || {};
+      return Number(p.prixPromo) > 0 && (!p.prix || Number(p.prixPromo) < Number(p.prix)) ? Number(p.prixPromo) : Number(p.prix) || 0;
+    };
 
-    const productImages = produits.slice(0, 3).map((p) => p.image1 || (p.pictures && p.pictures[0]) || null).filter(Boolean);
-    const totalArticles = claimed.nbrProduits.reduce((s, p) => s + (p.quantite || 1), 0);
-    const montantProduits = claimed.prixTotal || (claimed.prix - (claimed.fraisLivraison || 0));
-    const montantFormate = Number(montantProduits || 0).toLocaleString("fr-FR");
-    const articleLabel = totalArticles > 1 ? `${totalArticles} articles` : "1 article";
+    // Chaque vendeur ne voit que SES articles : nombre, montant et images calculés boutique par boutique
+    const bySeller = new Map();
+    for (const line of claimed.nbrProduits) {
+      const id = String(line.produit);
+      const product = productById.get(id);
+      const sid = product?.Clefournisseur ? String(product.Clefournisseur) : null;
+      if (!sid) continue;
+      const qty = Number(line.quantite) || 1;
+      const g = bySeller.get(sid) || { articles: 0, lines: 0, amount: 0, images: [] };
+      g.articles += qty;
+      g.lines += 1;
+      g.amount += unitPrice(id) * qty;
+      const img = product.image1 || (product.pictures && product.pictures[0]) || null;
+      if (img && g.images.length < 3) g.images.push(img);
+      bySeller.set(sid, g);
+    }
+    if (!bySeller.size) return;
+
+    const sellerIds = [...bySeller.keys()];
+    const sellers = await SellerRequest.find({ _id: { $in: sellerIds } }, { expoPushTokens: 1 }).lean();
+    const tokensOf = new Map(sellers.map((s) => [String(s._id), s.expoPushTokens || []]));
+    const heartbeatCache = io ? require("./heartbeatCache") : null;
     const title = "🛍️ Nouvelle commande !";
-    const body = `${articleLabel} — ${montantFormate} FCFA · Réf ${claimed.reference}`;
 
-    if (io) {
-      const heartbeatCache = require("./heartbeatCache");
-      sellerIds.forEach((sid) => {
+    for (const [sid, g] of bySeller) {
+      const montant = Math.round(g.amount);
+      const articleLabel = g.articles > 1 ? `${g.articles} articles` : "1 article";
+      const body = `${articleLabel} — ${montant.toLocaleString("fr-FR")} FCFA · Réf ${claimed.reference}`;
+      const data = { type: "new_order", orderId: String(claimed._id), reference: claimed.reference, montant, totalArticles: g.articles, productImages: g.images };
+
+      if (io) {
         heartbeatCache.invalidate(sid);
         io.to(`seller:${sid}`).emit("new_order", {
           commandeId: claimed._id,
           reference: claimed.reference,
-          total: montantProduits,
+          total: montant,
           date: claimed.date || new Date(),
           // Notification inline — le mobile peut l'ajouter sans fetch réseau
           notif: {
@@ -69,15 +96,9 @@ async function notifySellersNewOrder(commande, io) {
             receivedAt: new Date().toISOString(),
           },
         });
-      });
+      }
+      await sendExpoPushToSellers([sid], tokensOf.get(sid) || [], { title, body, data });
     }
-
-    const sellers = await SellerRequest.find({ _id: { $in: sellerIds } }, { expoPushTokens: 1 }).lean();
-    await sendExpoPushToSellers(sellerIds, sellers.flatMap((s) => s.expoPushTokens || []), {
-      title,
-      body,
-      data: { type: "new_order", orderId: String(claimed._id), reference: claimed.reference, montant: montantProduits, totalArticles, productImages },
-    });
   } catch (e) {
     console.error("⚠️ Notification vendeurs (nouvelle commande) :", e.message);
   }
