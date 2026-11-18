@@ -3039,8 +3039,9 @@ const updateStatusLivraison = async (req, res) => {
       updateFields.statusPayment = "en cours";
     }
 
-    // Si la commande est annulée, restaurer le stock et le code promo
-    if (nouveauStatus === "Annulée" || nouveauStatus === "annulé") {
+    // Si la commande est annulée, restaurer le stock et le code promo (une seule fois, même si elle a
+    // déjà été annulée par l'état de traitement)
+    if ((nouveauStatus === "Annulée" || nouveauStatus === "annulé") && !currentOrder.stockRestored) {
       console.log('🔄 Annulation de commande - Restauration du stock et promo...');
 
       try {

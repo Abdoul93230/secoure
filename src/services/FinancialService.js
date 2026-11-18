@@ -385,52 +385,17 @@ class FinancialService {
 
   // NOUVELLE FONCTION: Relancer une commande annulée
   static async relancerCommande(commandeId, nouvelleReference, commandeData) {
-    const session = await mongoose.startSession();
-
-    try {
-      return await session.withTransaction(async () => {
-        console.log(`🔄 Relance de la commande ${commandeId} avec référence ${nouvelleReference}`);
-
-        // Vérifier s'il y a des transactions annulées
-        const transactionsAnnulees = await Transaction.find({
-          commandeId,
-          type: 'CREDIT_COMMANDE',
-          statut: 'ANNULE'
-        }).session(session);
-
-        if (transactionsAnnulees.length === 0) {
-          console.log(`ℹ️ Aucune transaction annulée pour commande ${commandeId}`);
-          // Créer de nouvelles transactions normalement
-          return await this.creerTransactionsCommande(commandeId, commandeData, nouvelleReference);
-        }
-
-        // Supprimer les anciennes transactions annulées et leurs annulations
-        await Transaction.deleteMany({
-          $or: [
-            { commandeId, type: 'CREDIT_COMMANDE', statut: 'ANNULE' },
-            { commandeId, type: 'ANNULATION' }
-          ]
-        }).session(session);
-
-        console.log(`🗑️ Anciennes transactions supprimées pour commande ${commandeId}`);
-
-        // Créer de nouvelles transactions avec la nouvelle référence
-        const resultat = await this.creerTransactionsCommande(commandeId, commandeData, nouvelleReference);
-
-        console.log(`🔄 Commande ${commandeId} relancée avec succès`);
-        return {
-          ...resultat,
-          message: "Commande relancée avec succès",
-          relancee: true
-        };
-      });
-
-    } catch (error) {
-      console.error('❌ Erreur lors de la relance:', error);
-      throw error;
-    } finally {
-      await session.endSession();
-    }
+    console.log(`🔄 Relance de la commande ${commandeId} avec référence ${nouvelleReference}`);
+    // L'annulation a déjà retiré cet argent des soldes : on efface ses traces, puis on recrée normalement.
+    // (Deux étapes séparées : la création vérifie qu'aucune transaction n'existe déjà pour la commande.)
+    await Transaction.deleteMany({
+      $or: [
+        { commandeId, type: 'CREDIT_COMMANDE', statut: 'ANNULE' },
+        { commandeId, type: 'ANNULATION' },
+      ],
+    });
+    const resultat = await this.creerTransactionsCommande(commandeId, commandeData, nouvelleReference);
+    return { ...resultat, message: "Commande relancée avec succès", relancee: true };
   }
 
   // AMÉLIORÉE: Gérer les changements d'état de commande
@@ -554,11 +519,13 @@ class FinancialService {
         return { coherent: false, message: "Portefeuille non trouvé" };
       }
 
-      // Recalculer les soldes à partir des transactions
-      const transactions = await Transaction.find({
+      // Recalculer les soldes à partir des transactions (une vente qui a une annulation enregistrée ne compte pas,
+      // même si l'ancien circuit a laissé la vente d'origine « confirmée »)
+      const annulees = await this.commandesAnnulees(sellerId);
+      const transactions = (await Transaction.find({
         sellerId,
         statut: { $in: ['EN_ATTENTE', 'CONFIRME'] }
-      });
+      })).filter((t) => !(t.type === 'CREDIT_COMMANDE' && annulees.has(String(t.commandeId))));
 
       let soldeCalcule = 0;
       let soldeEnAttenteCalcule = 0;
@@ -897,17 +864,25 @@ class FinancialService {
     );
   }
 
+  /** Commandes de ce vendeur qui ont une annulation enregistrée (leur vente ne compte plus dans les soldes) */
+  static async commandesAnnulees(sellerId, session = null) {
+    const q = Transaction.find({ sellerId, type: 'ANNULATION', commandeId: { $ne: null } }).select('commandeId');
+    if (session) q.session(session);
+    return new Set((await q.lean()).map((t) => String(t.commandeId)));
+  }
+
   // Recalculer les soldes d'un seller (fonction d'audit/correction)
   static async recalculerSoldes(sellerId) {
     const session = await mongoose.startSession();
 
     try {
       return await session.withTransaction(async () => {
-        // Toutes les transactions actives (hors annulées)
-        const transactions = await Transaction.find({
+        // Toutes les transactions actives (hors annulées, y compris celles annulées par l'ancien circuit)
+        const annulees = await this.commandesAnnulees(sellerId, session);
+        const transactions = (await Transaction.find({
           sellerId,
           statut: { $in: ['EN_ATTENTE', 'CONFIRME'] }
-        }).session(session);
+        }).session(session)).filter((t) => !(t.type === 'CREDIT_COMMANDE' && annulees.has(String(t.commandeId))));
 
         let soldeTotal = 0;
         let soldeDisponible = 0;
@@ -951,7 +926,9 @@ class FinancialService {
           type: 'CREDIT_COMMANDE'
         }).session(session);
 
-        const soldeEnAttente = transactionsEnAttente.reduce((sum, t) => sum + t.montantNet, 0);
+        const soldeEnAttente = transactionsEnAttente
+          .filter((t) => !annulees.has(String(t.commandeId)))
+          .reduce((sum, t) => sum + t.montantNet, 0);
 
         // Mettre à jour le portefeuille
         await Portefeuille.findOneAndUpdate(

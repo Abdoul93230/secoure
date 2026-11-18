@@ -12,6 +12,7 @@ require("dotenv").config();
 const mongoose = require("mongoose");
 const FinancialService = require("../src/services/FinancialService");
 const Portefeuille = require("../src/models/portefeuilleSchema");
+const Transaction = require("../src/models/transactionSchema");
 
 const apply = process.argv.includes("--appliquer");
 const i = process.argv.indexOf("--vendeur");
@@ -32,6 +33,13 @@ const F = (n) => `${Math.round(Number(n) || 0).toLocaleString("fr-FR")} F`;
     console.log(`\nVendeur ${w.sellerId}`);
     for (const { champ } of v.incoherences) {
       console.log(`  ${champ.padEnd(26)} actuel ${F(v.portefeuilleActuel[champ]).padStart(14)}  →  juste ${F(v.soldeCalcule[champ]).padStart(14)}`);
+    }
+    // Historique qui explique l'écart (les 15 derniers mouvements)
+    const txs = await Transaction.find({ sellerId: w.sellerId }).sort({ dateTransaction: -1, _id: -1 }).limit(15).lean();
+    console.log("  Derniers mouvements :");
+    for (const t of txs) {
+      const d = new Date(t.dateTransaction || t.createdAt || Date.now()).toLocaleString("fr-FR");
+      console.log(`    ${d.padEnd(20)} ${String(t.type).padEnd(16)} ${String(t.statut).padEnd(11)} ${F(t.montantNet).padStart(12)}  ${t.reference || ""}`);
     }
     if (apply) {
       await FinancialService.recalculerSoldes(w.sellerId);
