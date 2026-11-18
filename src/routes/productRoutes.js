@@ -42,6 +42,27 @@ router.put('/products/bulk-validate', middelware.authAdmin, productControler.bul
 router.get('/products/missing-type/:sellerId', middelware.authAdmin, productControler.countProductsWithoutType);
 router.put('/products/admin-bulk-update', middelware.authAdmin, productControler.adminBulkUpdateProducts);
 
+// Plan du site (sitemap du site web) : identifiants des articles visibles et noms des boutiques, rien d'autre
+router.get('/sitemapData', async (_req, res) => {
+  try {
+    const { Produit, SellerRequest } = require('../Models');
+    const productService = require('../services/productService');
+    const sellerIds = await productService.getEligibleSellerIds();
+    const [products, stores] = await Promise.all([
+      Produit.find({ isDeleted: false, isPublished: 'Published', Clefournisseur: { $in: sellerIds }, 'subscriptionControl.forcedHidden': { $ne: true } })
+        .select('_id updatedAt createdAt').sort({ createdAt: -1 }).limit(45000).lean(),
+      SellerRequest.find({ _id: { $in: sellerIds }, storeName: { $nin: [null, ''] } }).select('storeName updatedAt -_id').lean(),
+    ]);
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.json({
+      products: products.map((p) => ({ id: String(p._id), updatedAt: p.updatedAt || p.createdAt || null })),
+      stores: stores.map((s) => ({ storeName: s.storeName, updatedAt: s.updatedAt || null })),
+    });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+});
+
 // Product view tracking (public — clients uniquement)
 // Vues d'articles : 60 / minute / IP (un visiteur réel n'en fait que quelques-unes)
 const viewLimiter = require('express-rate-limit')({ windowMs: 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false });
