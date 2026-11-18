@@ -889,7 +889,7 @@ const getOrderPaymentStatus = async (req, res) => {
         { "paymentDetails.externalReference": reference },
         { "paymentDetails.publicReference": reference },
       ],
-    }).sort({ date: -1, _id: -1 }).select('reference statusPayment date updatedAt -_id');
+    }).sort({ date: -1, _id: -1 }).select('reference statusPayment date updatedAt prix -_id');
 
     const commande =
       commandes.find((item) => item.reference === reference) ||
@@ -909,6 +909,7 @@ const getOrderPaymentStatus = async (req, res) => {
     return res.json({
       reference: commande.reference,
       status: commande.statusPayment,
+      amount: Number(commande.prix) || 0, // montant à payer, calculé par le serveur (la page iPay l'utilise)
       lastUpdate: commande.updatedAt || commande.date,
       isCompleted: ['payé', 'échec', 'payé à la livraison', 'payé par téléphone'].includes(commande.statusPayment)
     });
