@@ -13,7 +13,7 @@ router.get("/config/public", ctrl.getPublicConfig);
 const ownAccount = (req, res, next) => {
   if (req.user?.role === "admin") return next();
   if (req.user?.role !== "user") return res.status(403).json({ success: false, message: "Réservé aux comptes clients." });
-  const id = String(req.user._id);
+  const id = String(req.user.id || req.user._id); // extractToken fournit req.user.id (pas _id)
   if (req.params.userId !== undefined) req.params.userId = id;
   if (req.body && typeof req.body === "object") req.body.userId = id;
   req.query.userId = id;
