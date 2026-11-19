@@ -2042,6 +2042,9 @@ const validate_seller_products = async (req, res) => {
 };
 
 // 🔥 NOUVEAU: Fonction pour valider un produit individuel
+// États à partir desquels un vendeur ne peut plus retirer la validation de ses articles
+const SHIPPED_STATES = ["reçu par le livreur", "en cours de livraison", "livré", "livraison reçu", "Traité"];
+
 async function validateIndividualProduct(orderId, sellerId, productId, isValid = true, productIndex = null) {
   try {
     // Convertir les IDs en ObjectId
@@ -2067,6 +2070,21 @@ async function validateIndividualProduct(orderId, sellerId, productId, isValid =
 
     if (!produitVendeur) {
       throw new Error("Ce produit ne vous appartient pas ou n'existe pas");
+    }
+
+    // Une fois la commande partie (remise au livreur, en livraison ou livrée), ou le colis de cette
+    // boutique remis au livreur, ses articles validés ne peuvent plus être invalidés
+    if (isValid === false || isValid === "false") {
+      const sid = String(sellerObjectId);
+      const shipped = SHIPPED_STATES.includes(commande.etatTraitement)
+        || ["livré", "livrée"].includes(commande.statusLivraison)
+        || (commande.handover?.stores || []).some((st) => String(st.storeId) === sid && st.pickedUpAt);
+      if (shipped) {
+        const err = new Error("Commande déjà remise au livreur ou livrée : la validation de vos articles ne peut plus être retirée.");
+        err.locked = true;
+        throw err;
+      }
+      isValid = false;
     }
 
     // Trouver l'item dans la commande et le mettre à jour
@@ -2132,9 +2150,10 @@ const validate_individual_product = async (req, res) => {
     await logAcceptedIfComplete(orderId, sellerId);
     res.status(200).json(result);
   } catch (error) {
-    res.status(500).json({
+    res.status(error.locked ? 409 : 500).json({
       success: false,
-      message: "Erreur lors de la validation du produit",
+      message: error.locked ? error.message : "Erreur lors de la validation du produit",
+      locked: !!error.locked,
       error: error.message,
     });
   }
@@ -2181,9 +2200,10 @@ const toggle_product_validation = async (req, res) => {
     await logAcceptedIfComplete(orderId, sellerId);
     res.status(200).json(result);
   } catch (error) {
-    res.status(500).json({
+    res.status(error.locked ? 409 : 500).json({
       success: false,
-      message: "Erreur lors du basculement de validation",
+      message: error.locked ? error.message : "Erreur lors du basculement de validation",
+      locked: !!error.locked,
       error: error.message,
     });
   }
