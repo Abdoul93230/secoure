@@ -157,8 +157,17 @@ courier.post("/pickup", requireCourier, codeLimiter, async (req, res) => {
   if (pending.every((s) => tooManyAttempts(s.attempts || 0))) {
     return fail(res, 429, "Trop de codes faux pour cette commande. Appelez Ihambaobab.");
   }
-  const store = pending.find((s) => s.pickupCode === code && !tooManyAttempts(s.attempts || 0));
+  // Boutique choisie par le livreur (commande de plusieurs boutiques) : le code est vérifié pour elle seule
+  const wanted = req.body?.storeId ? String(req.body.storeId) : null;
+  const target = wanted ? pending.find((s) => String(s.storeId) === wanted) : null;
+  if (wanted && !target) return fail(res, 409, "Le colis de cette boutique est déjà récupéré.");
+  const store = (target ? [target] : pending).find((s) => s.pickupCode === code && !tooManyAttempts(s.attempts || 0));
   if (!store) {
+    if (target) {
+      const i = stores.findIndex((s) => String(s.storeId) === wanted);
+      await Commande.updateOne({ _id: o._id }, { $inc: { [`handover.stores.${i}.attempts`]: 1 } });
+      return fail(res, 400, `Ce n'est pas le code de ${target.storeName || "cette boutique"}. Demandez-lui le code affiché dans sa commande (app vendeur ou portail).`);
+    }
     await Commande.updateOne({ _id: o._id }, { $inc: Object.fromEntries(stores.map((s, i) => [`handover.stores.${i}.attempts`, s.pickedUpAt ? 0 : 1])) });
     return fail(res, 400, "Code incorrect. Demandez à la boutique le code affiché sur sa commande.");
   }
