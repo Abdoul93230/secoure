@@ -832,7 +832,13 @@ const getCommandesById = async (req, res) => {
     // Montants, réservation du paiement, code de livraison, étapes : lisibles par le client
     const trace = await require('./services/orderTrace').clientTrace(commande.toObject ? commande.toObject() : commande);
     if (req.actor?.kind === 'admin') delete trace.deliveryCode;
-    return res.json({ commande: { ...(commande.toObject ? commande.toObject() : commande), history: undefined, handover: undefined }, trace });
+    // Admin : avancement du livreur, sans aucun code (retrait boutique par boutique, livraison)
+    const courierProgress = req.actor?.kind === 'admin' && commande.handover?.stores?.length ? {
+      stores: commande.handover.stores.map((st) => ({ storeId: st.storeId, storeName: st.storeName || '', pickedUpAt: st.pickedUpAt || null, courier: st.courier ? { name: st.courier.name, phone: st.courier.phone } : null })),
+      deliveredAt: commande.handover.deliveredAt || null,
+      deliveredBy: commande.handover.deliveredBy ? { name: commande.handover.deliveredBy.name, phone: commande.handover.deliveredBy.phone } : null,
+    } : undefined;
+    return res.json({ commande: { ...(commande.toObject ? commande.toObject() : commande), history: undefined, handover: undefined, courierProgress }, trace });
   } catch (error) {
     const message =
       "Erreur lors de la récupération des commandes pour la clefUser spécifiée.";

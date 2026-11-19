@@ -183,9 +183,12 @@ courier.post("/pickup", requireCourier, codeLimiter, async (req, res) => {
     body: `Réf ${o.reference} · ${req.courier.name} (${req.courier.phone}) a récupéré le colis à ${at.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Niamey" })}.`,
   }, req.app.get("io"));
 
+  // Dernier colis récupéré : le livreur part chez le client, la commande passe directement « en cours de livraison »
+  // (plus d'étape « en livraison » à valider à la main dans l'admin)
   const allPicked = pending.length === 1;
-  if (allPicked && !["reçu par le livreur", "en cours de livraison"].includes(o.etatTraitement)) {
-    await setEtat(req.app, o._id, "reçu par le livreur", { kind: "courier", ...who });
+  if (allPicked && o.etatTraitement !== "en cours de livraison") {
+    await setEtat(req.app, o._id, "en cours de livraison", { kind: "courier", ...who });
+    await trace.logEvent(o._id, { type: "in_delivery", by: { kind: "courier", ...who }, note: "Tous les colis récupérés" });
     await trace.notifyClient(o, { title: "Votre commande est en route 🚚", body: `${req.courier.name} vous livre la commande ${o.reference}. Gardez votre code de livraison à portée de main.` });
   }
   const after = await findOrder(o.reference);
