@@ -163,10 +163,40 @@ async function clientTrace(order) {
     // Code donné au livreur à la réception (seulement pour une commande en cours de livraison)
     deliveryCode: !awaiting && !isClosed(order) ? handover?.deliveryCode || null : null,
     cancel: cancelInfo(order),
-    history: (order.history || [])
-      .filter((e) => CLIENT_LABELS[e.type])
-      .map((e) => ({ at: e.at, type: e.type, label: CLIENT_LABELS[e.type], note: e.type === "cancelled" || e.type === "expired" ? e.note : "" })),
+    history: await clientHistory(order),
   };
+}
+
+/**
+ * Étapes vues par le client. Commande de plusieurs boutiques : chaque boutique a sa ligne
+ * (« Acceptée par Boutique A · 1 boutique sur 2 »), une seule fois par boutique, puis
+ * « Acceptée par toutes les boutiques » quand la dernière accepte.
+ */
+async function clientHistory(order) {
+  const events = (order.history || []).filter((e) => CLIENT_LABELS[e.type]);
+  const perStore = new Set(["accepted", "picked_up"]);
+  const stores = events.some((e) => perStore.has(e.type) && e.storeId) ? await orderStores(order) : [];
+  const nameOf = new Map(stores.map((s) => [s.storeId, s.storeName]));
+  const multi = stores.length > 1;
+  const seen = { accepted: new Set(), picked_up: new Set() };
+  const out = [];
+  for (const e of events) {
+    let label = CLIENT_LABELS[e.type];
+    if (perStore.has(e.type) && e.storeId) {
+      if (seen[e.type].has(e.storeId)) continue; // une seule ligne par boutique
+      seen[e.type].add(e.storeId);
+      if (multi) {
+        const name = nameOf.get(e.storeId) || "une boutique";
+        const n = seen[e.type].size;
+        const all = n >= stores.length;
+        label = e.type === "accepted"
+          ? (all ? `Acceptée par toutes les boutiques (${name} en dernier)` : `Acceptée par ${name} · ${n} boutique sur ${stores.length}`)
+          : (all ? `Tous les colis remis au livreur (${name} en dernier)` : `Colis de ${name} remis au livreur · ${n} sur ${stores.length}`);
+      }
+    }
+    out.push({ at: e.at, type: e.type, label, note: e.type === "cancelled" || e.type === "expired" ? e.note : "" });
+  }
+  return out;
 }
 
 // ─── Notifications ─────────────────────────────────────────────────────────────
