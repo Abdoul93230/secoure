@@ -4,6 +4,10 @@ const Portefeuille = require("../models/portefeuilleSchema");
 const Retrait = require("../models/retraitSchema");
 const SUBSCRIPTION_CONFIG = require('../config/subscriptionConfig');
 
+// Délai de sécurité avant que l'argent d'une vente livrée devienne retirable (compté à partir de la livraison)
+const DELAI_DEBLOCAGE_HEURES = 2;
+const DELAI_DEBLOCAGE_MS = DELAI_DEBLOCAGE_HEURES * 60 * 60 * 1000;
+
 class FinancialService {
 
   // Créer un portefeuille pour un nouveau seller
@@ -132,7 +136,8 @@ class FinancialService {
             },
             description: `Vente en cours - Commande ${reference}`,
             reference: `${reference}_${sellerId}`,
-            dateDisponibilite: new Date(Date.now() + 48 * 60 * 60 * 1000),
+            // Recalculée à la livraison (le délai part de la livraison confirmée)
+            dateDisponibilite: new Date(Date.now() + DELAI_DEBLOCAGE_MS),
             estDisponible: false,
             metadata: {
               produits: vente.produits,
@@ -261,6 +266,7 @@ class FinancialService {
           // Confirmer la transaction
           transaction.statut = 'CONFIRME';
           transaction.dateConfirmation = new Date();
+          transaction.dateDisponibilite = new Date(Date.now() + DELAI_DEBLOCAGE_MS);
           await transaction.save({ session });
 
           // Déplacer l'argent: EN_ATTENTE → BLOQUE_TEMPORAIREMENT
@@ -480,7 +486,11 @@ class FinancialService {
           type: 'CREDIT_COMMANDE',
           statut: 'CONFIRME',
           estDisponible: false,
-          dateDisponibilite: { $lte: maintenant }
+          // Délai écoulé, y compris pour les ventes livrées avant le passage de 48 h à 2 h
+          $or: [
+            { dateDisponibilite: { $lte: maintenant } },
+            { dateConfirmation: { $lte: new Date(maintenant.getTime() - DELAI_DEBLOCAGE_MS) } },
+          ],
         }).session(session);
 
         let totalDebloque = 0;
@@ -1229,4 +1239,5 @@ class FinancialService {
   }
 }
 
+FinancialService.DELAI_DEBLOCAGE_HEURES = DELAI_DEBLOCAGE_HEURES;
 module.exports = FinancialService;

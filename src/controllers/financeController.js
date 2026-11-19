@@ -431,7 +431,7 @@ const confirmerTransactionsLivrees = async () => {
       },
       {
         $match: {
-          'commande.etatTraitement': { $in: ['livraison reçu', 'Traité'] }
+          'commande.etatTraitement': { $in: ['livré', 'livraison reçu', 'Traité'] }
         }
       }
     ]);

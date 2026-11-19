@@ -90,7 +90,8 @@ mongoose
     await syncPlanCommissions();
 
     // Tâche principale: mise à jour des codes promo et gestion financière
-    const job = new cron.CronJob("*/30 * * * *", async () => {
+    // Toutes les 10 min : l'argent des vendeurs est débloqué 2 h après la livraison
+    const job = new cron.CronJob("*/10 * * * *", async () => {
       if (mongoose.connection.readyState !== 1) {
         console.warn('⚠️  Cron ignoré — MongoDB non connecté (state:', mongoose.connection.readyState, ')');
         return;
