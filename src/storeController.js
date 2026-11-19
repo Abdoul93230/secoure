@@ -2002,6 +2002,26 @@ async function validateSellerProducts(orderId, sellerId) {
   }
 }
 
+/**
+ * Étape « Acceptée par la boutique » : enregistrée une seule fois, dès que TOUS les articles de cette
+ * boutique sont validés, quel que soit le chemin (validation globale, article par article, app ou web).
+ */
+async function logAcceptedIfComplete(orderId, sellerId) {
+  try {
+    const sid = String(sellerId);
+    const commande = await Commande.findById(orderId, { nbrProduits: 1, history: 1 }).lean();
+    if (!commande) return;
+    if ((commande.history || []).some((e) => e.type === "accepted" && String(e.storeId) === sid)) return;
+    const mine = await Produit.find({ _id: { $in: commande.nbrProduits.map((i) => i.produit) }, Clefournisseur: sid }).select("_id").lean();
+    const ids = new Set(mine.map((p) => String(p._id)));
+    const lines = commande.nbrProduits.filter((i) => ids.has(String(i.produit)));
+    if (!lines.length || !lines.every((i) => i.isValideSeller)) return;
+    await require("./services/orderTrace").logEvent(orderId, { type: "accepted", by: { kind: "seller", id: sid }, storeId: sid });
+  } catch (e) {
+    console.error("⚠️ Étape acceptée :", e.message);
+  }
+}
+
 // Route pour valider les produits d'un vendeur dans une commande
 const validate_seller_products = async (req, res) => {
   try {
@@ -2009,12 +2029,7 @@ const validate_seller_products = async (req, res) => {
     const sellerId = req.params.sellerId; // ou req.seller._id selon votre implémentation d'authentification
 
     const result = await validateSellerProducts(orderId, sellerId);
-    // Une seule ligne « acceptée » par boutique, même si elle valide plusieurs fois
-    // (ou d'abord article par article, puis la commande entière)
-    const already = await Commande.exists({ _id: orderId, history: { $elemMatch: { type: "accepted", storeId: String(sellerId) } } });
-    if (!already) {
-      await require("./services/orderTrace").logEvent(orderId, { type: "accepted", by: { kind: "seller", id: sellerId }, storeId: sellerId });
-    }
+    await logAcceptedIfComplete(orderId, sellerId);
 
     res.status(200).json(result);
   } catch (error) {
@@ -2114,6 +2129,7 @@ const validate_individual_product = async (req, res) => {
     const { isValid = true } = req.body; // Permettre de spécifier true/false
 
     const result = await validateIndividualProduct(orderId, sellerId, productId, isValid);
+    await logAcceptedIfComplete(orderId, sellerId);
     res.status(200).json(result);
   } catch (error) {
     res.status(500).json({
@@ -2162,7 +2178,7 @@ const toggle_product_validation = async (req, res) => {
     // Basculer l'état
     const nouvelEtat = !etatActuel;
     const result = await validateIndividualProduct(orderId, sellerId, productId, nouvelEtat, productIndex);
-    
+    await logAcceptedIfComplete(orderId, sellerId);
     res.status(200).json(result);
   } catch (error) {
     res.status(500).json({
