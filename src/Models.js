@@ -1898,4 +1898,5 @@ module.exports = {
   Like,
   DeletedProduct,
   SellerAgent,
+  SellerNotification,
 };
