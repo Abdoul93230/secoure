@@ -164,7 +164,41 @@ async function clientTrace(order) {
     deliveryCode: !awaiting && !isClosed(order) ? handover?.deliveryCode || null : null,
     cancel: cancelInfo(order),
     history: await clientHistory(order),
+    points: await orderPoints(order),
   };
+}
+
+/**
+ * Baobab Points de la commande : crédités (vrais montants du registre) ou à gagner à la livraison
+ * (même calcul que le crédit : montant des articles, taux, bonus de niveau). Rien pour un invité.
+ */
+async function orderPoints(order) {
+  try {
+    if (!order?.clefUser) return null;
+    const PointsTransaction = require("../models/PointsTransaction");
+    const rows = await PointsTransaction.find({ orderId: order._id, type: { $in: ["PURCHASE", "FIRST_ORDER", "CANCELLATION"] } }, { type: 1, delta: 1 }).lean();
+    const sum = (t) => rows.filter((r) => r.type === t).reduce((n, r) => n + (Number(r.delta) || 0), 0);
+    const purchase = sum("PURCHASE");
+    const firstOrder = sum("FIRST_ORDER");
+    const revoked = Math.abs(sum("CANCELLATION"));
+    if (purchase > 0 || firstOrder > 0) {
+      return { status: revoked > 0 ? "revoked" : "credited", earned: purchase, firstOrder, revoked };
+    }
+    if (isClosed(order) || order.etatTraitement === "annulé" || order.awaitingPayment) return null;
+
+    const configService = require("./gamificationConfigService");
+    if (!(await configService.isModuleEnabled("POINTS_PURCHASE"))) return null;
+    const cfg = await configService.getModuleConfig("POINTS_PURCHASE");
+    const { PointsWallet } = { PointsWallet: require("../models/PointsWallet") };
+    const wallet = await PointsWallet.findOne({ userId: String(order.clefUser) }, { level: 1 }).lean();
+    const multiplier = await configService.getPurchaseMultiplier(wallet?.level);
+    const amount = Math.max(0, (Number(order.prix) || 0) - (Number(order.fraisLivraison) || 0));
+    const estimate = Math.floor(Math.floor((amount / 1000) * (cfg.ratePerThousand || 2)) * multiplier);
+    return estimate > 0 ? { status: "pending", estimate } : null;
+  } catch (e) {
+    console.error("⚠️ Points de la commande :", e.message);
+    return null;
+  }
 }
 
 /**
